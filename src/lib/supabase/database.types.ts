@@ -27,6 +27,7 @@ export interface Database {
         };
         Insert: Partial<Database["public"]["Tables"]["profiles"]["Row"]> & { id: string; email: string };
         Update: Partial<Database["public"]["Tables"]["profiles"]["Row"]>;
+        Relationships: [];
       };
       accounts: {
         Row: {
@@ -42,6 +43,7 @@ export interface Database {
         };
         Insert: Partial<Database["public"]["Tables"]["accounts"]["Row"]> & { user_id: string };
         Update: Partial<Database["public"]["Tables"]["accounts"]["Row"]>;
+        Relationships: [];
       };
       trading_rules: {
         Row: {
@@ -68,6 +70,7 @@ export interface Database {
           account_id: string;
         };
         Update: Partial<Database["public"]["Tables"]["trading_rules"]["Row"]>;
+        Relationships: [];
       };
       trades: {
         Row: {
@@ -96,6 +99,7 @@ export interface Database {
           entry_time: string;
         };
         Update: Partial<Database["public"]["Tables"]["trades"]["Row"]>;
+        Relationships: [];
       };
       violations: {
         Row: {
@@ -114,6 +118,7 @@ export interface Database {
           type: ViolationType;
         };
         Update: Partial<Database["public"]["Tables"]["violations"]["Row"]>;
+        Relationships: [];
       };
       discipline_scores: {
         Row: {
@@ -134,6 +139,7 @@ export interface Database {
           score_date: string;
         };
         Update: Partial<Database["public"]["Tables"]["discipline_scores"]["Row"]>;
+        Relationships: [];
       };
       api_keys: {
         Row: {
@@ -154,6 +160,7 @@ export interface Database {
           key_hash: string;
         };
         Update: Partial<Database["public"]["Tables"]["api_keys"]["Row"]>;
+        Relationships: [];
       };
       contact_messages: {
         Row: {
@@ -169,7 +176,16 @@ export interface Database {
           message: string;
         };
         Update: Partial<Database["public"]["Tables"]["contact_messages"]["Row"]>;
+        Relationships: [];
       };
     };
+    Views: Record<string, never>;
+    Functions: Record<string, never>;
+    Enums: {
+      trade_direction: TradeDirection;
+      trade_source: TradeSource;
+      violation_type: ViolationType;
+    };
+    CompositeTypes: Record<string, never>;
   };
 }

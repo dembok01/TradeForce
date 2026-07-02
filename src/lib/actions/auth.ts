@@ -2,6 +2,7 @@
 
 import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
+import { isRedirectError, toActionErrorMessage } from "@/lib/action-error";
 
 function getSiteUrl() {
   const url = process.env.NEXT_PUBLIC_SITE_URL ?? "http://localhost:3000";
@@ -27,23 +28,28 @@ export async function signUpAction(
     return { error: "Password must be at least 8 characters." };
   }
 
-  const supabase = await createClient();
-  const { data, error } = await supabase.auth.signUp({
-    email,
-    password,
-    options: { emailRedirectTo: `${getSiteUrl()}/auth/callback?next=/dashboard` },
-  });
+  try {
+    const supabase = await createClient();
+    const { data, error } = await supabase.auth.signUp({
+      email,
+      password,
+      options: { emailRedirectTo: `${getSiteUrl()}/auth/callback?next=/dashboard` },
+    });
 
-  if (error) {
-    return { error: error.message };
+    if (error) {
+      return { error: error.message };
+    }
+
+    // Email confirmation disabled on the Supabase project -> session is live already.
+    if (data.session) {
+      redirect("/dashboard");
+    }
+
+    return { error: null, success: true };
+  } catch (err) {
+    if (isRedirectError(err)) throw err;
+    return { error: toActionErrorMessage(err, "auth") };
   }
-
-  // Email confirmation disabled on the Supabase project -> session is live already.
-  if (data.session) {
-    redirect("/dashboard");
-  }
-
-  return { error: null, success: true };
 }
 
 export async function signInAction(
@@ -58,22 +64,32 @@ export async function signInAction(
     return { error: "Email and password are required." };
   }
 
-  const supabase = await createClient();
-  const { error } = await supabase.auth.signInWithPassword({ email, password });
+  try {
+    const supabase = await createClient();
+    const { error } = await supabase.auth.signInWithPassword({ email, password });
 
-  if (error) {
-    if (error.message.toLowerCase().includes("email not confirmed")) {
-      return { error: "Please confirm your email before signing in." };
+    if (error) {
+      if (error.message.toLowerCase().includes("email not confirmed")) {
+        return { error: "Please confirm your email before signing in." };
+      }
+      return { error: "Invalid email or password." };
     }
-    return { error: "Invalid email or password." };
-  }
 
-  redirect(next || "/dashboard");
+    redirect(next || "/dashboard");
+  } catch (err) {
+    if (isRedirectError(err)) throw err;
+    return { error: toActionErrorMessage(err, "auth") };
+  }
 }
 
 export async function signOutAction() {
-  const supabase = await createClient();
-  await supabase.auth.signOut();
+  try {
+    const supabase = await createClient();
+    await supabase.auth.signOut();
+  } catch (err) {
+    if (isRedirectError(err)) throw err;
+    console.error("[auth] signOut failed, redirecting anyway:", err);
+  }
   redirect("/login");
 }
 
@@ -87,16 +103,21 @@ export async function requestPasswordResetAction(
     return { error: "Email is required." };
   }
 
-  const supabase = await createClient();
-  const { error } = await supabase.auth.resetPasswordForEmail(email, {
-    redirectTo: `${getSiteUrl()}/auth/callback?next=/update-password`,
-  });
+  try {
+    const supabase = await createClient();
+    const { error } = await supabase.auth.resetPasswordForEmail(email, {
+      redirectTo: `${getSiteUrl()}/auth/callback?next=/update-password`,
+    });
 
-  if (error) {
-    return { error: error.message };
+    if (error) {
+      return { error: error.message };
+    }
+
+    return { error: null, success: true };
+  } catch (err) {
+    if (isRedirectError(err)) throw err;
+    return { error: toActionErrorMessage(err, "auth") };
   }
-
-  return { error: null, success: true };
 }
 
 export async function updatePasswordAction(
@@ -109,12 +130,17 @@ export async function updatePasswordAction(
     return { error: "Password must be at least 8 characters." };
   }
 
-  const supabase = await createClient();
-  const { error } = await supabase.auth.updateUser({ password });
+  try {
+    const supabase = await createClient();
+    const { error } = await supabase.auth.updateUser({ password });
 
-  if (error) {
-    return { error: error.message };
+    if (error) {
+      return { error: error.message };
+    }
+
+    redirect("/dashboard");
+  } catch (err) {
+    if (isRedirectError(err)) throw err;
+    return { error: toActionErrorMessage(err, "auth") };
   }
-
-  redirect("/dashboard");
 }

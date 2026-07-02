@@ -4,58 +4,61 @@
 @custom-variant dark (&:is(.dark *));
 
 :root {
-  --radius: 0.625rem;
+  --radius: 0.5rem;
 
-  /* Matte black & gold — TradeForce design system.
+  /* TradeForce design system — "the ledger": obsidian, bone, and bullion gold.
+     Named palette: Obsidian #0A0908, Graphite #141210, Bone #EDE8DE,
+     Ash #8C8577, Bullion Gold #D9B65C, Antique Bronze #8A6A2F, Signal #C0392B.
      All values are HSL triplets (no hsl() wrapper) consumed via hsl(var(--x)). */
-  --background: 0 0% 5%;
-  --foreground: 40 15% 93%;
+  --background: 20 8% 4%;
+  --foreground: 40 27% 90%;
 
-  --card: 0 0% 7%;
-  --card-foreground: 40 15% 93%;
+  --card: 20 10% 7%;
+  --card-foreground: 40 27% 90%;
 
-  --popover: 0 0% 7%;
-  --popover-foreground: 40 15% 93%;
+  --popover: 20 10% 7%;
+  --popover-foreground: 40 27% 90%;
 
-  --primary: 43 68% 53%;
-  --primary-foreground: 0 0% 6%;
+  --primary: 42 62% 58%;
+  --primary-foreground: 20 10% 7%;
 
-  --secondary: 0 0% 12%;
-  --secondary-foreground: 40 15% 93%;
+  --secondary: 20 8% 12%;
+  --secondary-foreground: 40 27% 90%;
 
-  --muted: 0 0% 12%;
-  --muted-foreground: 40 6% 58%;
+  --muted: 20 8% 11%;
+  --muted-foreground: 35 10% 52%;
 
-  --accent: 43 68% 53%;
-  --accent-foreground: 0 0% 6%;
+  --accent: 42 62% 58%;
+  --accent-foreground: 20 10% 7%;
 
-  --destructive: 0 72% 51%;
-  --destructive-foreground: 0 0% 98%;
+  /* Signal red is reserved for violations/breaches only — never decorative. */
+  --destructive: 6 63% 45%;
+  --destructive-foreground: 40 27% 96%;
 
-  --success: 142 66% 45%;
-  --success-foreground: 0 0% 6%;
+  --success: 142 40% 45%;
+  --success-foreground: 20 10% 7%;
 
-  --warning: 38 92% 55%;
-  --warning-foreground: 0 0% 6%;
+  --warning: 38 75% 55%;
+  --warning-foreground: 20 10% 7%;
 
-  --border: 0 0% 16%;
-  --input: 0 0% 16%;
-  --ring: 43 68% 53%;
+  --border: 20 8% 16%;
+  --input: 20 8% 16%;
+  --ring: 42 62% 58%;
 
-  --chart-1: 43 68% 53%;
-  --chart-2: 200 70% 58%;
-  --chart-3: 142 60% 48%;
-  --chart-4: 0 65% 58%;
-  --chart-5: 270 45% 62%;
+  --chart-1: 42 62% 58%;
+  --chart-2: 195 40% 55%;
+  --chart-3: 142 40% 48%;
+  --chart-4: 6 63% 50%;
+  --chart-5: 39 49% 36%;
 
-  --sidebar: 0 0% 4%;
-  --sidebar-foreground: 40 15% 93%;
-  --sidebar-primary: 43 68% 53%;
-  --sidebar-primary-foreground: 0 0% 6%;
-  --sidebar-accent: 0 0% 10%;
-  --sidebar-accent-foreground: 40 15% 93%;
-  --sidebar-border: 0 0% 15%;
-  --sidebar-ring: 43 68% 53%;
+  --sidebar: 20 9% 3.5%;
+  --sidebar-foreground: 40 27% 90%;
+  --sidebar-primary: 42 62% 58%;
+  --sidebar-primary-foreground: 20 10% 7%;
+  --sidebar-accent: 20 8% 10%;
+  --sidebar-accent-foreground: 40 27% 90%;
+  --sidebar-border: 20 8% 14%;
+  --sidebar-ring: 42 62% 58%;
 }
 
 @theme inline {
@@ -102,7 +105,8 @@
   --radius-xl: calc(var(--radius) + 4px);
 
   --font-sans: var(--font-inter);
-  --font-display: var(--font-cormorant);
+  --font-display: var(--font-fraunces);
+  --font-mono: var(--font-plex-mono);
 }
 
 body {
@@ -123,7 +127,7 @@ body {
 }
 
 .text-gradient-gold {
-  background: linear-gradient(135deg, hsl(43 80% 65%), hsl(38 70% 45%));
+  background: linear-gradient(135deg, hsl(42 70% 66%), hsl(var(--chart-5)));
   background-clip: text;
   -webkit-background-clip: text;
   color: transparent;
@@ -131,4 +135,27 @@ body {
 
 .border-gold-glow {
   box-shadow: 0 0 0 1px hsl(var(--primary) / 0.15), 0 0 24px -8px hsl(var(--primary) / 0.35);
+}
+
+/* Ledger rule: a hairline row used throughout the marketing site to present
+   rules/features as charter provisions rather than icon cards. */
+.ledger-row {
+  border-top: 1px solid hsl(var(--border));
+}
+.ledger-row:last-child {
+  border-bottom: 1px solid hsl(var(--border));
+}
+
+.font-mono-tabular {
+  font-variant-numeric: tabular-nums;
+  letter-spacing: 0.02em;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
 }
