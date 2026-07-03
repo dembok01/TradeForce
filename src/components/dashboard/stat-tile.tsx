@@ -17,7 +17,7 @@ export function StatTile({
   accent = "neutral",
 }: {
   label: string;
-  value: string | null;
+  value: React.ReactNode | null;
   sublabel?: string;
   emptyHint?: string;
   accent?: Accent;
@@ -28,6 +28,7 @@ export function StatTile({
     <div
       className={cn(
         "relative overflow-hidden rounded-xl border border-border bg-card p-5",
+        "transition-[border-color,box-shadow] duration-200 hover:border-primary/20 hover:shadow-[0_0_20px_-12px_hsl(var(--primary)/0.35)]",
         "before:absolute before:inset-x-0 before:top-0 before:h-0.5",
         ACCENT_BORDER[accent]
       )}

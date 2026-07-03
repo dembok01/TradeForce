@@ -42,7 +42,17 @@ export default function RootLayout({
     >
       <body className="min-h-full flex flex-col bg-obsidian font-sans">
         {children}
-        <Toaster theme="dark" position="bottom-right" />
+        <Toaster
+          theme="dark"
+          position="bottom-right"
+          toastOptions={{
+            classNames: {
+              toast: "!bg-card !border-border !text-foreground !shadow-lg !rounded-xl",
+              title: "!font-medium",
+              description: "!text-muted-foreground",
+            },
+          }}
+        />
       </body>
     </html>
   );

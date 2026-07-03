@@ -3,7 +3,7 @@
 import { useActionState, useEffect } from "react";
 import { toast } from "sonner";
 import { updateSessionConfigAction, type RuleActionState } from "@/lib/actions/trading-rules";
-import type { TradingRules } from "@/lib/data/trading-plan";
+import type { ActiveSession, TradingRules } from "@/lib/data/trading-plan";
 import { TIMEZONE_OPTIONS } from "@/lib/trading-sessions";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Switch } from "@/components/ui/switch";
@@ -15,14 +15,25 @@ import { FieldError } from "@/components/ui/field-error";
 
 const initialState: RuleActionState = { error: null };
 
-const SESSION_TOGGLES: { name: string; label: string; hint: string }[] = [
-  { name: "session_london_enabled", label: "London", hint: "08:00–16:30 UTC" },
-  { name: "session_new_york_enabled", label: "New York", hint: "13:00–22:00 UTC" },
-  { name: "session_asian_enabled", label: "Asian", hint: "00:00–09:00 UTC" },
-  { name: "session_london_ny_overlap_enabled", label: "London / New York overlap", hint: "13:00–16:30 UTC" },
+const SESSION_TOGGLES: { name: string; sessionKey: string; label: string; hint: string }[] = [
+  { name: "session_london_enabled", sessionKey: "london", label: "London", hint: "08:00–16:30 UTC" },
+  { name: "session_new_york_enabled", sessionKey: "newYork", label: "New York", hint: "13:00–22:00 UTC" },
+  { name: "session_asian_enabled", sessionKey: "asian", label: "Asian", hint: "00:00–09:00 UTC" },
+  {
+    name: "session_london_ny_overlap_enabled",
+    sessionKey: "londonNyOverlap",
+    label: "London / New York overlap",
+    hint: "13:00–16:30 UTC",
+  },
 ];
 
-export function SessionControlForm({ rules }: { rules: TradingRules | null }) {
+export function SessionControlForm({
+  rules,
+  sessions = [],
+}: {
+  rules: TradingRules | null;
+  sessions?: ActiveSession[];
+}) {
   const [state, formAction, pending] = useActionState(updateSessionConfigAction, initialState);
   const errors = state.fieldErrors;
 
@@ -43,10 +54,22 @@ export function SessionControlForm({ rules }: { rules: TradingRules | null }) {
             const defaultChecked = Boolean(
               rules?.[toggle.name as keyof TradingRules] as boolean | undefined
             );
+            const inWindowNow = sessions.find((s) => s.key === toggle.sessionKey)?.active ?? false;
             return (
               <div key={toggle.name} className="flex items-center justify-between">
                 <div>
-                  <Label htmlFor={toggle.name}>{toggle.label}</Label>
+                  <span className="flex items-center gap-2">
+                    <Label htmlFor={toggle.name}>{toggle.label}</Label>
+                    {inWindowNow && (
+                      <span className="inline-flex items-center gap-1.5 font-mono text-[10px] uppercase tracking-[0.12em] text-primary">
+                        <span className="relative flex size-1.5">
+                          <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-primary/50 [animation-duration:2.5s]" />
+                          <span className="relative inline-flex size-1.5 rounded-full bg-primary" />
+                        </span>
+                        In window
+                      </span>
+                    )}
+                  </span>
                   <p className="text-xs text-muted-foreground">{toggle.hint}</p>
                 </div>
                 <Switch id={toggle.name} name={toggle.name} defaultChecked={defaultChecked} />

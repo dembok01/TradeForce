@@ -7,11 +7,13 @@ import { AuthShell } from "@/components/auth/auth-shell";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { FieldError } from "@/components/ui/field-error";
 
 const initialState: AuthActionState = { error: null };
 
 export default function ResetPasswordPage() {
   const [state, formAction, pending] = useActionState(requestPasswordResetAction, initialState);
+  const errors = state.fieldErrors;
 
   return (
     <AuthShell
@@ -30,9 +32,19 @@ export default function ResetPasswordPage() {
         <form action={formAction} className="space-y-5">
           <div className="space-y-2">
             <Label htmlFor="email">Email</Label>
-            <Input id="email" name="email" type="email" required autoComplete="email" autoFocus />
+            <Input
+              id="email"
+              name="email"
+              type="email"
+              required
+              autoComplete="email"
+              autoFocus
+              aria-invalid={Boolean(errors?.email)}
+              aria-describedby={errors?.email ? "email-error" : undefined}
+            />
+            <FieldError id="email-error" message={errors?.email} />
           </div>
-          {state.error && (
+          {state.error && !errors && (
             <p role="alert" className="text-sm text-destructive">
               {state.error}
             </p>

@@ -6,11 +6,13 @@ import { AuthShell } from "@/components/auth/auth-shell";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { FieldError } from "@/components/ui/field-error";
 
 const initialState: AuthActionState = { error: null };
 
 export default function UpdatePasswordPage() {
   const [state, formAction, pending] = useActionState(updatePasswordAction, initialState);
+  const errors = state.fieldErrors;
 
   return (
     <AuthShell
@@ -29,10 +31,13 @@ export default function UpdatePasswordPage() {
             minLength={8}
             autoComplete="new-password"
             autoFocus
+            aria-invalid={Boolean(errors?.password)}
+            aria-describedby={errors?.password ? "password-error" : undefined}
           />
           <p className="text-xs text-muted-foreground">At least 8 characters.</p>
+          <FieldError id="password-error" message={errors?.password} />
         </div>
-        {state.error && (
+        {state.error && !errors && (
           <p role="alert" className="text-sm text-destructive">
             {state.error}
           </p>

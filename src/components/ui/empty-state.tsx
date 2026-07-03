@@ -6,11 +6,13 @@ export function EmptyState({
   title,
   icon: Icon,
   className,
+  action,
   children,
 }: {
   title?: string;
   icon?: React.ComponentType<{ className?: string }>;
   className?: string;
+  action?: React.ReactNode;
   children?: React.ReactNode;
 }) {
   return (
@@ -21,12 +23,13 @@ export function EmptyState({
       )}
     >
       {Icon && (
-        <span className="mb-3 flex size-9 items-center justify-center rounded-full bg-secondary text-muted-foreground">
+        <span className="empty-state-icon mb-3 flex size-9 items-center justify-center rounded-full bg-secondary text-muted-foreground ring-1 ring-primary/15">
           <Icon className="size-4" />
         </span>
       )}
       {title && <p className="font-display text-sm font-medium text-foreground">{title}</p>}
       {children && <p className="mt-1 max-w-sm text-sm text-muted-foreground">{children}</p>}
+      {action && <div className="mt-4">{action}</div>}
     </div>
   );
 }

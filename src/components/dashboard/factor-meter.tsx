@@ -6,14 +6,27 @@ function indicatorFor(score: number) {
   return "bg-success";
 }
 
-export function FactorMeter({ label, score }: { label: string; score: number }) {
+export function FactorMeter({
+  label,
+  score,
+  animationDelayMs = 0,
+}: {
+  label: string;
+  score: number;
+  animationDelayMs?: number;
+}) {
   return (
     <div>
       <div className="mb-1.5 flex items-center justify-between text-sm">
         <span className="text-muted-foreground">{label}</span>
         <span className="font-mono-tabular text-foreground">{Math.round(score)}</span>
       </div>
-      <Progress value={score} indicatorClassName={indicatorFor(score)} />
+      <Progress
+        value={score}
+        indicatorClassName={indicatorFor(score)}
+        animateOnView
+        animationDelayMs={animationDelayMs}
+      />
     </div>
   );
 }

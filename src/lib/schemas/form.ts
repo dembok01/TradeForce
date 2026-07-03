@@ -26,11 +26,13 @@ export function optionalNumber(message: string, bounds?: { min?: number; max?: n
     .refine((n) => n === null || bounds?.max === undefined || n <= bounds.max, message);
 }
 
-export function requiredNumber(message: string) {
+export function requiredNumber(message: string, bounds?: { min?: number; max?: number }) {
   return z
     .string()
     .trim()
     .min(1, message)
     .refine((v) => Number.isFinite(Number(v)), message)
-    .transform((v) => Number(v));
+    .transform((v) => Number(v))
+    .refine((n) => bounds?.min === undefined || n >= bounds.min, message)
+    .refine((n) => bounds?.max === undefined || n <= bounds.max, message);
 }

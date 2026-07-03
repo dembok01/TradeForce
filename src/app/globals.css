@@ -151,6 +151,21 @@ body {
   letter-spacing: 0.02em;
 }
 
+/* Gentle gold breathe on empty-state icons — the one custom keyframe in the
+   system. Neutralized by the reduced-motion block below. */
+@keyframes breathe {
+  0%,
+  100% {
+    box-shadow: 0 0 0 0 hsl(var(--primary) / 0);
+  }
+  50% {
+    box-shadow: 0 0 0 6px hsl(var(--primary) / 0.06);
+  }
+}
+.empty-state-icon {
+  animation: breathe 4s ease-in-out infinite;
+}
+
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after {
     animation-duration: 0.01ms !important;

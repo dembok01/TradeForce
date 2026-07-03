@@ -25,15 +25,39 @@ function LedgerHeaderRow({ className, ...props }: React.ComponentProps<"tr">) {
   );
 }
 
-function LedgerHeaderCell({ className, ...props }: React.ComponentProps<"th">) {
-  return <th className={cn("pb-2 pr-4 font-normal", className)} {...props} />;
+function LedgerHeaderCell({
+  className,
+  sticky,
+  ...props
+}: React.ComponentProps<"th"> & { sticky?: boolean }) {
+  return (
+    <th
+      className={cn("pb-2 pr-4 font-normal", sticky && "sticky left-0 z-10 bg-card", className)}
+      {...props}
+    />
+  );
 }
 
+// Exported so client tables can render motion.tr rows with the same treatment.
+const LEDGER_ROW_CLASSES =
+  "border-b border-border/60 align-top transition-colors last:border-0 hover:bg-secondary/30";
+
 function LedgerRow({ className, ...props }: React.ComponentProps<"tr">) {
+  return <tr className={cn(LEDGER_ROW_CLASSES, className)} {...props} />;
+}
+
+function LedgerCell({
+  className,
+  mono,
+  sticky,
+  ...props
+}: React.ComponentProps<"td"> & { mono?: boolean; sticky?: boolean }) {
   return (
-    <tr
+    <td
       className={cn(
-        "border-b border-border/60 align-top transition-colors last:border-0 hover:bg-secondary/30",
+        "py-2.5 pr-4",
+        mono && "font-mono-tabular",
+        sticky && "sticky left-0 z-10 bg-card",
         className
       )}
       {...props}
@@ -41,12 +65,4 @@ function LedgerRow({ className, ...props }: React.ComponentProps<"tr">) {
   );
 }
 
-function LedgerCell({
-  className,
-  mono,
-  ...props
-}: React.ComponentProps<"td"> & { mono?: boolean }) {
-  return <td className={cn("py-2.5 pr-4", mono && "font-mono-tabular", className)} {...props} />;
-}
-
-export { LedgerTable, LedgerHeaderRow, LedgerHeaderCell, LedgerRow, LedgerCell };
+export { LedgerTable, LedgerHeaderRow, LedgerHeaderCell, LedgerRow, LedgerCell, LEDGER_ROW_CLASSES };

@@ -25,12 +25,13 @@ export async function getAnalyticsOverview(): Promise<AnalyticsOverview> {
   const { supabase, account } = await getAccountContext();
 
   const sixMonthsAgo = subMonths(startOfMonth(new Date()), 5).toISOString();
-  const { data: trades } = await supabase
+  const { data: trades, error } = await supabase
     .from("trades")
     .select("pnl, entry_time")
     .eq("account_id", account.id)
     .gte("entry_time", sixMonthsAgo)
     .not("pnl", "is", null);
+  if (error) throw new Error(error.message);
 
   const rows = trades ?? [];
 

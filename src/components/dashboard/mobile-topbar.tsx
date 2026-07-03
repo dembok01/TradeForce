@@ -4,15 +4,17 @@ import { useState } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { AnimatePresence, motion } from "motion/react";
-import { Menu, X } from "lucide-react";
+import { HelpCircle, Menu, X } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { signOutAction } from "@/lib/actions/auth";
 import { Button } from "@/components/ui/button";
 import { DASHBOARD_NAV_ITEMS } from "@/lib/dashboard-nav";
+import { useTour } from "@/components/tour/tour-provider";
 
 export function MobileTopbar({ email }: { email: string }) {
   const [open, setOpen] = useState(false);
   const pathname = usePathname();
+  const { startTour } = useTour();
 
   return (
     <div className="lg:hidden">
@@ -23,6 +25,7 @@ export function MobileTopbar({ email }: { email: string }) {
         <button
           type="button"
           onClick={() => setOpen(true)}
+          data-tour-id="nav-mobile"
           className="flex h-9 w-9 items-center justify-center rounded-md border border-border"
           aria-label="Open menu"
         >
@@ -84,7 +87,18 @@ export function MobileTopbar({ email }: { email: string }) {
               </nav>
               <div className="border-t border-sidebar-border p-4">
                 <p className="truncate px-1 text-xs text-muted-foreground">{email}</p>
-                <form action={signOutAction} className="mt-2">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setOpen(false);
+                    startTour();
+                  }}
+                  className="mt-2 flex w-full items-center gap-2 rounded-md px-1 py-1.5 text-sm text-muted-foreground transition-colors hover:text-primary"
+                >
+                  <HelpCircle className="size-4" strokeWidth={1.8} />
+                  Replay tour
+                </button>
+                <form action={signOutAction} className="mt-1">
                   <Button type="submit" variant="ghost" size="sm" className="w-full justify-start px-1">
                     Sign out
                   </Button>

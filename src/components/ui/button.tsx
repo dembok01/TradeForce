@@ -4,13 +4,13 @@ import { cva, type VariantProps } from "class-variance-authority";
 import { cn } from "@/lib/utils";
 
 const buttonVariants = cva(
-  "inline-flex items-center justify-center gap-2 whitespace-nowrap rounded-md text-sm font-medium transition-colors disabled:pointer-events-none disabled:opacity-50 [&_svg]:pointer-events-none [&_svg]:size-4 [&_svg]:shrink-0 outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background",
+  "inline-flex items-center justify-center gap-2 whitespace-nowrap rounded-md text-sm font-medium transition-[color,background-color,border-color,box-shadow,transform,opacity,filter] duration-150 active:scale-[0.98] disabled:pointer-events-none disabled:opacity-50 [&_svg]:pointer-events-none [&_svg]:size-4 [&_svg]:shrink-0 outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background",
   {
     variants: {
       variant: {
         default:
           "bg-primary text-primary-foreground shadow hover:bg-primary/90",
-        gold: "bg-gradient-to-b from-[hsl(45_75%_62%)] to-[hsl(38_70%_46%)] text-[hsl(0_0%_6%)] shadow-[0_1px_0_0_hsl(50_80%_75%/0.5)_inset,0_8px_20px_-6px_hsl(43_68%_53%/0.5)] hover:brightness-110",
+        gold: "bg-gradient-to-b from-[hsl(45_75%_62%)] to-[hsl(38_70%_46%)] text-[hsl(0_0%_6%)] shadow-[0_1px_0_0_hsl(50_80%_75%/0.5)_inset,0_8px_20px_-6px_hsl(43_68%_53%/0.5)] hover:brightness-110 hover:shadow-[0_1px_0_0_hsl(50_80%_75%/0.5)_inset,0_10px_28px_-6px_hsl(43_68%_53%/0.65)]",
         destructive:
           "bg-destructive text-destructive-foreground shadow-sm hover:bg-destructive/90",
         outline:

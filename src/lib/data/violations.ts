@@ -1,6 +1,7 @@
 import "server-only";
 import { startOfWeek, startOfMonth } from "date-fns";
 import { getAccountContext } from "@/lib/data/context";
+import { countExact } from "@/lib/data/_shared";
 import type { Database } from "@/lib/supabase/database.types";
 
 export type Violation = Database["public"]["Tables"]["violations"]["Row"];
@@ -24,28 +25,33 @@ export async function getViolationsOverview(): Promise<ViolationsOverview> {
   const weekStart = startOfWeek(new Date()).toISOString();
   const monthStart = startOfMonth(new Date()).toISOString();
 
-  const [recentRes, weekRes, monthRes] = await Promise.all([
+  const [recentRes, countThisWeek, countThisMonth] = await Promise.all([
     supabase
       .from("violations")
       .select("*")
       .eq("account_id", account.id)
       .order("occurred_at", { ascending: false })
       .limit(50),
-    supabase
-      .from("violations")
-      .select("id", { count: "exact", head: true })
-      .eq("account_id", account.id)
-      .gte("occurred_at", weekStart),
-    supabase
-      .from("violations")
-      .select("id", { count: "exact", head: true })
-      .eq("account_id", account.id)
-      .gte("occurred_at", monthStart),
+    countExact(() =>
+      supabase
+        .from("violations")
+        .select("id", { count: "exact", head: true })
+        .eq("account_id", account.id)
+        .gte("occurred_at", weekStart)
+    ),
+    countExact(() =>
+      supabase
+        .from("violations")
+        .select("id", { count: "exact", head: true })
+        .eq("account_id", account.id)
+        .gte("occurred_at", monthStart)
+    ),
   ]);
+  if (recentRes.error) throw new Error(recentRes.error.message);
 
   return {
     recent: recentRes.data ?? [],
-    countThisWeek: weekRes.count ?? 0,
-    countThisMonth: monthRes.count ?? 0,
+    countThisWeek,
+    countThisMonth,
   };
 }

@@ -65,7 +65,14 @@ export function PnlBarChart({ data }: { data: PnlBucket[] }) {
         />
         <YAxis hide />
         <Tooltip cursor={{ fill: "hsl(var(--secondary))" }} content={<ChartTooltip />} />
-        <Bar dataKey="pnl" shape={<DataEndBar />} maxBarSize={28} />
+        <Bar
+          dataKey="pnl"
+          shape={<DataEndBar />}
+          maxBarSize={28}
+          isAnimationActive
+          animationDuration={600}
+          animationEasing="ease-out"
+        />
       </BarChart>
     </ResponsiveContainer>
   );

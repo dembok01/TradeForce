@@ -1,6 +1,6 @@
 import "server-only";
-import { startOfDay } from "date-fns";
 import { getAccountContext } from "@/lib/data/context";
+import { countExact, getTodayTradeStats } from "@/lib/data/_shared";
 import { deriveStatus, type AccountStatus } from "@/lib/risk-status";
 
 export type { AccountStatus };
@@ -21,30 +21,25 @@ export type DashboardOverview = {
 
 export async function getDashboardOverview(): Promise<DashboardOverview> {
   const { supabase, account } = await getAccountContext();
-  const todayStart = startOfDay(new Date()).toISOString();
 
-  const [rulesRes, todayTradesRes, violationsRes] = await Promise.all([
+  const [rulesRes, todayStats, violationsAllTime] = await Promise.all([
     supabase
       .from("trading_rules")
       .select("daily_loss_limit, max_trades_per_day")
       .eq("account_id", account.id)
       .maybeSingle(),
-    supabase
-      .from("trades")
-      .select("pnl")
-      .eq("account_id", account.id)
-      .gte("entry_time", todayStart),
-    supabase
-      .from("violations")
-      .select("id", { count: "exact", head: true })
-      .eq("account_id", account.id),
+    getTodayTradeStats(supabase, account.id),
+    countExact(() =>
+      supabase
+        .from("violations")
+        .select("id", { count: "exact", head: true })
+        .eq("account_id", account.id)
+    ),
   ]);
+  if (rulesRes.error) throw new Error(rulesRes.error.message);
 
   const rules = rulesRes.data;
-  const todayTrades = todayTradesRes.data ?? [];
-  const todayPnl = todayTrades.reduce((sum, t) => sum + (t.pnl ?? 0), 0);
-  const todayTradeCount = todayTrades.length;
-  const violationsAllTime = violationsRes.count ?? 0;
+  const { todayPnl, todayTradeCount } = todayStats;
 
   const dailyLossLimit = rules?.daily_loss_limit ?? null;
   const maxTradesPerDay = rules?.max_trades_per_day ?? null;
@@ -54,7 +49,7 @@ export async function getDashboardOverview(): Promise<DashboardOverview> {
     currentEquity: account.current_equity,
     todayPnl,
     todayTradeCount,
-    hasTradesData: todayTrades.length > 0,
+    hasTradesData: todayTradeCount > 0,
     dailyLossLimit,
     maxTradesPerDay,
     dailyLossRemaining:

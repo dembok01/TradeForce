@@ -1,6 +1,6 @@
 import "server-only";
-import { startOfDay } from "date-fns";
 import { getAccountContext } from "@/lib/data/context";
+import { countExact, getTodayTradeStats } from "@/lib/data/_shared";
 import { SESSION_WINDOWS, isWithinUtcWindow, isCustomWindowActive } from "@/lib/trading-sessions";
 import type { Database } from "@/lib/supabase/database.types";
 
@@ -20,22 +20,22 @@ export type TradingPlanStatus = {
 
 export async function getTradingPlanStatus(): Promise<TradingPlanStatus> {
   const { supabase, account } = await getAccountContext();
-  const todayStart = startOfDay(new Date()).toISOString();
 
-  const [rulesRes, todayTradesRes, openTradesRes] = await Promise.all([
+  const [rulesRes, todayStats, openPositionCount] = await Promise.all([
     supabase.from("trading_rules").select("*").eq("account_id", account.id).maybeSingle(),
-    supabase.from("trades").select("pnl").eq("account_id", account.id).gte("entry_time", todayStart),
-    supabase
-      .from("trades")
-      .select("id", { count: "exact", head: true })
-      .eq("account_id", account.id)
-      .is("exit_time", null),
+    getTodayTradeStats(supabase, account.id),
+    countExact(() =>
+      supabase
+        .from("trades")
+        .select("id", { count: "exact", head: true })
+        .eq("account_id", account.id)
+        .is("exit_time", null)
+    ),
   ]);
+  if (rulesRes.error) throw new Error(rulesRes.error.message);
 
   const rules = rulesRes.data;
-  const todayTrades = todayTradesRes.data ?? [];
-  const todayPnl = todayTrades.reduce((sum, t) => sum + (t.pnl ?? 0), 0);
-  const openPositionCount = openTradesRes.count ?? 0;
+  const { todayPnl, todayTradeCount } = todayStats;
 
   const sessions: ActiveSession[] = rules
     ? [
@@ -86,7 +86,7 @@ export async function getTradingPlanStatus(): Promise<TradingPlanStatus> {
         : 0;
     const tradeRatio =
       rules.max_trades_per_day && rules.max_trades_per_day > 0
-        ? todayTrades.length / rules.max_trades_per_day
+        ? todayTradeCount / rules.max_trades_per_day
         : 0;
     const outsideSession = hasAnyEnabledSession && !anyEnabledSessionActive;
 
@@ -102,7 +102,7 @@ export async function getTradingPlanStatus(): Promise<TradingPlanStatus> {
   return {
     rules,
     todayPnl,
-    todayTradeCount: todayTrades.length,
+    todayTradeCount,
     openPositionCount,
     sessions,
     anyEnabledSessionActive,

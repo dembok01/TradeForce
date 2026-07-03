@@ -1,6 +1,6 @@
 "use client";
 
-import { useActionState, useEffect } from "react";
+import { useActionState, useEffect, useState } from "react";
 import { toast } from "sonner";
 import { updateRuleSettingsAction, type RuleActionState } from "@/lib/actions/trading-rules";
 import type { TradingRules } from "@/lib/data/trading-plan";
@@ -10,11 +10,13 @@ import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
 import { Button } from "@/components/ui/button";
 import { FieldError } from "@/components/ui/field-error";
+import { cn } from "@/lib/utils";
 
 const initialState: RuleActionState = { error: null };
 
 export function RuleSettingsForm({ rules }: { rules: TradingRules | null }) {
   const [state, formAction, pending] = useActionState(updateRuleSettingsAction, initialState);
+  const [active, setActive] = useState(rules?.is_active ?? false);
   const errors = state.fieldErrors;
 
   useEffect(() => {
@@ -92,7 +94,13 @@ export function RuleSettingsForm({ rules }: { rules: TradingRules | null }) {
         </CardContent>
       </Card>
 
-      <Card>
+      {/* The one gold moment on this page: the card glows while the charter is live. */}
+      <Card
+        className={cn(
+          "transition-[box-shadow,border-color] duration-500",
+          active && "border-gold-glow border-primary/30"
+        )}
+      >
         <CardHeader>
           <CardTitle>Activation</CardTitle>
           <CardDescription>
@@ -102,7 +110,7 @@ export function RuleSettingsForm({ rules }: { rules: TradingRules | null }) {
         <CardContent>
           <div className="flex items-center justify-between">
             <Label htmlFor="is_active">Charter active</Label>
-            <Switch id="is_active" name="is_active" defaultChecked={rules?.is_active ?? false} />
+            <Switch id="is_active" name="is_active" checked={active} onCheckedChange={setActive} />
           </div>
         </CardContent>
       </Card>

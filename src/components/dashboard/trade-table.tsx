@@ -1,7 +1,8 @@
 "use client";
 
-import { useOptimistic, useState, useTransition } from "react";
+import { useOptimistic, useRef, useState, useTransition } from "react";
 import { format } from "date-fns";
+import { motion } from "motion/react";
 import { Trash2, ScrollText } from "lucide-react";
 import { toast } from "sonner";
 import { updateTradeNotesAction, deleteTradeAction } from "@/lib/actions/trades";
@@ -11,12 +12,13 @@ import { Badge } from "@/components/ui/badge";
 import { Textarea } from "@/components/ui/textarea";
 import { Button } from "@/components/ui/button";
 import { EmptyState } from "@/components/ui/empty-state";
+import { TradeFormDialog } from "@/components/dashboard/trade-form-dialog";
 import {
   LedgerTable,
   LedgerHeaderRow,
   LedgerHeaderCell,
-  LedgerRow,
   LedgerCell,
+  LEDGER_ROW_CLASSES,
 } from "@/components/ui/ledger-table";
 import { cn } from "@/lib/utils";
 
@@ -53,6 +55,12 @@ export function TradeTable({ trades }: { trades: Trade[] }) {
   );
   const [, startTransition] = useTransition();
 
+  // Rows present at mount stagger in; rows that appear later (a freshly logged
+  // trade arriving via revalidation) get a one-time gold flash instead.
+  const seenIds = useRef<Set<string> | null>(null);
+  const isInitialRender = seenIds.current === null;
+  if (seenIds.current === null) seenIds.current = new Set(trades.map((t) => t.id));
+
   function handleDelete(id: string) {
     startTransition(async () => {
       removeOptimistic(id);
@@ -66,17 +74,17 @@ export function TradeTable({ trades }: { trades: Trade[] }) {
 
   if (optimisticTrades.length === 0) {
     return (
-      <EmptyState title="No trades in this range" icon={ScrollText}>
+      <EmptyState title="No trades in this range" icon={ScrollText} action={<TradeFormDialog />}>
         Log one manually, or connect your EA in Phase 2 to fill this automatically.
       </EmptyState>
     );
   }
 
   return (
-    <LedgerTable>
+    <LedgerTable className="min-w-[760px]">
       <thead>
         <LedgerHeaderRow>
-          <LedgerHeaderCell>Symbol</LedgerHeaderCell>
+          <LedgerHeaderCell sticky>Symbol</LedgerHeaderCell>
           <LedgerHeaderCell>Direction</LedgerHeaderCell>
           <LedgerHeaderCell>Entry</LedgerHeaderCell>
           <LedgerHeaderCell>Exit</LedgerHeaderCell>
@@ -87,9 +95,30 @@ export function TradeTable({ trades }: { trades: Trade[] }) {
         </LedgerHeaderRow>
       </thead>
       <tbody>
-        {optimisticTrades.map((trade) => (
-          <LedgerRow key={trade.id}>
-            <LedgerCell className="font-medium">{trade.symbol}</LedgerCell>
+        {optimisticTrades.map((trade, index) => {
+          const isNew = !isInitialRender && !seenIds.current!.has(trade.id);
+          if (isNew) seenIds.current!.add(trade.id);
+          return (
+          <motion.tr
+            key={trade.id}
+            className={cn(LEDGER_ROW_CLASSES)}
+            initial={
+              isNew
+                ? { opacity: 0, backgroundColor: "hsl(42 62% 58% / 0.14)" }
+                : { opacity: 0 }
+            }
+            animate={
+              isNew
+                ? { opacity: 1, backgroundColor: "hsl(42 62% 58% / 0)" }
+                : { opacity: 1 }
+            }
+            transition={
+              isNew
+                ? { duration: 0.25, backgroundColor: { duration: 1.6, ease: "easeOut" } }
+                : { duration: 0.3, delay: Math.min(index * 0.03, 0.3), ease: "easeOut" }
+            }
+          >
+            <LedgerCell sticky className="font-medium">{trade.symbol}</LedgerCell>
             <LedgerCell>
               <Badge variant={trade.direction === "LONG" ? "success" : "secondary"}>
                 {trade.direction}
@@ -129,8 +158,9 @@ export function TradeTable({ trades }: { trades: Trade[] }) {
                 <Trash2 className="size-4 text-muted-foreground" />
               </Button>
             </LedgerCell>
-          </LedgerRow>
-        ))}
+          </motion.tr>
+          );
+        })}
       </tbody>
     </LedgerTable>
   );

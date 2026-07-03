@@ -23,12 +23,13 @@ export async function getDisciplineScore(): Promise<DisciplineFactors> {
   const { supabase, account } = await getAccountContext();
   const today = format(new Date(), "yyyy-MM-dd");
 
-  const { data: existing } = await supabase
+  const { data: existing, error: existingError } = await supabase
     .from("discipline_scores")
     .select("*")
     .eq("account_id", account.id)
     .eq("score_date", today)
     .maybeSingle();
+  if (existingError) throw new Error(existingError.message);
 
   if (existing) {
     return {
@@ -42,11 +43,12 @@ export async function getDisciplineScore(): Promise<DisciplineFactors> {
   }
 
   const since = subDays(new Date(), 30).toISOString();
-  const { data: violations } = await supabase
+  const { data: violations, error: violationsError } = await supabase
     .from("violations")
     .select("type")
     .eq("account_id", account.id)
     .gte("occurred_at", since);
+  if (violationsError) throw new Error(violationsError.message);
 
   const counts: Record<ViolationType, number> = {
     OVERTRADING: 0,

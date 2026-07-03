@@ -127,7 +127,8 @@ export function ApiKeyManager({ initialKeys }: { initialKeys: ApiKey[] }) {
                   This is the only time it&apos;s shown. Paste it into your EA&apos;s configuration.
                 </DialogDescription>
               </DialogHeader>
-              <div className="flex items-center gap-2 rounded-md border border-border bg-secondary/40 px-3 py-2">
+              {/* Shown exactly once — the gold treatment marks the moment. */}
+              <div className="border-gold-glow animate-in fade-in zoom-in-95 flex items-center gap-2 rounded-md border border-primary/30 bg-secondary/40 px-3 py-2 duration-300">
                 <code className="flex-1 truncate font-mono text-xs">{newRawKey}</code>
                 <Button variant="ghost" size="icon" onClick={handleCopy}>
                   {copied ? <Check className="size-4 text-success" /> : <Copy className="size-4" />}

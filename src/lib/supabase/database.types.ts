@@ -22,6 +22,11 @@ export interface Database {
           email: string;
           full_name: string | null;
           timezone: string;
+          onboarded_at: string | null;
+          tour_completed_at: string | null;
+          experience_level: string | null;
+          markets_traded: string[] | null;
+          prop_firm: string | null;
           created_at: string;
           updated_at: string;
         };

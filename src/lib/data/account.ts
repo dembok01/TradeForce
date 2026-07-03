@@ -7,9 +7,9 @@ export type ServerClient = Awaited<ReturnType<typeof createClient>>;
 
 /**
  * Every dashboard page needs the current user's primary account. Phase 1 has
- * exactly one account per user, created lazily on first dashboard visit
- * (there's no onboarding wizard yet — the account just needs to exist so
- * trading_rules/trades/violations have somewhere to attach).
+ * exactly one account per user, created lazily on first use — normally by the
+ * onboarding wizard's completion action, or on first dashboard read as a
+ * fallback — so trading_rules/trades/violations have somewhere to attach.
  *
  * Pass an existing client to avoid building a second one (see getAccountContext).
  */

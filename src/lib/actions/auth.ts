@@ -3,6 +3,13 @@
 import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import { isRedirectError, toActionErrorMessage } from "@/lib/action-error";
+import {
+  resetRequestSchema,
+  signInSchema,
+  signUpSchema,
+  updatePasswordSchema,
+} from "@/lib/schemas/auth";
+import { fieldErrorsFrom, type FieldErrors } from "@/lib/schemas/form";
 
 function getSiteUrl() {
   const url = process.env.NEXT_PUBLIC_SITE_URL ?? "http://localhost:3000";
@@ -11,38 +18,42 @@ function getSiteUrl() {
 
 export type AuthActionState = {
   error: string | null;
+  fieldErrors?: FieldErrors;
   success?: boolean;
 };
+
+const INVALID_FIELDS = "Please fix the highlighted fields.";
 
 export async function signUpAction(
   _prevState: AuthActionState,
   formData: FormData
 ): Promise<AuthActionState> {
-  const email = String(formData.get("email") ?? "").trim();
-  const password = String(formData.get("password") ?? "");
-
-  if (!email || !password) {
-    return { error: "Email and password are required." };
+  const parsed = signUpSchema.safeParse({
+    email: formData.get("email") ?? "",
+    password: formData.get("password") ?? "",
+  });
+  if (!parsed.success) {
+    return { error: INVALID_FIELDS, fieldErrors: fieldErrorsFrom(parsed.error) };
   }
-  if (password.length < 8) {
-    return { error: "Password must be at least 8 characters." };
-  }
+  const { email, password } = parsed.data;
 
   try {
     const supabase = await createClient();
     const { data, error } = await supabase.auth.signUp({
       email,
       password,
-      options: { emailRedirectTo: `${getSiteUrl()}/auth/callback?next=/dashboard` },
+      options: { emailRedirectTo: `${getSiteUrl()}/auth/callback?next=/onboarding` },
     });
 
     if (error) {
       return { error: error.message };
     }
 
-    // Email confirmation disabled on the Supabase project -> session is live already.
+    // Email confirmation disabled on the Supabase project -> session is live
+    // already. New accounts draft their charter before entering the dashboard
+    // (the dashboard layout's gate is the safety net for any other path in).
     if (data.session) {
-      redirect("/dashboard");
+      redirect("/onboarding");
     }
 
     return { error: null, success: true };
@@ -56,13 +67,15 @@ export async function signInAction(
   _prevState: AuthActionState,
   formData: FormData
 ): Promise<AuthActionState> {
-  const email = String(formData.get("email") ?? "").trim();
-  const password = String(formData.get("password") ?? "");
-  const next = String(formData.get("next") ?? "/dashboard");
-
-  if (!email || !password) {
-    return { error: "Email and password are required." };
+  const parsed = signInSchema.safeParse({
+    email: formData.get("email") ?? "",
+    password: formData.get("password") ?? "",
+  });
+  if (!parsed.success) {
+    return { error: INVALID_FIELDS, fieldErrors: fieldErrorsFrom(parsed.error) };
   }
+  const { email, password } = parsed.data;
+  const next = String(formData.get("next") ?? "/dashboard");
 
   try {
     const supabase = await createClient();
@@ -97,15 +110,14 @@ export async function requestPasswordResetAction(
   _prevState: AuthActionState,
   formData: FormData
 ): Promise<AuthActionState> {
-  const email = String(formData.get("email") ?? "").trim();
-
-  if (!email) {
-    return { error: "Email is required." };
+  const parsed = resetRequestSchema.safeParse({ email: formData.get("email") ?? "" });
+  if (!parsed.success) {
+    return { error: INVALID_FIELDS, fieldErrors: fieldErrorsFrom(parsed.error) };
   }
 
   try {
     const supabase = await createClient();
-    const { error } = await supabase.auth.resetPasswordForEmail(email, {
+    const { error } = await supabase.auth.resetPasswordForEmail(parsed.data.email, {
       redirectTo: `${getSiteUrl()}/auth/callback?next=/update-password`,
     });
 
@@ -124,15 +136,14 @@ export async function updatePasswordAction(
   _prevState: AuthActionState,
   formData: FormData
 ): Promise<AuthActionState> {
-  const password = String(formData.get("password") ?? "");
-
-  if (password.length < 8) {
-    return { error: "Password must be at least 8 characters." };
+  const parsed = updatePasswordSchema.safeParse({ password: formData.get("password") ?? "" });
+  if (!parsed.success) {
+    return { error: INVALID_FIELDS, fieldErrors: fieldErrorsFrom(parsed.error) };
   }
 
   try {
     const supabase = await createClient();
-    const { error } = await supabase.auth.updateUser({ password });
+    const { error } = await supabase.auth.updateUser({ password: parsed.data.password });
 
     if (error) {
       return { error: error.message };
