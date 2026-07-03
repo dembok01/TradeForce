@@ -1,6 +1,7 @@
 import "server-only";
 import { getAccountContext } from "@/lib/data/context";
 import { countExact, getTodayTradeStats } from "@/lib/data/_shared";
+import { deriveStatus } from "@/lib/risk-status";
 import { SESSION_WINDOWS, isWithinUtcWindow, isCustomWindowActive } from "@/lib/trading-sessions";
 import type { Database } from "@/lib/supabase/database.types";
 
@@ -23,7 +24,7 @@ export async function getTradingPlanStatus(): Promise<TradingPlanStatus> {
 
   const [rulesRes, todayStats, openPositionCount] = await Promise.all([
     supabase.from("trading_rules").select("*").eq("account_id", account.id).maybeSingle(),
-    getTodayTradeStats(supabase, account.id),
+    getTodayTradeStats(supabase, account),
     countExact(() =>
       supabase
         .from("trades")
@@ -78,21 +79,23 @@ export async function getTradingPlanStatus(): Promise<TradingPlanStatus> {
   const anyEnabledSessionActive = sessions.some((s) => s.enabled && s.active);
   const hasAnyEnabledSession = sessions.some((s) => s.enabled);
 
+  // Same thresholds as the dashboard's status badge — deriveStatus is the one
+  // source of truth; this page only adds the outside-session warning and maps
+  // to its own label vocabulary (locked→suspended, safe→active).
   let ruleStatus: TradingPlanStatus["ruleStatus"] = "suspended";
   if (rules?.is_active) {
-    const lossRatio =
-      rules.daily_loss_limit && rules.daily_loss_limit > 0
-        ? Math.max(0, -todayPnl) / rules.daily_loss_limit
-        : 0;
-    const tradeRatio =
-      rules.max_trades_per_day && rules.max_trades_per_day > 0
-        ? todayTradeCount / rules.max_trades_per_day
-        : 0;
+    const base = deriveStatus({
+      hasRules: true,
+      dailyLossLimit: rules.daily_loss_limit,
+      todayPnl,
+      maxTradesPerDay: rules.max_trades_per_day,
+      todayTradeCount,
+    });
     const outsideSession = hasAnyEnabledSession && !anyEnabledSessionActive;
 
-    if (lossRatio >= 1 || tradeRatio >= 1) {
+    if (base === "locked") {
       ruleStatus = "suspended";
-    } else if (lossRatio >= 0.7 || tradeRatio >= 0.8 || outsideSession) {
+    } else if (base === "warning" || outsideSession) {
       ruleStatus = "warning";
     } else {
       ruleStatus = "active";

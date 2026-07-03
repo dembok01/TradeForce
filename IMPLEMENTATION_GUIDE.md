@@ -76,8 +76,11 @@ trading_rules     — 1:1 with accounts; both Rule Settings and Session Control
                      pages write to this single row (different column subsets)
 trades            — journal entries; source: MANUAL (Phase 1) | EA (Phase 2)
 violations        — breach log; empty until Phase 2's EA reports them
-discipline_scores — one row per account per day; Phase 1 computes an estimate
-                     live from violations if no row exists yet (see §5)
+discipline_scores — one row per account per day; a daily cron persists rows
+                     (api/cron/discipline-scores), with a live estimate from
+                     violations as the fallback when no row exists (see §5)
+account_snapshots — append-only equity history, written by POST /api/ea/account
+                     alongside the in-place accounts update (equity-curve source)
 api_keys          — hashed EA credentials; issuance UI ships in Phase 1,
                      nothing consumes them until Phase 2
 contact_messages  — landing page enquiry form, insert-only from anon
@@ -145,10 +148,17 @@ the Supabase dashboard or a future admin view with `service_role`).
 ### EA-facing stub API (`/api/ea/*`)
 Bearer-token auth (`Authorization: Bearer tf_live_...`), verified against the
 hashed `api_keys` table via a service-role client (`src/lib/supabase/service.ts`
-— **server-only, never import into client code**):
-- `GET /api/ea/config` — rule config, the Phase 2 60-second poll target
-- `POST /api/ea/trades` — trade report ingestion (zod-validated)
-- `POST /api/ea/account` — equity/balance update
+— **server-only, never import into client code**), with per-key fixed-window
+rate limiting (120/min, `src/lib/rate-limit.ts` — per-instance, see §5):
+- `GET /api/ea/config` — full rule config incl. `configVersion`, the 60-second poll target
+- `GET /api/ea/ping` — just `configVersion`; cheap enough to hit every few seconds,
+  re-fetch config only when it changes (the force-sync path — a DB trigger bumps
+  `trading_rules.config_version` on every dashboard save)
+- `POST /api/ea/trades` — trade report ingestion (zod-validated, schema shared
+  with the manual dialog in `src/lib/schemas/trade.ts`)
+- `POST /api/ea/violations` — breach reports; feeds the Violation Centre and
+  discipline score
+- `POST /api/ea/account` — equity/balance update + append-only `account_snapshots` row
 
 These are real, working, deployed endpoints today — just with no EA calling
 them yet. Test them with `curl` once you have a key from the Rule Settings page:
@@ -159,22 +169,27 @@ curl -H "Authorization: Bearer tf_live_..." https://your-deploy/api/ea/config
 
 ## 5. Known Phase 1 simplifications (intentional, documented so Phase 2 doesn't rediscover them the hard way)
 
-- **Discipline score**: no cron computes `discipline_scores` daily yet, since
-  nothing feeds it in Phase 1. `getDisciplineScore()` derives a live estimate
-  from the last 30 days of `violations` on every read instead. Add a daily
-  scheduled function (Supabase Cron or a Vercel Cron route) in Phase 2 that
-  writes a real row per account per day; the read path already prefers a
-  persisted row over the estimate, so no dashboard code changes when you do.
+- **Discipline score**: `/api/cron/discipline-scores` (Vercel Cron, `vercel.json`,
+  authorized by `CRON_SECRET`) persists one row per account per day.
+  `getDisciplineScore()` still derives a live estimate from the last 30 days of
+  `violations` when today's row doesn't exist yet (e.g. before the first cron
+  run), and prefers the persisted row when it does.
+- **Timezones**: all daily/weekly/monthly boundaries go through
+  `src/lib/time-boundaries.ts` using the account's `trading_rules.timezone`
+  (fallback `profiles.timezone`, then UTC) — "today" rolls over at the trader's
+  midnight, not the server's.
 - **Session windows**: `src/lib/trading-sessions.ts` uses fixed approximate
   UTC hours for London/NY/Asian, no DST handling. Fine for a status indicator;
   revisit with a proper timezone library if session precision becomes load-bearing.
 - **Open positions**: computed as `trades` rows with `exit_time IS NULL`,
   regardless of entry date. Correct semantically, but Phase 1 has no live feed
   to keep it accurate in real time — it's only as fresh as the last manual entry.
-- **API key security**: hashed (SHA-256) and shown once, but no scoping,
-  expiry, or rate limiting yet. Harden before a real EA depends on it in
-  production — this was flagged in the original repo audit as the one thing
-  worth tightening before Phase 2 goes live.
+- **API key security**: SHA-256-hashed (unsalted by design — 192-bit random
+  keys, and the unique-index lookup needs a deterministic hash) and shown once.
+  Per-key rate limiting is in-memory/per-instance (`src/lib/rate-limit.ts`) —
+  a guard against runaway EA loops, not a global quota; swap in a shared store
+  (e.g. Upstash Ratelimit) if a real fleet needs one. No key scoping or expiry
+  yet.
 
 ## 6. Setup
 

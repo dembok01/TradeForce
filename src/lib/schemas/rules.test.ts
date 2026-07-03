@@ -32,6 +32,28 @@ describe("ruleSettingsSchema", () => {
       false
     );
   });
+
+  it("requires whole numbers for trade and position caps", () => {
+    expect(
+      ruleSettingsSchema.safeParse({ ...blankRules, max_trades_per_day: "5.5" }).success
+    ).toBe(false);
+    expect(
+      ruleSettingsSchema.safeParse({ ...blankRules, max_open_positions: "2.1" }).success
+    ).toBe(false);
+    expect(ruleSettingsSchema.parse({ ...blankRules, max_trades_per_day: "5" }).max_trades_per_day).toBe(5);
+  });
+
+  it("rejects typo-scale values above the sanity bounds", () => {
+    expect(
+      ruleSettingsSchema.safeParse({ ...blankRules, daily_loss_limit: "50000000" }).success
+    ).toBe(false);
+    expect(
+      ruleSettingsSchema.safeParse({ ...blankRules, max_trades_per_day: "1000" }).success
+    ).toBe(false);
+    expect(
+      ruleSettingsSchema.safeParse({ ...blankRules, max_open_positions: "500" }).success
+    ).toBe(false);
+  });
 });
 
 const blankSessions = {

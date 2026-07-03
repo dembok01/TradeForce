@@ -1,4 +1,4 @@
-// Hand-written to match supabase/migrations/20260702000000_init_schema.sql.
+// Hand-written to match the files in supabase/migrations/.
 // Once a real Supabase project is linked, regenerate with:
 //   supabase gen types typescript --project-id <ref> --schema public > src/lib/supabase/database.types.ts
 
@@ -67,6 +67,7 @@ export interface Database {
           custom_session_end: string | null;
           timezone: string;
           is_active: boolean;
+          config_version: number;
           created_at: string;
           updated_at: string;
         };
@@ -144,6 +145,24 @@ export interface Database {
           score_date: string;
         };
         Update: Partial<Database["public"]["Tables"]["discipline_scores"]["Row"]>;
+        Relationships: [];
+      };
+      account_snapshots: {
+        Row: {
+          id: string;
+          user_id: string;
+          account_id: string;
+          equity: number;
+          balance: number | null;
+          recorded_at: string;
+          created_at: string;
+        };
+        Insert: Partial<Database["public"]["Tables"]["account_snapshots"]["Row"]> & {
+          user_id: string;
+          account_id: string;
+          equity: number;
+        };
+        Update: Partial<Database["public"]["Tables"]["account_snapshots"]["Row"]>;
         Relationships: [];
       };
       api_keys: {

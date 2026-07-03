@@ -1,7 +1,7 @@
 import "server-only";
-import { startOfWeek, startOfMonth } from "date-fns";
 import { getAccountContext } from "@/lib/data/context";
-import { countExact } from "@/lib/data/_shared";
+import { countExact, resolveAccountTimezone } from "@/lib/data/_shared";
+import { zonedStartOfWeek, zonedStartOfMonth } from "@/lib/time-boundaries";
 import type { Database } from "@/lib/supabase/database.types";
 
 export type Violation = Database["public"]["Tables"]["violations"]["Row"];
@@ -22,8 +22,9 @@ export const VIOLATION_LABELS: Record<Violation["type"], string> = {
 
 export async function getViolationsOverview(): Promise<ViolationsOverview> {
   const { supabase, account } = await getAccountContext();
-  const weekStart = startOfWeek(new Date()).toISOString();
-  const monthStart = startOfMonth(new Date()).toISOString();
+  const timezone = await resolveAccountTimezone(supabase, account);
+  const weekStart = zonedStartOfWeek(timezone).toISOString();
+  const monthStart = zonedStartOfMonth(timezone).toISOString();
 
   const [recentRes, countThisWeek, countThisMonth] = await Promise.all([
     supabase

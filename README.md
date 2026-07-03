@@ -1,36 +1,48 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# TradeForce
 
-## Getting Started
+A trader discipline and risk-enforcement platform for prop-firm traders: set a
+charter of trading rules on the web dashboard, and (Phase 2) a MetaTrader
+Expert Advisor enforces them in the terminal and reports trades, violations,
+and equity back.
 
-First, run the development server:
+**Read [`IMPLEMENTATION_GUIDE.md`](./IMPLEMENTATION_GUIDE.md) first** — it is
+the real documentation: stack decisions, data model, page-by-page spec, and the
+intentional Phase 1 simplifications.
+
+## Quick start
 
 ```bash
-npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
+npm install
+cp .env.example .env.local   # Supabase URL + anon + service-role keys
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+Apply every file in `supabase/migrations/` (in filename order) via the Supabase
+SQL editor, or `supabase db push` if the CLI is linked to the owning project.
+`src/lib/supabase/database.types.ts` is hand-written and must be updated in
+lockstep with any migration.
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+```bash
+npm run dev    # local dev
+npm run test   # vitest unit tests (~70s)
+npm run build  # production build (slow — several minutes on modest hardware)
+```
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+End-to-end smoke test (real browser + real Supabase; needs a running dev
+server): `node .claude/skills/run-tradeforce/driver.mjs smoke`
 
-## Learn More
+## Environment variables
 
-To learn more about Next.js, take a look at the following resources:
+| Variable | Use |
+|---|---|
+| `NEXT_PUBLIC_SUPABASE_URL` / `NEXT_PUBLIC_SUPABASE_ANON_KEY` | Client + RLS-scoped server reads |
+| `SUPABASE_SERVICE_ROLE_KEY` | EA routes and cron only (`src/lib/supabase/service.ts`, server-only) |
+| `CRON_SECRET` | Authorizes `/api/cron/*` (Vercel sends it as a Bearer token automatically) |
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+## Layout
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
-
-## Deploy on Vercel
-
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
-
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+- `src/app/` — marketing site (`/`), auth pages, `dashboard/*`, and the
+  Bearer-authenticated EA API under `app/api/ea/*` (config, ping, trades,
+  violations, account).
+- `src/lib/data/` — server-component read layer (RLS-scoped, throws on error);
+  `src/lib/actions/` — server-action mutations; `src/lib/schemas/` — zod.
+- `supabase/migrations/` — the schema; RLS owner-only on every table.

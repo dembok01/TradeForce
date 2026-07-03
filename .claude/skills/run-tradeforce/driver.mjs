@@ -55,7 +55,7 @@ async function login(page, email, password, next = "/dashboard") {
 // built-in SMTP rate limit (~2/hour) — useless for automation. Instead we
 // create a pre-confirmed user through the GoTrue admin API with the service
 // role key from .env.local, then log in through the real UI.
-function supabaseAdmin() {
+function supabaseEnv() {
   const env = Object.fromEntries(
     readFileSync(join(REPO_ROOT, ".env.local"), "utf8")
       .split("\n")
@@ -65,6 +65,11 @@ function supabaseAdmin() {
   const url = env.NEXT_PUBLIC_SUPABASE_URL;
   const serviceKey = env.SUPABASE_SERVICE_ROLE_KEY;
   if (!url || !serviceKey) throw new Error("NEXT_PUBLIC_SUPABASE_URL / SUPABASE_SERVICE_ROLE_KEY missing from .env.local");
+  return { url, serviceKey };
+}
+
+function supabaseAdmin() {
+  const { url, serviceKey } = supabaseEnv();
   return async (path, init = {}) => {
     const res = await fetch(`${url}/auth/v1${path}`, {
       ...init,
@@ -77,6 +82,27 @@ function supabaseAdmin() {
     });
     return { status: res.status, json: await res.json().catch(() => null) };
   };
+}
+
+// The dashboard layout requires profiles.onboarded_at; the wizard UI is a
+// manual/visual flow, and smoke targets the EA loop — so stamp the flags
+// directly via PostgREST. Also completes the tour so its overlay never
+// intercepts clicks or screenshots.
+async function markOnboarded(userId) {
+  const { url, serviceKey } = supabaseEnv();
+  const now = new Date().toISOString();
+  const res = await fetch(`${url}/rest/v1/profiles?id=eq.${userId}`, {
+    method: "PATCH",
+    headers: {
+      apikey: serviceKey,
+      authorization: `Bearer ${serviceKey}`,
+      "content-type": "application/json",
+      prefer: "return=minimal",
+    },
+    body: JSON.stringify({ onboarded_at: now, tour_completed_at: now }),
+  });
+  if (res.status >= 300) throw new Error(`markOnboarded failed (${res.status}): ${await res.text()}`);
+  log("stamped profile onboarded + tour done (wizard UI not under smoke)");
 }
 
 async function createConfirmedUser() {
@@ -146,15 +172,14 @@ async function smoke() {
     await page.waitForURL("**/login**");
     log("ok: logged-out /dashboard redirects to /login");
 
-    // 3. Admin-create a confirmed throwaway user, log in through the real UI.
-    // Land on the journal first, NOT /dashboard: the dashboard home fires
-    // getDashboardOverview + getDisciplineScore in a Promise.all, and on a
-    // brand-new user both race getOrCreatePrimaryAccount into inserting a
-    // duplicate primary account (no unique constraint; maybeSingle() then
-    // errors forever and every page view inserts another account). The journal
-    // makes a single sequential call, so exactly one account is created.
+    // 3. Admin-create a confirmed throwaway user, stamp it onboarded, and log
+    // in straight to /dashboard. Landing on the dashboard first is deliberate:
+    // its Promise.all reads used to race getOrCreatePrimaryAccount into
+    // duplicate primary accounts, which the accounts_one_primary_per_user_idx
+    // migration + 23505 re-read now prevent — this is the regression check.
     user = await createConfirmedUser();
-    await login(page, user.email, user.password, "/dashboard/journal");
+    await markOnboarded(user.id);
+    await login(page, user.email, user.password, "/dashboard");
     await page.goto(`${BASE}/dashboard`, { waitUntil: "networkidle" });
     await shoot(page, "02-dashboard.png");
 
@@ -192,11 +217,34 @@ async function smoke() {
     });
     expect(account.status === 200, `POST /api/ea/account → 200 (got ${account.status})`);
 
-    // 6. The EA-posted trade shows up in the journal UI
+    const ping = await eaFetch("/api/ea/ping", { key });
+    expect(ping.status === 200, `GET /api/ea/ping → 200 (got ${ping.status})`);
+    log(`   ping: ${JSON.stringify(ping.json)}`);
+
+    const violation = await eaFetch("/api/ea/violations", {
+      key,
+      method: "POST",
+      body: { type: "OVERTRADING", details: { tradesToday: 9, cap: 5 } },
+    });
+    expect(
+      violation.status === 201 && violation.json?.violationId,
+      `POST /api/ea/violations → 201 (got ${violation.status})`
+    );
+
+    // 6. The EA-posted data shows up in the UI
     await page.goto(`${BASE}/dashboard/journal`, { waitUntil: "networkidle" });
     await shoot(page, "04-journal.png");
     const journal = await page.locator("main").textContent();
     expect(journal?.includes("EURUSD"), "journal page shows the EA-posted EURUSD trade");
+
+    await page.goto(`${BASE}/dashboard/violations`, { waitUntil: "networkidle" });
+    await shoot(page, "05-violations.png");
+    const violationsPage = await page.locator("main").textContent();
+    expect(violationsPage?.includes("Overtrading"), "violations page shows the EA-reported breach");
+
+    await page.goto(`${BASE}/dashboard`, { waitUntil: "networkidle" });
+    const dash = await page.locator("main").textContent();
+    expect(dash?.includes("Connected"), "dashboard EA-connection tile shows Connected");
 
     log("SMOKE PASSED");
     if (keepUser) log(`kept smoke user: ${user.email} / ${user.password}`);

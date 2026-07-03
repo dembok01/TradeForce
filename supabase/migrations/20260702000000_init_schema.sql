@@ -205,7 +205,9 @@ create index if not exists discipline_scores_account_id_idx on public.discipline
 
 -- ============================================================================
 -- api_keys: per-user keys the future EA authenticates with (Phase 2 consumer,
--- issuance UI ships in Phase 1). Only a salted hash + short prefix are stored;
+-- issuance UI ships in Phase 1). Only a SHA-256 hash + short prefix are stored
+-- (unsalted by design: keys are 24 random bytes, and the unique-index lookup
+-- needs a deterministic hash);
 -- the raw key is shown once at creation time and never persisted.
 -- ============================================================================
 create table if not exists public.api_keys (

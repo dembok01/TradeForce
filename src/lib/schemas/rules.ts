@@ -8,10 +8,29 @@ const timeOrBlank = z
   .trim()
   .transform((v) => (v === "" ? null : v));
 
+// Upper bounds are sanity rails against typos (an extra zero on a loss limit),
+// not judgments about trading style. Keep in sync with onboarding.ts.
+export const RULE_BOUNDS = {
+  dailyLossLimitMax: 10_000_000,
+  maxTradesPerDayMax: 500,
+  maxOpenPositionsMax: 100,
+} as const;
+
 export const ruleSettingsSchema = z.object({
-  daily_loss_limit: optionalNumber("Daily loss limit can't be negative.", { min: 0 }),
-  max_trades_per_day: optionalNumber("Max trades per day can't be negative.", { min: 0 }),
-  max_open_positions: optionalNumber("Max open positions can't be negative.", { min: 0 }),
+  daily_loss_limit: optionalNumber("Daily loss limit must be between $0 and $10,000,000.", {
+    min: 0,
+    max: RULE_BOUNDS.dailyLossLimitMax,
+  }),
+  max_trades_per_day: optionalNumber("Max trades per day must be between 0 and 500.", {
+    min: 0,
+    max: RULE_BOUNDS.maxTradesPerDayMax,
+    int: true,
+  }),
+  max_open_positions: optionalNumber("Max open positions must be between 0 and 100.", {
+    min: 0,
+    max: RULE_BOUNDS.maxOpenPositionsMax,
+    int: true,
+  }),
   risk_per_trade_percent: optionalNumber("Risk per trade must be between 0 and 100%.", {
     min: 0,
     max: 100,

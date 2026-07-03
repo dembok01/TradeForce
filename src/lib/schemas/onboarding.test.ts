@@ -59,6 +59,15 @@ describe("onboardingSchema", () => {
       false
     );
   });
+
+  it("rejects fractional trade caps and typo-scale limits", () => {
+    expect(onboardingSchema.safeParse({ ...validInput, max_trades_per_day: "5.5" }).success).toBe(
+      false
+    );
+    expect(
+      onboardingSchema.safeParse({ ...validInput, daily_loss_limit: "50000000" }).success
+    ).toBe(false);
+  });
 });
 
 describe("onboarding step schemas", () => {

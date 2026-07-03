@@ -1,6 +1,6 @@
 import "server-only";
-import { startOfDay } from "date-fns";
-import type { ServerClient } from "@/lib/data/account";
+import { safeTimezone, zonedStartOfDay } from "@/lib/time-boundaries";
+import type { Account, ServerClient } from "@/lib/data/account";
 
 // Error policy for page-powering reads: THROW. The dashboard error boundary
 // exists to catch these — a visible retry beats silently-wrong discipline data
@@ -17,19 +17,47 @@ export async function countExact(
 }
 
 /**
- * Today's logged trades reduced to the two numbers every overview needs.
+ * The timezone that defines this account's "today". trading_rules.timezone is
+ * the enforcement source (it's what the EA config returns too); profiles is
+ * the fallback for users who haven't created a rules row yet.
+ */
+export async function resolveAccountTimezone(
+  supabase: ServerClient,
+  account: Account
+): Promise<string> {
+  const { data: rules, error } = await supabase
+    .from("trading_rules")
+    .select("timezone")
+    .eq("account_id", account.id)
+    .maybeSingle();
+  if (error) throw new Error(error.message);
+  if (rules?.timezone) return safeTimezone(rules.timezone);
+
+  const { data: profile, error: profileError } = await supabase
+    .from("profiles")
+    .select("timezone")
+    .eq("id", account.user_id)
+    .maybeSingle();
+  if (profileError) throw new Error(profileError.message);
+  return safeTimezone(profile?.timezone);
+}
+
+/**
+ * Today's logged trades reduced to the two numbers every overview needs,
+ * with "today" starting at the account's local midnight, not the server's.
  * Shared by the dashboard and trading-plan reads, which previously duplicated
  * the startOfDay → select pnl → reduce sequence verbatim.
  */
 export async function getTodayTradeStats(
   supabase: ServerClient,
-  accountId: string
+  account: Account
 ): Promise<{ todayPnl: number; todayTradeCount: number }> {
-  const todayStart = startOfDay(new Date()).toISOString();
+  const timezone = await resolveAccountTimezone(supabase, account);
+  const todayStart = zonedStartOfDay(timezone).toISOString();
   const { data, error } = await supabase
     .from("trades")
     .select("pnl")
-    .eq("account_id", accountId)
+    .eq("account_id", account.id)
     .gte("entry_time", todayStart);
   if (error) throw new Error(error.message);
 

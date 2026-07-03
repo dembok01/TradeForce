@@ -17,6 +17,14 @@ export async function getProfile(client?: ServerClient): Promise<Profile | null>
   } = await supabase.auth.getUser();
   if (!user) return null;
 
-  const { data } = await supabase.from("profiles").select("*").eq("id", user.id).maybeSingle();
+  // Throw on failure rather than returning null: the dashboard layout treats
+  // null as "not onboarded", so a swallowed DB error would bounce a fully
+  // onboarded user back into /onboarding instead of the error boundary.
+  const { data, error } = await supabase
+    .from("profiles")
+    .select("*")
+    .eq("id", user.id)
+    .maybeSingle();
+  if (error) throw new Error(error.message);
   return data;
 }

@@ -8,6 +8,7 @@ function isPublicPath(pathname: string) {
   if (PUBLIC_PATHS.includes(pathname)) return true;
   if (pathname.startsWith("/auth/")) return true;
   if (pathname.startsWith("/api/ea/")) return true; // Bearer-auth'd separately, not session-based
+  if (pathname.startsWith("/api/cron/")) return true; // CRON_SECRET-auth'd, not session-based
   if (pathname.startsWith("/_next") || pathname.startsWith("/favicon")) return true;
   return false;
 }

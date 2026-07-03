@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { optionalNumber, requiredNumber } from "@/lib/schemas/form";
+import { RULE_BOUNDS } from "@/lib/schemas/rules";
 
 // Option lists live here (not in the wizard) so the zod enums and the UI can
 // never drift apart. Client-safe: no server-only imports.
@@ -39,14 +40,25 @@ export const onboardingSchema = z.object({
   markets_traded: z.array(marketEnum).min(1, "Pick at least one market."),
   prop_firm: optionalText,
 
-  daily_loss_limit: requiredNumber("Enter a daily loss limit above zero.", { min: 0.01 }),
+  daily_loss_limit: requiredNumber("Enter a daily loss limit between $0 and $10,000,000.", {
+    min: 0.01,
+    max: RULE_BOUNDS.dailyLossLimitMax,
+  }),
   risk_per_trade_percent: requiredNumber("Risk per trade must be between 0 and 100%.", {
     min: 0.01,
     max: 100,
   }),
 
-  max_trades_per_day: requiredNumber("Enter a daily trade cap of at least 1.", { min: 1 }),
-  max_open_positions: optionalNumber("Max open positions can't be negative.", { min: 0 }),
+  max_trades_per_day: requiredNumber("Enter a daily trade cap between 1 and 500.", {
+    min: 1,
+    max: RULE_BOUNDS.maxTradesPerDayMax,
+    int: true,
+  }),
+  max_open_positions: optionalNumber("Max open positions must be between 0 and 100.", {
+    min: 0,
+    max: RULE_BOUNDS.maxOpenPositionsMax,
+    int: true,
+  }),
 
   session_london_enabled: z.boolean(),
   session_new_york_enabled: z.boolean(),

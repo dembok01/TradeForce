@@ -1,21 +1,23 @@
 import { NextResponse } from "next/server";
-import { verifyEaRequest } from "@/lib/ea-auth";
+import { verifyEaRequest, eaFailureResponse } from "@/lib/ea-auth";
 import { createServiceClient } from "@/lib/supabase/service";
 
-// Phase 2 target: the EA polls this every ~60s to pick up rule changes made in
-// the dashboard without restarting. Phase 1 ships the shape; nothing polls it yet.
+// The EA polls this every ~60s to pick up rule changes made in the dashboard
+// without restarting. configVersion is bumped by a DB trigger on every rules
+// update; the cheap high-frequency check lives at /api/ea/ping.
 export async function GET(request: Request) {
   const auth = await verifyEaRequest(request);
-  if (!auth) {
-    return NextResponse.json({ error: "Invalid or missing API key." }, { status: 401 });
-  }
+  if (!auth.ok) return eaFailureResponse(auth);
 
   const supabase = createServiceClient();
-  const { data: rules } = await supabase
+  const { data: rules, error } = await supabase
     .from("trading_rules")
     .select("*")
     .eq("account_id", auth.accountId)
     .maybeSingle();
+  if (error) {
+    return NextResponse.json({ error: error.message }, { status: 500 });
+  }
 
   if (!rules) {
     return NextResponse.json({ configured: false });
@@ -23,6 +25,7 @@ export async function GET(request: Request) {
 
   return NextResponse.json({
     configured: true,
+    configVersion: rules.config_version,
     isActive: rules.is_active,
     dailyLossLimit: rules.daily_loss_limit,
     maxTradesPerDay: rules.max_trades_per_day,

@@ -1,6 +1,8 @@
 import "server-only";
-import { format, subDays } from "date-fns";
+import { subDays } from "date-fns";
 import { getAccountContext } from "@/lib/data/context";
+import { resolveAccountTimezone } from "@/lib/data/_shared";
+import { zonedDateKey } from "@/lib/time-boundaries";
 import { disciplineFromViolationCounts } from "@/lib/discipline-score";
 import type { ViolationType } from "@/lib/supabase/database.types";
 
@@ -21,7 +23,8 @@ export type DisciplineFactors = {
  */
 export async function getDisciplineScore(): Promise<DisciplineFactors> {
   const { supabase, account } = await getAccountContext();
-  const today = format(new Date(), "yyyy-MM-dd");
+  const timezone = await resolveAccountTimezone(supabase, account);
+  const today = zonedDateKey(timezone);
 
   const { data: existing, error: existingError } = await supabase
     .from("discipline_scores")

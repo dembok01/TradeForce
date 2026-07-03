@@ -95,6 +95,39 @@ export async function updateRuleSettingsAction(
     const { supabase, userId, account } = ctx;
     await ensureTradingRulesRow(supabase, account.id, userId);
 
+    // An "active" charter with nothing to enforce is a lie on the dashboard —
+    // require at least one limit here, or a session window configured on the
+    // Sessions page.
+    const noLimits =
+      values.daily_loss_limit === null &&
+      values.max_trades_per_day === null &&
+      values.max_open_positions === null &&
+      values.risk_per_trade_percent === null;
+    if (values.is_active && noLimits) {
+      const { data: current, error: readError } = await supabase
+        .from("trading_rules")
+        .select(
+          "session_london_enabled, session_new_york_enabled, session_asian_enabled, session_london_ny_overlap_enabled, custom_session_start, custom_session_end"
+        )
+        .eq("account_id", account.id)
+        .maybeSingle();
+      if (readError) return { error: readError.message };
+
+      const hasSessionRule =
+        current &&
+        (current.session_london_enabled ||
+          current.session_new_york_enabled ||
+          current.session_asian_enabled ||
+          current.session_london_ny_overlap_enabled ||
+          (current.custom_session_start && current.custom_session_end));
+      if (!hasSessionRule) {
+        return {
+          error:
+            "Set at least one limit (or a session window on the Sessions page) before activating the charter.",
+        };
+      }
+    }
+
     const { error } = await supabase
       .from("trading_rules")
       .update({

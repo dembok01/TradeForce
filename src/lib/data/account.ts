@@ -23,12 +23,13 @@ export async function getOrCreatePrimaryAccount(client?: ServerClient): Promise<
     throw new Error("Not authenticated");
   }
 
-  const { data: existing } = await supabase
+  const { data: existing, error: readError } = await supabase
     .from("accounts")
     .select("*")
     .eq("user_id", user.id)
     .eq("is_primary", true)
     .maybeSingle();
+  if (readError) throw new Error(readError.message);
 
   if (existing) {
     return existing;
@@ -39,6 +40,20 @@ export async function getOrCreatePrimaryAccount(client?: ServerClient): Promise<
     .insert({ user_id: user.id, name: "Primary Account", is_primary: true })
     .select("*")
     .single();
+
+  // Two parallel first reads can both miss and both insert; the partial unique
+  // index (accounts_one_primary_per_user_idx) rejects the loser with 23505 —
+  // re-read and use the winner's row.
+  if (error?.code === "23505") {
+    const { data: winner, error: rereadError } = await supabase
+      .from("accounts")
+      .select("*")
+      .eq("user_id", user.id)
+      .eq("is_primary", true)
+      .maybeSingle();
+    if (rereadError) throw new Error(rereadError.message);
+    if (winner) return winner;
+  }
 
   if (error || !created) {
     throw new Error(error?.message ?? "Failed to create account");

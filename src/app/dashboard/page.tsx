@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { formatDistanceToNowStrict } from "date-fns";
 import { getDashboardOverview } from "@/lib/data/dashboard";
 import { getDisciplineScore } from "@/lib/data/discipline";
 import { formatCurrency } from "@/lib/format";
@@ -15,6 +16,11 @@ import { StaggerGroup, StaggerItem } from "@/components/motion/stagger";
 export default async function DashboardHomePage() {
   const [overview, discipline] = await Promise.all([getDashboardOverview(), getDisciplineScore()]);
   const isConfigured = overview.status !== "not_configured";
+
+  // An EA that's alive authenticates at least once a minute (config poll), so
+  // anything older than a few minutes means the terminal stopped reporting.
+  const eaLastSeen = overview.eaLastSeenAt ? new Date(overview.eaLastSeenAt) : null;
+  const eaIsLive = eaLastSeen !== null && Date.now() - eaLastSeen.getTime() < 5 * 60 * 1000;
 
   return (
     <div>
@@ -135,6 +141,25 @@ export default async function DashboardHomePage() {
                     ? "destructive"
                     : "neutral"
             }
+          />
+        </StaggerItem>
+        <StaggerItem>
+          <StatTile
+            label="EA connection"
+            value={
+              eaLastSeen
+                ? eaIsLive
+                  ? "Connected"
+                  : `Last seen ${formatDistanceToNowStrict(eaLastSeen, { addSuffix: true })}`
+                : null
+            }
+            sublabel={
+              eaLastSeen && eaIsLive
+                ? `checked in ${formatDistanceToNowStrict(eaLastSeen, { addSuffix: true })}`
+                : undefined
+            }
+            emptyHint="No EA has connected yet"
+            accent={eaLastSeen ? (eaIsLive ? "success" : "warning") : "neutral"}
           />
         </StaggerItem>
       </StaggerGroup>
