@@ -1,6 +1,6 @@
 //+------------------------------------------------------------------+
 //|                                                   TradeForce.mq5 |
-//|        Discipline enforcement EA — polls the TradeForce backend, |
+//|        Discipline enforcement EA - polls the TradeForce backend, |
 //|        enforces the charter in the terminal, reports everything. |
 //+------------------------------------------------------------------+
 #property copyright "TradeForce"
@@ -44,7 +44,7 @@ datetime g_lastAccountReport = 0;
 int      g_lossBreachDayId   = -1;   // local trading day the daily-loss lock fired
 bool     g_webRequestHinted  = false;
 
-// Failed POSTs are retried on later timer ticks (lost on EA restart — the
+// Failed POSTs are retried on later timer ticks (lost on EA restart - the
 // server is the durable record, this just smooths transient network drops).
 #define PENDING_MAX 64
 string g_pendingPath[PENDING_MAX];
@@ -93,7 +93,7 @@ void PostJsonQueued(const string path, const string body) {
     g_pendingCount++;
     Print("TradeForce: queued failed POST ", path, " (status ", status, ", queue ", g_pendingCount, ")");
   } else {
-    Print("TradeForce: retry queue full — dropping POST ", path);
+    Print("TradeForce: retry queue full - dropping POST ", path);
   }
 }
 
@@ -103,7 +103,7 @@ void FlushPending() {
     int status;
     string response;
     bool sent = Http("POST", g_pendingPath[0], g_pendingBody[0], status, response);
-    if (!sent || status < 200 || status >= 300) return; // still failing — try next tick
+    if (!sent || status < 200 || status >= 300) return; // still failing - try next tick
     for (int i = 1; i < g_pendingCount; i++) {
       g_pendingPath[i - 1] = g_pendingPath[i];
       g_pendingBody[i - 1] = g_pendingBody[i];
@@ -116,7 +116,7 @@ void FlushPending() {
 //+------------------------------------------------------------------+
 //| Time & timezone                                                   |
 //| The product offers three timezones; a tiny table beats shipping   |
-//| a tz database. NY gets the standard US DST rule (2nd Sun Mar –    |
+//| a tz database. NY gets the standard US DST rule (2nd Sun Mar -    |
 //| 1st Sun Nov).                                                     |
 //+------------------------------------------------------------------+
 int FirstSundayOfMonth(const int year, const int month) {
@@ -145,7 +145,7 @@ int TimezoneOffsetMinutes(const datetime gmtNow) {
   return 0; // UTC and anything unrecognised
 }
 
-// Identity of the trader's current local calendar day — counters "reset" at
+// Identity of the trader's current local calendar day - counters "reset" at
 // the trader's midnight simply because this window slides.
 int LocalDayId(const datetime gmtNow) {
   return (int)((gmtNow + TimezoneOffsetMinutes(gmtNow) * 60) / 86400);
@@ -168,7 +168,7 @@ string IsoFromServerTime(const datetime serverTime) {
 }
 
 //+------------------------------------------------------------------+
-//| Sessions — mirrors src/lib/trading-sessions.ts (UTC windows)      |
+//| Sessions - mirrors src/lib/trading-sessions.ts (UTC windows)      |
 //+------------------------------------------------------------------+
 bool InUtcWindow(const double startH, const double endH, const double hourNow) {
   if (startH <= endH) return hourNow >= startH && hourNow < endH;
@@ -273,7 +273,7 @@ void ReportAccount() {
   PostJsonQueued("/api/ea/account", a.Serialize());
 }
 
-// A position (or part of one) closed — report the completed round trip.
+// A position (or part of one) closed - report the completed round trip.
 void ReportClosedDeal(const ulong closingDeal) {
   long posId = HistoryDealGetInteger(closingDeal, DEAL_POSITION_ID);
   double exitPrice = HistoryDealGetDouble(closingDeal, DEAL_PRICE);
@@ -332,7 +332,7 @@ bool FetchConfig() {
   g_cfg.configured = json["configured"].ToBool();
   if (!g_cfg.configured) {
     g_cfg.isActive = false;
-    Print("TradeForce: no charter configured yet — set rules on the dashboard.");
+    Print("TradeForce: no charter configured yet - set rules on the dashboard.");
     return true;
   }
   g_cfg.configVersion       = json["configVersion"].ToInt();
@@ -362,7 +362,7 @@ void PingForChanges() {
   long remoteVersion = json["configVersion"].ToInt();
   bool remoteConfigured = json["configured"].ToBool();
   if (remoteConfigured != g_cfg.configured || remoteVersion != g_cfg.configVersion)
-    FetchConfig(); // something changed on the dashboard — apply within seconds
+    FetchConfig(); // something changed on the dashboard - apply within seconds
 }
 
 //+------------------------------------------------------------------+
@@ -385,7 +385,7 @@ void CloseAllPositions() {
   }
 }
 
-// The daily-loss kill switch runs on every timer tick too — floating losses
+// The daily-loss kill switch runs on every timer tick too - floating losses
 // can breach the limit without any new deal happening.
 void CheckDailyLoss() {
   if (!g_cfg.configured || !g_cfg.isActive || g_cfg.dailyLossLimit <= 0) return;
@@ -403,7 +403,7 @@ void CheckDailyLoss() {
   }
 }
 
-// A new position just opened — check it against every rule, close it if it
+// A new position just opened - check it against every rule, close it if it
 // breaks the charter. "Blocking" in MT5 means closing within the same second.
 void EnforceOnOpen(const ulong openingDeal) {
   if (!g_cfg.configured || !g_cfg.isActive) return;
@@ -451,7 +451,7 @@ void EnforceOnOpen(const ulong openingDeal) {
   }
 
   // 5. Risk per trade. A position without a stop loss is unbounded risk, which
-  //    a percentage cap cannot approve — attach the SL to the order itself.
+  //    a percentage cap cannot approve - attach the SL to the order itself.
   if (g_cfg.riskPerTradePercent > 0) {
     for (int i = 0; i < PositionsTotal(); i++) {
       ulong ticket = PositionGetTicket(i);
@@ -492,7 +492,7 @@ void EnforceOnOpen(const ulong openingDeal) {
 //+------------------------------------------------------------------+
 void UpdateComment() {
   if (!g_cfg.configured) {
-    Comment("TradeForce: no charter configured — set rules on the dashboard.");
+    Comment("TradeForce: no charter configured - set rules on the dashboard.");
     return;
   }
   string status = !g_cfg.isActive ? "INACTIVE"
