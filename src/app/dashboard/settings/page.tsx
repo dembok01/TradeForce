@@ -1,3 +1,4 @@
+import Link from "next/link";
 import { getTradingPlanStatus } from "@/lib/data/trading-plan";
 import { getApiKeys } from "@/lib/data/api-keys";
 import { PageHeader } from "@/components/dashboard/page-header";
@@ -26,7 +27,11 @@ export default async function SettingsPage() {
           <CardHeader>
             <CardTitle>EA access keys</CardTitle>
             <CardDescription>
-              Phase 2 territory — generate a key now so it&apos;s ready when your EA is.
+              Generate a key, then follow the{" "}
+              <Link href="/dashboard/ea-setup" className="text-primary hover:underline">
+                EA Setup guide
+              </Link>{" "}
+              to connect your MetaTrader 5 terminal.
             </CardDescription>
           </CardHeader>
           <CardContent>

@@ -3,9 +3,9 @@
 This is the working guide for TradeForce Phase 1: a prop-firm trading discipline
 tool. This repo is a from-scratch build (see `../deltalytix/REPO_AUDIT.md` for why
 the existing Deltalytix codebase was not used as a foundation — license and
-domain-fit issues, not code quality). It ships the public landing page and the
-full dashboard web app, with the backend shaped so Phase 2's EA integration is
-additive rather than a rewrite.
+domain-fit issues, not code quality). It ships the public landing page, the
+full dashboard web app, the EA-facing API, and the MetaTrader 5 Expert Advisor
+itself (`ea/TradeForce.mq5` — compile/install/test instructions in `ea/README.md`).
 
 ## 1. Stack
 
@@ -74,15 +74,16 @@ profiles          — 1:1 with auth.users, auto-created via trigger on signup
 accounts          — a trading account; Phase 1 = one per user (is_primary)
 trading_rules     — 1:1 with accounts; both Rule Settings and Session Control
                      pages write to this single row (different column subsets)
-trades            — journal entries; source: MANUAL (Phase 1) | EA (Phase 2)
-violations        — breach log; empty until Phase 2's EA reports them
+trades            — journal entries; source: MANUAL | EA (manual entry locks
+                     while an EA has reported within 24h — see src/lib/ea-connection.ts)
+violations        — breach log; written by the EA via POST /api/ea/violations
 discipline_scores — one row per account per day; a daily cron persists rows
                      (api/cron/discipline-scores), with a live estimate from
                      violations as the fallback when no row exists (see §5)
 account_snapshots — append-only equity history, written by POST /api/ea/account
                      alongside the in-place accounts update (equity-curve source)
-api_keys          — hashed EA credentials; issuance UI ships in Phase 1,
-                     nothing consumes them until Phase 2
+api_keys          — hashed EA credentials, issued on Rule Settings and consumed
+                     by the EA; last_used_at doubles as the "EA connected" signal
 contact_messages  — landing page enquiry form, insert-only from anon
 ```
 
@@ -133,11 +134,22 @@ the Supabase dashboard or a future admin view with `service_role`).
 ### Trade Journal (`/dashboard/journal`)
 - Table (Symbol/Direction/Entry/Exit/P&L/Date-Time), inline autosaving notes
   field, date-range filter (URL-driven), manual "Log trade" dialog
+- Manual entry locks while the EA is live (last report < 24h,
+  `src/lib/ea-connection.ts`) so the record stays verified; EA rows show a
+  badge instead of a delete button and can never be deleted (enforced in the
+  server action too, not just the UI). Notes stay editable on every row.
 - Data/actions: `src/lib/data/trades.ts`, `src/lib/actions/trades.ts`
 
 ### Analytics (`/dashboard/analytics`)
 - Win rate, trades this week/month, 3 P/L bar charts (7d/8wk/6mo)
 - Data: `src/lib/data/analytics.ts`; chart: `components/dashboard/pnl-bar-chart.tsx`
+
+### EA Setup (`/dashboard/ea-setup`)
+- Connection badge (Connected / Last seen / Never connected, from
+  `api_keys.last_used_at` via `getEaConnection()`) + the 5-step install guide
+  (download → MQL5/Experts → WebRequest whitelist → API key → AutoTrading)
+- The download button appears only when `public/downloads/TradeForce.ex5`
+  exists — drop the compiled binary there (see `ea/README.md`)
 
 ### Rule Settings (`/dashboard/settings`)
 - Daily loss limit, max trades/day, max open positions, risk-per-trade %,
@@ -145,7 +157,7 @@ the Supabase dashboard or a future admin view with `service_role`).
 - EA API key issuance (generate/revoke, key shown once, stored as a SHA-256
   hash) — `src/lib/actions/api-keys.ts`, `src/lib/ea-auth.ts`
 
-### EA-facing stub API (`/api/ea/*`)
+### EA-facing API (`/api/ea/*`)
 Bearer-token auth (`Authorization: Bearer tf_live_...`), verified against the
 hashed `api_keys` table via a service-role client (`src/lib/supabase/service.ts`
 — **server-only, never import into client code**), with per-key fixed-window
@@ -160,8 +172,15 @@ rate limiting (120/min, `src/lib/rate-limit.ts` — per-instance, see §5):
   discipline score
 - `POST /api/ea/account` — equity/balance update + append-only `account_snapshots` row
 
-These are real, working, deployed endpoints today — just with no EA calling
-them yet. Test them with `curl` once you have a key from the Rule Settings page:
+The caller is `ea/TradeForce.mq5` — the MetaTrader 5 Expert Advisor. It pings
+every 5s, re-fetches config on a `configVersion` change, enforces all five
+rules close-on-violation in `OnTradeTransaction` (plus a timer-driven daily-loss
+kill switch), and reports closed deals, violations, and equity snapshots back.
+Its daily reset mirrors the web app's timezone semantics (IST/UTC/New-York with
+US DST). Compile/install/per-rule test checklist: `ea/README.md`.
+
+The endpoints can also be tested directly with `curl` once you have a key from
+the Rule Settings page:
 
 ```bash
 curl -H "Authorization: Bearer tf_live_..." https://your-deploy/api/ea/config
@@ -199,7 +218,11 @@ cp .env.example .env.local   # fill in Supabase project URL + keys
 ```
 
 In the Supabase SQL editor (or via `supabase db push` if you link the CLI), run
-`supabase/migrations/20260702000000_init_schema.sql`. Then:
+the migrations in `supabase/migrations/` in filename order — all three:
+`20260702000000_init_schema.sql`, `20260703000000_onboarding.sql`,
+`20260704000000_phase2_backend.sql`. Set `CRON_SECRET` in the deploy environment
+so the Vercel cron (`vercel.json`) can authenticate against
+`/api/cron/discipline-scores`. Then:
 
 ```bash
 npm run dev

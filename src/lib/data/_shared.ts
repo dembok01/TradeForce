@@ -42,6 +42,24 @@ export async function resolveAccountTimezone(
   return safeTimezone(profile?.timezone);
 }
 
+/** Most recent authentication by any live (non-revoked) EA key, or null. */
+export async function getEaLastSeenAt(
+  supabase: ServerClient,
+  accountId: string
+): Promise<string | null> {
+  const { data, error } = await supabase
+    .from("api_keys")
+    .select("last_used_at")
+    .eq("account_id", accountId)
+    .is("revoked_at", null)
+    .not("last_used_at", "is", null)
+    .order("last_used_at", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+  if (error) throw new Error(error.message);
+  return data?.last_used_at ?? null;
+}
+
 /**
  * Today's logged trades reduced to the two numbers every overview needs,
  * with "today" starting at the account's local midnight, not the server's.

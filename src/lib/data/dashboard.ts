@@ -1,6 +1,6 @@
 import "server-only";
 import { getAccountContext } from "@/lib/data/context";
-import { countExact, getTodayTradeStats } from "@/lib/data/_shared";
+import { countExact, getEaLastSeenAt, getTodayTradeStats } from "@/lib/data/_shared";
 import { deriveStatus, type AccountStatus } from "@/lib/risk-status";
 
 export type { AccountStatus };
@@ -23,7 +23,7 @@ export type DashboardOverview = {
 export async function getDashboardOverview(): Promise<DashboardOverview> {
   const { supabase, account } = await getAccountContext();
 
-  const [rulesRes, todayStats, violationsAllTime, lastSeenRes] = await Promise.all([
+  const [rulesRes, todayStats, violationsAllTime, eaLastSeenAt] = await Promise.all([
     supabase
       .from("trading_rules")
       .select("daily_loss_limit, max_trades_per_day")
@@ -36,19 +36,9 @@ export async function getDashboardOverview(): Promise<DashboardOverview> {
         .select("id", { count: "exact", head: true })
         .eq("account_id", account.id)
     ),
-    // Most recent authentication by any live EA key = "EA last seen".
-    supabase
-      .from("api_keys")
-      .select("last_used_at")
-      .eq("account_id", account.id)
-      .is("revoked_at", null)
-      .not("last_used_at", "is", null)
-      .order("last_used_at", { ascending: false })
-      .limit(1)
-      .maybeSingle(),
+    getEaLastSeenAt(supabase, account.id),
   ]);
   if (rulesRes.error) throw new Error(rulesRes.error.message);
-  if (lastSeenRes.error) throw new Error(lastSeenRes.error.message);
 
   const rules = rulesRes.data;
   const { todayPnl, todayTradeCount } = todayStats;
@@ -69,7 +59,7 @@ export async function getDashboardOverview(): Promise<DashboardOverview> {
     tradesRemainingToday:
       maxTradesPerDay !== null ? Math.max(0, maxTradesPerDay - todayTradeCount) : null,
     violationsAllTime,
-    eaLastSeenAt: lastSeenRes.data?.last_used_at ?? null,
+    eaLastSeenAt,
     status: deriveStatus({
       hasRules: Boolean(rules),
       dailyLossLimit,

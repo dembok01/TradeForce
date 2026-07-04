@@ -1,6 +1,6 @@
 "use client";
 
-import { useOptimistic, useRef, useState, useTransition } from "react";
+import { useOptimistic, useState, useTransition } from "react";
 import { format } from "date-fns";
 import { motion } from "motion/react";
 import { Trash2, ScrollText } from "lucide-react";
@@ -47,7 +47,13 @@ function NotesCell({ trade }: { trade: Trade }) {
   );
 }
 
-export function TradeTable({ trades }: { trades: Trade[] }) {
+export function TradeTable({
+  trades,
+  manualEntryLocked = false,
+}: {
+  trades: Trade[];
+  manualEntryLocked?: boolean;
+}) {
   // Remove the row immediately; useOptimistic reconciles with the revalidated
   // server list, and reverts if the delete throws.
   const [optimisticTrades, removeOptimistic] = useOptimistic(trades, (state, removedId: string) =>
@@ -56,10 +62,9 @@ export function TradeTable({ trades }: { trades: Trade[] }) {
   const [, startTransition] = useTransition();
 
   // Rows present at mount stagger in; rows that appear later (a freshly logged
-  // trade arriving via revalidation) get a one-time gold flash instead.
-  const seenIds = useRef<Set<string> | null>(null);
-  const isInitialRender = seenIds.current === null;
-  if (seenIds.current === null) seenIds.current = new Set(trades.map((t) => t.id));
+  // trade arriving via revalidation) get a one-time gold flash instead. The set
+  // is seeded with the mount-time rows so none of them count as new.
+  const [seenIds] = useState(() => new Set(trades.map((t) => t.id)));
 
   function handleDelete(id: string) {
     startTransition(async () => {
@@ -74,8 +79,14 @@ export function TradeTable({ trades }: { trades: Trade[] }) {
 
   if (optimisticTrades.length === 0) {
     return (
-      <EmptyState title="No trades in this range" icon={ScrollText} action={<TradeFormDialog />}>
-        Log one manually, or connect your EA in Phase 2 to fill this automatically.
+      <EmptyState
+        title="No trades in this range"
+        icon={ScrollText}
+        action={manualEntryLocked ? undefined : <TradeFormDialog />}
+      >
+        {manualEntryLocked
+          ? "Your EA records trades automatically as you take them."
+          : "Log one manually, or connect your EA to fill this automatically."}
       </EmptyState>
     );
   }
@@ -96,8 +107,8 @@ export function TradeTable({ trades }: { trades: Trade[] }) {
       </thead>
       <tbody>
         {optimisticTrades.map((trade, index) => {
-          const isNew = !isInitialRender && !seenIds.current!.has(trade.id);
-          if (isNew) seenIds.current!.add(trade.id);
+          const isNew = !seenIds.has(trade.id);
+          if (isNew) seenIds.add(trade.id);
           return (
           <motion.tr
             key={trade.id}
@@ -149,14 +160,21 @@ export function TradeTable({ trades }: { trades: Trade[] }) {
               <NotesCell trade={trade} />
             </LedgerCell>
             <LedgerCell className="pr-0">
-              <Button
-                variant="ghost"
-                size="icon"
-                aria-label={`Delete ${trade.symbol} trade`}
-                onClick={() => handleDelete(trade.id)}
-              >
-                <Trash2 className="size-4 text-muted-foreground" />
-              </Button>
+              {/* EA-reported rows are the enforced record — no delete. */}
+              {trade.source === "EA" ? (
+                <Badge variant="secondary" className="text-[10px]">
+                  EA
+                </Badge>
+              ) : (
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  aria-label={`Delete ${trade.symbol} trade`}
+                  onClick={() => handleDelete(trade.id)}
+                >
+                  <Trash2 className="size-4 text-muted-foreground" />
+                </Button>
+              )}
             </LedgerCell>
           </motion.tr>
           );

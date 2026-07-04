@@ -97,6 +97,7 @@ export function OnboardingWizard({ defaultFullName = "" }: { defaultFullName?: s
   useEffect(() => {
     const tz = Intl.DateTimeFormat().resolvedOptions().timeZone;
     if (TIMEZONE_OPTIONS.some((o) => o.value === tz)) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect -- one-shot browser-only default; an initializer would mismatch the server paint
       setValues((v) => ({ ...v, timezone: tz }));
     }
   }, []);

@@ -3,6 +3,8 @@
 import { revalidatePath } from "next/cache";
 import { createClient } from "@/lib/supabase/server";
 import { getAuthedActionContext } from "@/lib/actions/_helpers";
+import { getEaLastSeenAt } from "@/lib/data/_shared";
+import { eaSeenWithin, EA_ACTIVE_WINDOW_MS } from "@/lib/ea-connection";
 import { toActionErrorMessage } from "@/lib/action-error";
 import { tradeFormSchema } from "@/lib/schemas/trade";
 import { fieldErrorsFrom, type FieldErrors } from "@/lib/schemas/form";
@@ -36,6 +38,15 @@ export async function createTradeAction(
     const ctx = await getAuthedActionContext();
     if (!ctx.ok) return { error: ctx.error };
     const { supabase, userId, account } = ctx;
+
+    // Server-side half of the journal lock (the UI hides the dialog too):
+    // while an EA is reporting, manual rows would dilute the verified record.
+    const eaLastSeenAt = await getEaLastSeenAt(supabase, account.id);
+    if (eaSeenWithin(eaLastSeenAt, EA_ACTIVE_WINDOW_MS)) {
+      return {
+        error: "Manual entry is off while your EA is connected — trades are recorded automatically.",
+      };
+    }
 
     const { error } = await supabase.from("trades").insert({
       user_id: userId,
@@ -71,6 +82,18 @@ export async function updateTradeNotesAction(tradeId: string, notes: string) {
 
 export async function deleteTradeAction(tradeId: string) {
   const supabase = await createClient();
+
+  // EA-reported rows are the enforced record; deleting a losing trade would
+  // falsify the discipline history. (RLS scopes the read to the owner.)
+  const { data: trade, error: readError } = await supabase
+    .from("trades")
+    .select("source")
+    .eq("id", tradeId)
+    .maybeSingle();
+  if (readError) throw new Error(readError.message);
+  if (!trade) throw new Error("Trade not found.");
+  if (trade.source === "EA") throw new Error("EA-reported trades can't be deleted.");
+
   const { error } = await supabase.from("trades").delete().eq("id", tradeId);
   if (error) throw new Error(error.message);
   revalidatePath("/dashboard/journal");

@@ -3,6 +3,7 @@ import { createClient } from "@/lib/supabase/server";
 import { getProfile } from "@/lib/data/profile";
 import { Sidebar } from "@/components/dashboard/sidebar";
 import { MobileTopbar } from "@/components/dashboard/mobile-topbar";
+import { AutoRefresh } from "@/components/dashboard/auto-refresh";
 import { MotionProvider } from "@/components/motion/motion-provider";
 import { TourProvider } from "@/components/tour/tour-provider";
 
@@ -25,6 +26,7 @@ export default async function DashboardLayout({ children }: { children: React.Re
 
   return (
     <TourProvider autoStart={!profile.tour_completed_at}>
+      <AutoRefresh />
       <div className="flex min-h-screen bg-obsidian">
         <Sidebar email={user.email ?? ""} />
         <div className="flex min-w-0 flex-1 flex-col">

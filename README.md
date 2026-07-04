@@ -1,9 +1,9 @@
 # TradeForce
 
 A trader discipline and risk-enforcement platform for prop-firm traders: set a
-charter of trading rules on the web dashboard, and (Phase 2) a MetaTrader
-Expert Advisor enforces them in the terminal and reports trades, violations,
-and equity back.
+charter of trading rules on the web dashboard, and a MetaTrader 5 Expert
+Advisor (`ea/TradeForce.mq5`) enforces them in the terminal and reports trades,
+violations, and equity back.
 
 **Read [`IMPLEMENTATION_GUIDE.md`](./IMPLEMENTATION_GUIDE.md) first** — it is
 the real documentation: stack decisions, data model, page-by-page spec, and the
@@ -46,3 +46,6 @@ server): `node .claude/skills/run-tradeforce/driver.mjs smoke`
 - `src/lib/data/` — server-component read layer (RLS-scoped, throws on error);
   `src/lib/actions/` — server-action mutations; `src/lib/schemas/` — zod.
 - `supabase/migrations/` — the schema; RLS owner-only on every table.
+- `ea/` — the MQL5 Expert Advisor source + vendored JSON library; compile on
+  Windows with MetaEditor per [`ea/README.md`](./ea/README.md), then drop the
+  `.ex5` into `public/downloads/` to activate the dashboard's download button.

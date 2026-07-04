@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { formatDistanceToNowStrict } from "date-fns";
+import { eaSeenWithin, EA_CONNECTED_WINDOW_MS } from "@/lib/ea-connection";
 import { getDashboardOverview } from "@/lib/data/dashboard";
 import { getDisciplineScore } from "@/lib/data/discipline";
 import { formatCurrency } from "@/lib/format";
@@ -17,10 +18,8 @@ export default async function DashboardHomePage() {
   const [overview, discipline] = await Promise.all([getDashboardOverview(), getDisciplineScore()]);
   const isConfigured = overview.status !== "not_configured";
 
-  // An EA that's alive authenticates at least once a minute (config poll), so
-  // anything older than a few minutes means the terminal stopped reporting.
   const eaLastSeen = overview.eaLastSeenAt ? new Date(overview.eaLastSeenAt) : null;
-  const eaIsLive = eaLastSeen !== null && Date.now() - eaLastSeen.getTime() < 5 * 60 * 1000;
+  const eaIsLive = eaSeenWithin(overview.eaLastSeenAt, EA_CONNECTED_WINDOW_MS);
 
   return (
     <div>

@@ -1,8 +1,19 @@
 import "server-only";
 import { getAccountContext } from "@/lib/data/context";
+import { getEaLastSeenAt } from "@/lib/data/_shared";
+import { eaSeenWithin, EA_ACTIVE_WINDOW_MS } from "@/lib/ea-connection";
 import type { Database } from "@/lib/supabase/database.types";
 
 export type ApiKey = Database["public"]["Tables"]["api_keys"]["Row"];
+
+export type EaConnection = { lastSeenAt: string | null; manualEntryLocked: boolean };
+
+/** Whether an EA has reported recently enough to own the journal (see ea-connection.ts). */
+export async function getEaConnection(): Promise<EaConnection> {
+  const { supabase, account } = await getAccountContext();
+  const lastSeenAt = await getEaLastSeenAt(supabase, account.id);
+  return { lastSeenAt, manualEntryLocked: eaSeenWithin(lastSeenAt, EA_ACTIVE_WINDOW_MS) };
+}
 
 export async function getApiKeys(): Promise<ApiKey[]> {
   const { supabase, account } = await getAccountContext();
