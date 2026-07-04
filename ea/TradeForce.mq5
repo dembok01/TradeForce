@@ -5,7 +5,7 @@
 //+------------------------------------------------------------------+
 #property copyright "TradeForce"
 #property link      "https://trade-force-rouge.vercel.app"
-#property version   "1.00"
+#property version   "1.10"
 #property description "Enforces your TradeForce charter: daily loss limit, max trades/day, max open positions, risk per trade, session windows. Violating trades are closed immediately and reported."
 
 #include <Trade/Trade.mqh>
@@ -186,6 +186,35 @@ bool AnySessionRestriction() {
          (StringLen(g_cfg.customStart) > 0 && StringLen(g_cfg.customEnd) > 0);
 }
 
+string FormatUtcHour(double h) {
+  int hh = (int)MathFloor(h);
+  int mm = (int)MathRound((h - hh) * 60.0);
+  if (mm == 60) { hh += 1; mm = 0; }
+  return StringFormat("%02d:%02d", hh % 24, mm);
+}
+
+// When exactly one session window is enabled, hand its bounds to the violation
+// so the web app can say "outside your London window (08:00-16:30 UTC)". With
+// several enabled the bounds are ambiguous, so we leave them off and the web
+// explainer falls back to the timestamp.
+bool SingleEnabledWindow(double &startOut, double &endOut) {
+  int enabled = 0;
+  double s = 0, e = 0;
+  if (g_cfg.sesLondon)  { enabled++; s = 8.0;  e = 16.5; }
+  if (g_cfg.sesNewYork) { enabled++; s = 13.0; e = 22.0; }
+  if (g_cfg.sesAsian)   { enabled++; s = 0.0;  e = 9.0; }
+  if (g_cfg.sesOverlap) { enabled++; s = 13.0; e = 16.5; }
+  if (StringLen(g_cfg.customStart) > 0 && StringLen(g_cfg.customEnd) > 0) {
+    double cs = ParseHourString(g_cfg.customStart);
+    double ce = ParseHourString(g_cfg.customEnd);
+    if (cs >= 0 && ce >= 0) { enabled++; s = cs; e = ce; }
+  }
+  if (enabled != 1) return false;
+  startOut = s;
+  endOut = e;
+  return true;
+}
+
 bool SessionAllowedNow() {
   if (!AnySessionRestriction()) return true; // nothing restricted = trade anytime
   MqlDateTime dt;
@@ -257,9 +286,14 @@ double TodayLoss() {
 //+------------------------------------------------------------------+
 //| Reporting                                                         |
 //+------------------------------------------------------------------+
-void ReportViolation(const string type, CJAVal &details) {
+// eventId makes a report idempotent: the server dedupes on (account, eventId),
+// so a retried POST after a network drop can't log the same breach twice.
+// Callers derive it deterministically from the triggering event (position id,
+// or the local day for the once-daily loss lock).
+void ReportViolation(const string type, const string eventId, CJAVal &details) {
   CJAVal v;
   v["type"] = type;
+  if (StringLen(eventId) > 0) v["eventId"] = eventId;
   v["details"].Set(details);
   v["occurredAt"] = IsoFromServerTime(TimeCurrent());
   PostJsonQueued("/api/ea/violations", v.Serialize());
@@ -311,6 +345,9 @@ void ReportClosedDeal(const ulong closingDeal) {
   t["pnl"]        = pnl;
   t["entryTime"]  = IsoFromServerTime(entryTime);
   t["exitTime"]   = IsoFromServerTime(exitTime);
+  // The closing deal ticket is unique per round-trip; the server dedupes on
+  // (account, brokerDealId) so a retried report can't double-count P/L.
+  t["brokerDealId"] = IntegerToString(closingDeal);
   PostJsonQueued("/api/ea/trades", t.Serialize());
 }
 
@@ -399,7 +436,7 @@ void CheckDailyLoss() {
     CJAVal d;
     d["lossToday"] = loss;
     d["limit"]     = g_cfg.dailyLossLimit;
-    ReportViolation("DAILY_LOSS_BREACH", d);
+    ReportViolation("DAILY_LOSS_BREACH", "DLB-" + IntegerToString(today), d);
   }
 }
 
@@ -414,7 +451,7 @@ void EnforceOnOpen(const ulong openingDeal) {
     ClosePositionById(posId);
     CJAVal d;
     d["reason"] = "account locked for the day after daily loss breach";
-    ReportViolation("DAILY_LOSS_BREACH", d);
+    ReportViolation("DAILY_LOSS_BREACH", "LOCK-" + IntegerToString(posId), d);
     return;
   }
 
@@ -423,7 +460,12 @@ void EnforceOnOpen(const ulong openingDeal) {
     ClosePositionById(posId);
     CJAVal d;
     d["timeUtc"] = IsoFromServerTime(TimeCurrent());
-    ReportViolation("OUTSIDE_SESSION", d);
+    double ws, we;
+    if (SingleEnabledWindow(ws, we)) {
+      d["windowStart"] = FormatUtcHour(ws);
+      d["windowEnd"]   = FormatUtcHour(we);
+    }
+    ReportViolation("OUTSIDE_SESSION", "SESS-" + IntegerToString(posId), d);
     return;
   }
 
@@ -435,7 +477,7 @@ void EnforceOnOpen(const ulong openingDeal) {
       CJAVal d;
       d["tradesToday"] = today;
       d["cap"]         = g_cfg.maxTradesPerDay;
-      ReportViolation("OVERTRADING", d);
+      ReportViolation("OVERTRADING", "OT-" + IntegerToString(posId), d);
       return;
     }
   }
@@ -446,7 +488,7 @@ void EnforceOnOpen(const ulong openingDeal) {
     CJAVal d;
     d["open"] = PositionsTotal();
     d["cap"]  = g_cfg.maxOpenPositions;
-    ReportViolation("OPEN_POSITIONS_BREACH", d);
+    ReportViolation("OPEN_POSITIONS_BREACH", "OPB-" + IntegerToString(posId), d);
     return;
   }
 
@@ -477,7 +519,7 @@ void EnforceOnOpen(const ulong openingDeal) {
         if (riskPct < 0) d["reason"] = "no stop loss attached";
         else             d["riskPercent"] = NormalizeDouble(riskPct, 2);
         d["cap"] = g_cfg.riskPerTradePercent;
-        ReportViolation("RISK_PER_TRADE_BREACH", d);
+        ReportViolation("RISK_PER_TRADE_BREACH", "RPT-" + IntegerToString(posId), d);
       }
       break;
     }

@@ -1,5 +1,6 @@
 import "server-only";
 import { createClient } from "@/lib/supabase/server";
+import { getAuthedUser } from "@/lib/data/auth";
 import { getOrCreatePrimaryAccount, type Account, type ServerClient } from "@/lib/data/account";
 
 export type AuthedActionContext = {
@@ -19,9 +20,7 @@ export async function getAuthedActionContext(): Promise<
   ({ ok: true } & AuthedActionContext) | { ok: false; error: string }
 > {
   const supabase = await createClient();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
+  const user = await getAuthedUser();
   if (!user) return { ok: false, error: "Not authenticated." };
   const account = await getOrCreatePrimaryAccount(supabase);
   return { ok: true, supabase, userId: user.id, account };

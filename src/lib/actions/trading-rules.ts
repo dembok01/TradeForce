@@ -5,6 +5,7 @@ import { getAuthedActionContext } from "@/lib/actions/_helpers";
 import { toActionErrorMessage } from "@/lib/action-error";
 import { ruleSettingsSchema, sessionConfigSchema } from "@/lib/schemas/rules";
 import { fieldErrorsFrom, type FieldErrors } from "@/lib/schemas/form";
+import { log } from "@/lib/log";
 import type { ServerClient } from "@/lib/data/account";
 
 export type RuleActionState = {
@@ -14,15 +15,21 @@ export type RuleActionState = {
 };
 
 async function ensureTradingRulesRow(supabase: ServerClient, accountId: string, userId: string) {
-  const { data: existing } = await supabase
+  const { data: existing, error: readError } = await supabase
     .from("trading_rules")
     .select("id")
     .eq("account_id", accountId)
     .maybeSingle();
+  if (readError) throw new Error(readError.message);
 
   if (existing) return;
 
-  await supabase.from("trading_rules").insert({ account_id: accountId, user_id: userId });
+  const { error } = await supabase
+    .from("trading_rules")
+    .insert({ account_id: accountId, user_id: userId });
+  // Two parallel first saves can both miss the read; unique(account_id)
+  // rejects the loser — the row exists either way, which is all we need.
+  if (error && error.code !== "23505") throw new Error(error.message);
 }
 
 export async function updateSessionConfigAction(
@@ -62,7 +69,10 @@ export async function updateSessionConfigAction(
       })
       .eq("account_id", account.id);
 
-    if (error) return { error: error.message };
+    if (error) {
+      log.error("session config update failed", { detail: error.message, accountId: account.id });
+      return { error: "Couldn't save session settings. Please try again." };
+    }
 
     revalidatePath("/dashboard/sessions");
     revalidatePath("/dashboard/trading-plan");
@@ -111,7 +121,10 @@ export async function updateRuleSettingsAction(
         )
         .eq("account_id", account.id)
         .maybeSingle();
-      if (readError) return { error: readError.message };
+      if (readError) {
+        log.error("rule settings read failed", { detail: readError.message, accountId: account.id });
+        return { error: "Couldn't verify your session settings. Please try again." };
+      }
 
       const hasSessionRule =
         current &&
@@ -139,7 +152,10 @@ export async function updateRuleSettingsAction(
       })
       .eq("account_id", account.id);
 
-    if (error) return { error: error.message };
+    if (error) {
+      log.error("rule settings update failed", { detail: error.message, accountId: account.id });
+      return { error: "Couldn't save rule settings. Please try again." };
+    }
 
     revalidatePath("/dashboard/settings");
     revalidatePath("/dashboard/trading-plan");

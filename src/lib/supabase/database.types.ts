@@ -93,6 +93,7 @@ export interface Database {
           exit_time: string | null;
           notes: string | null;
           source: TradeSource;
+          broker_deal_id: string | null;
           created_at: string;
           updated_at: string;
         };
@@ -115,6 +116,7 @@ export interface Database {
           trade_id: string | null;
           type: ViolationType;
           details: Json;
+          event_id: string | null;
           occurred_at: string;
           created_at: string;
         };
@@ -204,7 +206,22 @@ export interface Database {
       };
     };
     Views: Record<string, never>;
-    Functions: Record<string, never>;
+    Functions: {
+      trades_pnl_buckets: {
+        Args: { p_account_id: string; p_tz: string };
+        Returns: {
+          kind: string;
+          bucket_date: string;
+          pnl: number;
+          trade_count: number;
+          win_count: number;
+        }[];
+      };
+      equity_sparkline: {
+        Args: { p_account_id: string; p_hours?: number; p_buckets?: number };
+        Returns: { bucket_start: string; equity: number }[];
+      };
+    };
     Enums: {
       trade_direction: TradeDirection;
       trade_source: TradeSource;

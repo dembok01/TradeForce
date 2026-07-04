@@ -1,6 +1,7 @@
 import "server-only";
 import { getAccountContext } from "@/lib/data/context";
-import { countExact, resolveAccountTimezone } from "@/lib/data/_shared";
+import { countExact } from "@/lib/data/_shared";
+import { getRequestTimezone } from "@/lib/data/rules";
 import { zonedStartOfWeek, zonedStartOfMonth } from "@/lib/time-boundaries";
 import type { Database } from "@/lib/supabase/database.types";
 
@@ -12,17 +13,13 @@ export type ViolationsOverview = {
   countThisMonth: number;
 };
 
-export const VIOLATION_LABELS: Record<Violation["type"], string> = {
-  OVERTRADING: "Overtrading",
-  OUTSIDE_SESSION: "Outside session",
-  DAILY_LOSS_BREACH: "Daily loss breach",
-  OPEN_POSITIONS_BREACH: "Open positions breach",
-  RISK_PER_TRADE_BREACH: "Risk per trade breach",
-};
+// Lives in the client-safe explainers module now; re-exported for the
+// server modules that already import it from here.
+export { VIOLATION_LABELS } from "@/lib/violation-explainers";
 
 export async function getViolationsOverview(): Promise<ViolationsOverview> {
   const { supabase, account } = await getAccountContext();
-  const timezone = await resolveAccountTimezone(supabase, account);
+  const timezone = await getRequestTimezone();
   const weekStart = zonedStartOfWeek(timezone).toISOString();
   const monthStart = zonedStartOfMonth(timezone).toISOString();
 

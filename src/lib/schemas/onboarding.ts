@@ -70,6 +70,15 @@ export const onboardingSchema = z.object({
 export type OnboardingInput = z.input<typeof onboardingSchema>;
 export type OnboardingValues = z.output<typeof onboardingSchema>;
 
+// The Settings page's Profile card edits the same four "about you" fields the
+// wizard collects — one schema so they can't drift.
+export const profileDetailsSchema = onboardingSchema.pick({
+  full_name: true,
+  experience_level: true,
+  markets_traded: true,
+  prop_firm: true,
+});
+
 // Per-step validation uses the exact same source of truth as the final parse.
 export const ONBOARDING_STEP_SCHEMAS = {
   about: onboardingSchema.pick({

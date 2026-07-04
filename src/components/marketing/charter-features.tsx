@@ -1,3 +1,5 @@
+import { Reveal } from "@/components/motion/reveal";
+
 const PROVISIONS = [
   {
     numeral: "I",
@@ -55,17 +57,16 @@ export function CharterFeatures() {
         </div>
 
         <div>
-          {PROVISIONS.map((p) => (
-            <div
-              key={p.numeral}
-              className="ledger-row grid grid-cols-[3rem_1fr] gap-6 py-7 sm:grid-cols-[4rem_1fr] sm:gap-10 md:grid-cols-[4rem_16rem_1fr]"
-            >
-              <span className="font-display text-2xl text-primary/70">{p.numeral}</span>
-              <h3 className="font-display text-lg font-medium">{p.title}</h3>
-              <p className="text-sm leading-relaxed text-muted-foreground md:max-w-md">
-                {p.description}
-              </p>
-            </div>
+          {PROVISIONS.map((p, i) => (
+            <Reveal key={p.numeral} delay={0.04 * i} y={10}>
+              <div className="ledger-row grid grid-cols-[3rem_1fr] gap-6 py-7 transition-colors hover:bg-card/40 sm:grid-cols-[4rem_1fr] sm:gap-10 md:grid-cols-[4rem_16rem_1fr]">
+                <span className="font-display text-2xl text-primary/70">{p.numeral}</span>
+                <h3 className="font-display text-lg font-medium">{p.title}</h3>
+                <p className="text-sm leading-relaxed text-muted-foreground md:max-w-md">
+                  {p.description}
+                </p>
+              </div>
+            </Reveal>
           ))}
         </div>
       </div>

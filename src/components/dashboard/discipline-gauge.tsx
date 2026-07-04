@@ -49,7 +49,8 @@ export function DisciplineGauge({ score, size = 180 }: { score: number; size?: n
     const render = (latest: number) => {
       if (numberRef.current) numberRef.current.textContent = String(Math.round(latest));
     };
-    render(progress.get());
+    // Only subscribe — no initial render call. The server HTML shows the real
+    // score, so the numeral never flashes "0" while waiting for the spring.
     return progress.on("change", render);
   }, [progress]);
 
@@ -80,7 +81,7 @@ export function DisciplineGauge({ score, size = 180 }: { score: number; size?: n
           className="fill-foreground font-mono-tabular"
           style={{ fontSize: size * 0.2, fontFamily: "var(--font-display)", fontWeight: 600 }}
         >
-          {reduceMotion ? Math.round(score) : 0}
+          {Math.round(score)}
         </text>
         <text
           x={cx}

@@ -1,14 +1,20 @@
 import Link from "next/link";
 import { getTradingPlanStatus } from "@/lib/data/trading-plan";
 import { getApiKeys } from "@/lib/data/api-keys";
+import { getProfile } from "@/lib/data/profile";
 import { PageHeader } from "@/components/dashboard/page-header";
 import { RuleSettingsForm } from "@/components/dashboard/rule-settings-form";
+import { ProfileForm } from "@/components/dashboard/profile-form";
 import { ApiKeyManager } from "@/components/dashboard/api-key-manager";
 import { Card, CardHeader, CardTitle, CardDescription, CardContent } from "@/components/ui/card";
 import { Reveal } from "@/components/motion/reveal";
 
 export default async function SettingsPage() {
-  const [{ rules }, apiKeys] = await Promise.all([getTradingPlanStatus(), getApiKeys()]);
+  const [{ rules }, apiKeys, profile] = await Promise.all([
+    getTradingPlanStatus(),
+    getApiKeys(),
+    getProfile(),
+  ]);
 
   return (
     <div>
@@ -39,6 +45,12 @@ export default async function SettingsPage() {
           </CardContent>
         </Card>
       </Reveal>
+
+      {profile && (
+        <Reveal delay={0.18} className="mt-8">
+          <ProfileForm profile={profile} />
+        </Reveal>
+      )}
     </div>
   );
 }

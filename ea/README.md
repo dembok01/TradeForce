@@ -4,6 +4,12 @@ The Expert Advisor that closes the loop: it polls the TradeForce backend for the
 user's charter, enforces all five rules inside the terminal (violating trades are
 closed immediately), and reports trades, violations, and equity back to the app.
 
+**Current version: 1.10.** Since 1.00: reports now carry idempotency keys
+(`brokerDealId` on trades, `eventId` on violations) so a retry after a network
+drop can't double-count a trade's P/L or log the same breach twice, and
+single-window session violations include the allowed window bounds. Recompile
+and re-drop the `.ex5` (below) to pick these up.
+
 ```
 ea/
 ├── TradeForce.mq5        the EA source
@@ -126,3 +132,7 @@ Run on a demo account with a small charter (e.g. daily loss $50, 2 trades/day,
     the trades-today count in the chart comment is unchanged.
 11. **Equity history** — confirm `account_snapshots` rows accumulate roughly
     every `AccountReportSeconds`.
+12. **Idempotency (v1.10)** — after a trade reports to the Journal, disconnect
+    the network briefly and take another trade so the report queues and retries;
+    confirm the trade appears exactly **once** (no duplicate row), and that a
+    session/overtrading violation likewise logs once even across a retry.

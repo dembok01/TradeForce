@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { verifyEaRequest, eaFailureResponse } from "@/lib/ea-auth";
 import { createServiceClient } from "@/lib/supabase/service";
+import { log } from "@/lib/log";
 
 // The EA polls this every ~60s to pick up rule changes made in the dashboard
 // without restarting. configVersion is bumped by a DB trigger on every rules
@@ -16,7 +17,8 @@ export async function GET(request: Request) {
     .eq("account_id", auth.accountId)
     .maybeSingle();
   if (error) {
-    return NextResponse.json({ error: error.message }, { status: 500 });
+    log.error("ea config read failed", { detail: error.message, accountId: auth.accountId });
+    return NextResponse.json({ error: "Failed to load config." }, { status: 500 });
   }
 
   if (!rules) {

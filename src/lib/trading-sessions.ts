@@ -30,6 +30,43 @@ export function isCustomWindowActive(
   return isWithinUtcWindow(startH + startM / 60, endH + endM / 60, now);
 }
 
+/** "HH:MM[:SS]" (stored as UTC wall time) → fractional UTC hours. */
+export function parseTimeToUtcHours(time: string): number {
+  const [h = 0, m = 0] = time.split(":").map(Number);
+  return h + m / 60;
+}
+
+export type SessionEdge = { label: string; kind: "closes" | "opens"; minutes: number };
+
+/**
+ * The next meaningful session boundary: if any window is active, the soonest
+ * close; otherwise the soonest open (wrapping past midnight UTC). Null when
+ * no windows are configured.
+ */
+export function nextSessionEdge(
+  sessions: { label: string; startUtc: number; endUtc: number }[],
+  now = new Date()
+): SessionEdge | null {
+  const hour = now.getUTCHours() + now.getUTCMinutes() / 60;
+  let closes: SessionEdge | null = null;
+  let opens: SessionEdge | null = null;
+
+  for (const s of sessions) {
+    if (isWithinUtcWindow(s.startUtc, s.endUtc, now)) {
+      let delta = s.endUtc - hour;
+      if (delta < 0) delta += 24;
+      const minutes = Math.round(delta * 60);
+      if (!closes || minutes < closes.minutes) closes = { label: s.label, kind: "closes", minutes };
+    } else {
+      let delta = s.startUtc - hour;
+      if (delta < 0) delta += 24;
+      const minutes = Math.round(delta * 60);
+      if (!opens || minutes < opens.minutes) opens = { label: s.label, kind: "opens", minutes };
+    }
+  }
+  return closes ?? opens;
+}
+
 export const TIMEZONE_OPTIONS = [
   { value: "Asia/Kolkata", label: "IST — India Standard Time" },
   { value: "UTC", label: "GMT / UTC — Greenwich Mean Time" },

@@ -54,12 +54,17 @@ export function Pricing() {
             <div
               key={plan.name}
               className={cn(
-                "flex flex-col rounded-xl border p-8",
+                "relative flex flex-col rounded-xl border p-8",
                 plan.featured
                   ? "border-primary/40 bg-card border-gold-glow"
                   : "border-border bg-card/60"
               )}
             >
+              {plan.featured && (
+                <span className="absolute -top-3 left-8 rounded-full border border-primary/40 bg-obsidian px-3 py-1 font-mono text-[10px] uppercase tracking-[0.15em] text-primary">
+                  For funded traders
+                </span>
+              )}
               <h3 className="font-display text-xl font-medium">{plan.name}</h3>
               <p className="mt-2 text-sm text-muted-foreground">{plan.description}</p>
               <div className="mt-6 flex items-baseline gap-1 font-mono-tabular">
