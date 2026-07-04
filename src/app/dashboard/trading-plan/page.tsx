@@ -1,12 +1,11 @@
-import Link from "next/link";
 import { getTradingPlanStatus } from "@/lib/data/trading-plan";
 import { formatCurrency } from "@/lib/format";
 import { PageHeader } from "@/components/dashboard/page-header";
 import { RuleStatusBadge } from "@/components/dashboard/rule-status-badge";
+import { CharterCallout } from "@/components/dashboard/charter-callout";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Progress } from "@/components/ui/progress";
 import { Badge } from "@/components/ui/badge";
-import { Button } from "@/components/ui/button";
 import { Reveal } from "@/components/motion/reveal";
 import { StaggerGroup, StaggerItem } from "@/components/motion/stagger";
 
@@ -30,15 +29,13 @@ export default async function TradingPlanPage() {
       <div>
         <PageHeader eyebrow="Trading Plan" title="Trading plan status" titleEmphasis="plan" />
         <Reveal y={8}>
-          <div className="border-gold-glow rounded-xl border border-primary/30 bg-primary/5 p-6">
-            <p className="font-display text-base font-medium">No rules configured yet.</p>
-            <p className="mt-1 text-sm text-muted-foreground">
-              Set your limits on the Rule Settings page to activate enforcement.
-            </p>
-            <Button variant="gold" size="sm" className="mt-4" asChild>
-              <Link href="/dashboard/settings">Set up rules</Link>
-            </Button>
-          </div>
+          <CharterCallout
+            title="No rules configured yet."
+            href="/dashboard/settings"
+            cta="Set up rules"
+          >
+            Set your limits on the Rule Settings page to activate enforcement.
+          </CharterCallout>
         </Reveal>
       </div>
     );

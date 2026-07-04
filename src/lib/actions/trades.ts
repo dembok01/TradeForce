@@ -8,6 +8,7 @@ import { eaSeenWithin, EA_ACTIVE_WINDOW_MS } from "@/lib/ea-connection";
 import { toActionErrorMessage } from "@/lib/action-error";
 import { tradeFormSchema } from "@/lib/schemas/trade";
 import { fieldErrorsFrom, type FieldErrors } from "@/lib/schemas/form";
+import { log } from "@/lib/log";
 
 export type TradeActionState = {
   error: string | null;
@@ -62,7 +63,10 @@ export async function createTradeAction(
       source: "MANUAL",
     });
 
-    if (error) return { error: error.message };
+    if (error) {
+      log.error("manual trade insert failed", { detail: error.message, accountId: account.id });
+      return { error: "Couldn't log the trade. Please try again." };
+    }
 
     revalidatePath("/dashboard/journal");
     revalidatePath("/dashboard/analytics");
@@ -75,8 +79,15 @@ export async function createTradeAction(
 
 export async function updateTradeNotesAction(tradeId: string, notes: string) {
   const supabase = await createClient();
-  const { error } = await supabase.from("trades").update({ notes: notes || null }).eq("id", tradeId);
+  // .select() so a no-op (nonexistent or non-owned id filtered by RLS) is
+  // reported as a failure instead of a silent false success.
+  const { data, error } = await supabase
+    .from("trades")
+    .update({ notes: notes || null })
+    .eq("id", tradeId)
+    .select("id");
   if (error) throw new Error(error.message);
+  if (!data || data.length === 0) throw new Error("Trade not found.");
   revalidatePath("/dashboard/journal");
 }
 

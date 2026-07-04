@@ -1,6 +1,7 @@
 import "server-only";
 import { getAccountContext } from "@/lib/data/context";
 import { countExact, getEaLastSeenAt, getTodayTradeStats } from "@/lib/data/_shared";
+import { getAccountRules } from "@/lib/data/rules";
 import { deriveStatus, type AccountStatus } from "@/lib/risk-status";
 
 export type { AccountStatus };
@@ -23,12 +24,8 @@ export type DashboardOverview = {
 export async function getDashboardOverview(): Promise<DashboardOverview> {
   const { supabase, account } = await getAccountContext();
 
-  const [rulesRes, todayStats, violationsAllTime, eaLastSeenAt] = await Promise.all([
-    supabase
-      .from("trading_rules")
-      .select("daily_loss_limit, max_trades_per_day")
-      .eq("account_id", account.id)
-      .maybeSingle(),
+  const [rules, todayStats, violationsAllTime, eaLastSeenAt] = await Promise.all([
+    getAccountRules(),
     getTodayTradeStats(supabase, account),
     countExact(() =>
       supabase
@@ -38,9 +35,7 @@ export async function getDashboardOverview(): Promise<DashboardOverview> {
     ),
     getEaLastSeenAt(supabase, account.id),
   ]);
-  if (rulesRes.error) throw new Error(rulesRes.error.message);
 
-  const rules = rulesRes.data;
   const { todayPnl, todayTradeCount } = todayStats;
 
   const dailyLossLimit = rules?.daily_loss_limit ?? null;

@@ -6,6 +6,7 @@ import { getAuthedActionContext } from "@/lib/actions/_helpers";
 import { toActionErrorMessage } from "@/lib/action-error";
 import { onboardingSchema } from "@/lib/schemas/onboarding";
 import { fieldErrorsFrom, type FieldErrors } from "@/lib/schemas/form";
+import { log } from "@/lib/log";
 
 export type OnboardingActionState = {
   error: string | null;
@@ -45,7 +46,10 @@ export async function completeOnboardingAction(input: unknown): Promise<Onboardi
       },
       { onConflict: "account_id" }
     );
-    if (rulesError) return { error: rulesError.message };
+    if (rulesError) {
+      log.error("onboarding rules upsert failed", { detail: rulesError.message, accountId: account.id });
+      return { error: "Couldn't save your charter. Please try again." };
+    }
 
     const { error: profileError } = await supabase
       .from("profiles")
@@ -58,7 +62,10 @@ export async function completeOnboardingAction(input: unknown): Promise<Onboardi
         onboarded_at: new Date().toISOString(),
       })
       .eq("id", userId);
-    if (profileError) return { error: profileError.message };
+    if (profileError) {
+      log.error("onboarding profile update failed", { detail: profileError.message, userId });
+      return { error: "Couldn't save your profile. Please try again." };
+    }
 
     revalidatePath("/dashboard");
   } catch (err) {
@@ -66,5 +73,7 @@ export async function completeOnboardingAction(input: unknown): Promise<Onboardi
   }
 
   // Outside the try so the redirect control-flow error can't be swallowed.
-  redirect("/dashboard?tour=1");
+  // New users land on EA Setup: enforcement doesn't exist until the terminal
+  // is connected, so that's the one next step that matters.
+  redirect("/dashboard/ea-setup");
 }

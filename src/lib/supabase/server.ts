@@ -1,8 +1,12 @@
+import { cache } from "react";
 import { createServerClient } from "@supabase/ssr";
 import { cookies } from "next/headers";
 import type { Database } from "@/lib/supabase/database.types";
 
-export async function createClient() {
+// cache(): one client per request no matter how many data modules ask for
+// one — which also makes every downstream cache() keyed on the client
+// instance coherent.
+export const createClient = cache(async () => {
   const cookieStore = await cookies();
 
   return createServerClient<Database>(
@@ -26,4 +30,4 @@ export async function createClient() {
       },
     }
   );
-}
+});

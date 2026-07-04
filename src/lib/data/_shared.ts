@@ -1,5 +1,6 @@
 import "server-only";
-import { safeTimezone, zonedStartOfDay } from "@/lib/time-boundaries";
+import { zonedStartOfDay } from "@/lib/time-boundaries";
+import { getRequestTimezone } from "@/lib/data/rules";
 import type { Account, ServerClient } from "@/lib/data/account";
 
 // Error policy for page-powering reads: THROW. The dashboard error boundary
@@ -14,32 +15,6 @@ export async function countExact(
   const { count, error } = await build();
   if (error) throw new Error(error.message);
   return count ?? 0;
-}
-
-/**
- * The timezone that defines this account's "today". trading_rules.timezone is
- * the enforcement source (it's what the EA config returns too); profiles is
- * the fallback for users who haven't created a rules row yet.
- */
-export async function resolveAccountTimezone(
-  supabase: ServerClient,
-  account: Account
-): Promise<string> {
-  const { data: rules, error } = await supabase
-    .from("trading_rules")
-    .select("timezone")
-    .eq("account_id", account.id)
-    .maybeSingle();
-  if (error) throw new Error(error.message);
-  if (rules?.timezone) return safeTimezone(rules.timezone);
-
-  const { data: profile, error: profileError } = await supabase
-    .from("profiles")
-    .select("timezone")
-    .eq("id", account.user_id)
-    .maybeSingle();
-  if (profileError) throw new Error(profileError.message);
-  return safeTimezone(profile?.timezone);
 }
 
 /** Most recent authentication by any live (non-revoked) EA key, or null. */
@@ -70,7 +45,7 @@ export async function getTodayTradeStats(
   supabase: ServerClient,
   account: Account
 ): Promise<{ todayPnl: number; todayTradeCount: number }> {
-  const timezone = await resolveAccountTimezone(supabase, account);
+  const timezone = await getRequestTimezone();
   const todayStart = zonedStartOfDay(timezone).toISOString();
   const { data, error } = await supabase
     .from("trades")

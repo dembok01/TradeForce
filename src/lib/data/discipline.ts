@@ -1,10 +1,15 @@
 import "server-only";
 import { subDays } from "date-fns";
 import { getAccountContext } from "@/lib/data/context";
-import { resolveAccountTimezone } from "@/lib/data/_shared";
+import { getRequestTimezone } from "@/lib/data/rules";
 import { zonedDateKey } from "@/lib/time-boundaries";
 import { disciplineFromViolationCounts } from "@/lib/discipline-score";
-import type { ViolationType } from "@/lib/supabase/database.types";
+import type { Database, ViolationType } from "@/lib/supabase/database.types";
+
+export type DisciplineViolation = Pick<
+  Database["public"]["Tables"]["violations"]["Row"],
+  "id" | "type" | "details" | "occurred_at"
+>;
 
 export type DisciplineFactors = {
   ruleAdherence: number;
@@ -13,27 +18,59 @@ export type DisciplineFactors = {
   riskManagement: number;
   total: number;
   isEstimate: boolean;
+  // The evidence behind the number: per-type counts over the scoring window
+  // and the violations themselves, so the gauge can open into a breakdown
+  // instead of being an unexplained figure.
+  counts: Record<ViolationType, number>;
+  recentViolations: DisciplineViolation[];
 };
 
+const SCORE_WINDOW_DAYS = 30;
+const RECENT_LIMIT = 50;
+
 /**
- * Phase 1 has no scheduled job computing this daily (no EA feed to trigger one
- * off yet), so if today's discipline_scores row doesn't exist, this derives a
- * live estimate from the last 30 days of violations instead of just showing
- * a blank gauge. Phase 2 should add a daily cron that writes a real row here.
+ * Prefers today's persisted discipline_scores row (written hourly by the
+ * cron); falls back to a live estimate from the same violation window. Both
+ * paths return the underlying violations — they're what a tap on the gauge
+ * drills into.
  */
 export async function getDisciplineScore(): Promise<DisciplineFactors> {
   const { supabase, account } = await getAccountContext();
-  const timezone = await resolveAccountTimezone(supabase, account);
+  const timezone = await getRequestTimezone();
   const today = zonedDateKey(timezone);
+  const since = subDays(new Date(), SCORE_WINDOW_DAYS).toISOString();
 
-  const { data: existing, error: existingError } = await supabase
-    .from("discipline_scores")
-    .select("*")
-    .eq("account_id", account.id)
-    .eq("score_date", today)
-    .maybeSingle();
-  if (existingError) throw new Error(existingError.message);
+  const [existingRes, violationsRes] = await Promise.all([
+    supabase
+      .from("discipline_scores")
+      .select("*")
+      .eq("account_id", account.id)
+      .eq("score_date", today)
+      .maybeSingle(),
+    supabase
+      .from("violations")
+      .select("id, type, details, occurred_at")
+      .eq("account_id", account.id)
+      .gte("occurred_at", since)
+      .order("occurred_at", { ascending: false })
+      .limit(RECENT_LIMIT),
+  ]);
+  if (existingRes.error) throw new Error(existingRes.error.message);
+  if (violationsRes.error) throw new Error(violationsRes.error.message);
 
+  const recentViolations = violationsRes.data ?? [];
+  const counts: Record<ViolationType, number> = {
+    OVERTRADING: 0,
+    OUTSIDE_SESSION: 0,
+    DAILY_LOSS_BREACH: 0,
+    OPEN_POSITIONS_BREACH: 0,
+    RISK_PER_TRADE_BREACH: 0,
+  };
+  for (const v of recentViolations) {
+    counts[v.type] += 1;
+  }
+
+  const existing = existingRes.data;
   if (existing) {
     return {
       ruleAdherence: existing.rule_adherence_score,
@@ -42,27 +79,10 @@ export async function getDisciplineScore(): Promise<DisciplineFactors> {
       riskManagement: existing.risk_management_score,
       total: existing.total_score,
       isEstimate: false,
+      counts,
+      recentViolations,
     };
   }
 
-  const since = subDays(new Date(), 30).toISOString();
-  const { data: violations, error: violationsError } = await supabase
-    .from("violations")
-    .select("type")
-    .eq("account_id", account.id)
-    .gte("occurred_at", since);
-  if (violationsError) throw new Error(violationsError.message);
-
-  const counts: Record<ViolationType, number> = {
-    OVERTRADING: 0,
-    OUTSIDE_SESSION: 0,
-    DAILY_LOSS_BREACH: 0,
-    OPEN_POSITIONS_BREACH: 0,
-    RISK_PER_TRADE_BREACH: 0,
-  };
-  for (const v of violations ?? []) {
-    counts[v.type] += 1;
-  }
-
-  return { ...disciplineFromViolationCounts(counts), isEstimate: true };
+  return { ...disciplineFromViolationCounts(counts), isEstimate: true, counts, recentViolations };
 }

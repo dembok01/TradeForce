@@ -13,12 +13,10 @@ export function StaggerGroup({
   children,
   className,
   stagger = 0.06,
-  ...rest
 }: {
   children: React.ReactNode;
   className?: string;
   stagger?: number;
-  "data-tour-id"?: string;
 }) {
   return (
     <motion.div
@@ -27,7 +25,6 @@ export function StaggerGroup({
       viewport={{ once: true, margin: "-40px" }}
       variants={{ hidden: {}, show: { transition: { staggerChildren: stagger } } }}
       className={className}
-      {...rest}
     >
       {children}
     </motion.div>

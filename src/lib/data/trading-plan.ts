@@ -1,11 +1,11 @@
 import "server-only";
 import { getAccountContext } from "@/lib/data/context";
 import { countExact, getTodayTradeStats } from "@/lib/data/_shared";
+import { getAccountRules, type TradingRules } from "@/lib/data/rules";
 import { deriveStatus } from "@/lib/risk-status";
 import { SESSION_WINDOWS, isWithinUtcWindow, isCustomWindowActive } from "@/lib/trading-sessions";
-import type { Database } from "@/lib/supabase/database.types";
 
-export type TradingRules = Database["public"]["Tables"]["trading_rules"]["Row"];
+export type { TradingRules };
 
 export type ActiveSession = { key: string; label: string; enabled: boolean; active: boolean };
 
@@ -22,8 +22,8 @@ export type TradingPlanStatus = {
 export async function getTradingPlanStatus(): Promise<TradingPlanStatus> {
   const { supabase, account } = await getAccountContext();
 
-  const [rulesRes, todayStats, openPositionCount] = await Promise.all([
-    supabase.from("trading_rules").select("*").eq("account_id", account.id).maybeSingle(),
+  const [rules, todayStats, openPositionCount] = await Promise.all([
+    getAccountRules(),
     getTodayTradeStats(supabase, account),
     countExact(() =>
       supabase
@@ -33,9 +33,7 @@ export async function getTradingPlanStatus(): Promise<TradingPlanStatus> {
         .is("exit_time", null)
     ),
   ]);
-  if (rulesRes.error) throw new Error(rulesRes.error.message);
 
-  const rules = rulesRes.data;
   const { todayPnl, todayTradeCount } = todayStats;
 
   const sessions: ActiveSession[] = rules

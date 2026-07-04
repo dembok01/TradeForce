@@ -2,10 +2,18 @@ import { NextResponse } from "next/server";
 import { z } from "zod";
 import { verifyEaRequest, eaFailureResponse } from "@/lib/ea-auth";
 import { createServiceClient } from "@/lib/supabase/service";
+import { EA_REPORT_BOUNDS } from "@/lib/schemas/trade";
+import { log } from "@/lib/log";
 
 const accountUpdateSchema = z.object({
-  equity: z.number().finite(),
-  balance: z.number().finite().nullable().optional(),
+  equity: z.number().finite().min(-EA_REPORT_BOUNDS.pnlAbsMax).max(EA_REPORT_BOUNDS.pnlAbsMax),
+  balance: z
+    .number()
+    .finite()
+    .min(-EA_REPORT_BOUNDS.pnlAbsMax)
+    .max(EA_REPORT_BOUNDS.pnlAbsMax)
+    .nullable()
+    .optional(),
 });
 
 // The EA POSTs current equity/balance here periodically. Two writes per report:
@@ -43,7 +51,8 @@ export async function POST(request: Request) {
 
   const error = updateRes.error ?? snapshotRes.error;
   if (error) {
-    return NextResponse.json({ error: error.message }, { status: 500 });
+    log.error("ea account report failed", { detail: error.message, accountId: auth.accountId });
+    return NextResponse.json({ error: "Failed to record account state." }, { status: 500 });
   }
 
   return NextResponse.json({ ok: true });

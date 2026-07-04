@@ -1,18 +1,15 @@
 import { redirect } from "next/navigation";
-import { createClient } from "@/lib/supabase/server";
+import { getAuthedUser } from "@/lib/data/auth";
 import { getProfile } from "@/lib/data/profile";
 import { OnboardingWizard } from "@/components/onboarding/wizard";
 
 // Deliberately outside the dashboard shell: the charter is drafted on its own
 // full-screen stage, and the dashboard layout's gate redirects here.
 export default async function OnboardingPage() {
-  const supabase = await createClient();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
+  const user = await getAuthedUser();
   if (!user) redirect("/login?next=/onboarding");
 
-  const profile = await getProfile(supabase);
+  const profile = await getProfile();
   if (profile?.onboarded_at) redirect("/dashboard");
 
   return (

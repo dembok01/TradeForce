@@ -6,6 +6,7 @@ import { createClient } from "@/lib/supabase/server";
 import { getAuthedActionContext } from "@/lib/actions/_helpers";
 import { API_KEY_PREFIX, hashApiKey } from "@/lib/ea-auth";
 import { toActionErrorMessage } from "@/lib/action-error";
+import { log } from "@/lib/log";
 import type { ApiKey } from "@/lib/data/api-keys";
 
 export async function generateApiKeyAction(
@@ -31,7 +32,10 @@ export async function generateApiKeyAction(
       .select("*")
       .single();
 
-    if (error || !created) return { error: error?.message ?? "Couldn't create key." };
+    if (error || !created) {
+      if (error) log.error("api key insert failed", { detail: error.message, accountId: account.id });
+      return { error: "Couldn't create key. Please try again." };
+    }
 
     revalidatePath("/dashboard/settings");
     return { error: null, rawKey, key: created };
@@ -43,12 +47,16 @@ export async function generateApiKeyAction(
 export async function revokeApiKeyAction(keyId: string): Promise<{ error: string | null }> {
   try {
     const supabase = await createClient();
-    const { error } = await supabase
+    // .select() so a no-op (nonexistent or non-owned id filtered by RLS) is
+    // reported as a failure instead of a silent false success.
+    const { data, error } = await supabase
       .from("api_keys")
       .update({ revoked_at: new Date().toISOString() })
-      .eq("id", keyId);
+      .eq("id", keyId)
+      .select("id");
 
     if (error) return { error: error.message };
+    if (!data || data.length === 0) return { error: "Key not found." };
 
     revalidatePath("/dashboard/settings");
     return { error: null };

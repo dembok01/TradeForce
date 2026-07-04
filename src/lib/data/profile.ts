@@ -1,21 +1,20 @@
 import "server-only";
+import { cache } from "react";
 import { createClient } from "@/lib/supabase/server";
-import type { ServerClient } from "@/lib/data/account";
+import { getAuthedUser } from "@/lib/data/auth";
 import type { Database } from "@/lib/supabase/database.types";
 
 export type Profile = Database["public"]["Tables"]["profiles"]["Row"];
 
 /**
- * The current user's profile row (created by the signup trigger). Pass an
- * existing client to avoid building a second one, mirroring
- * getOrCreatePrimaryAccount.
+ * The current user's profile row (created by the signup trigger), memoized
+ * per request — the layout, timezone fallback, and greeting all share one read.
  */
-export async function getProfile(client?: ServerClient): Promise<Profile | null> {
-  const supabase = client ?? (await createClient());
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
+export const getProfile = cache(async (): Promise<Profile | null> => {
+  const user = await getAuthedUser();
   if (!user) return null;
+
+  const supabase = await createClient();
 
   // Throw on failure rather than returning null: the dashboard layout treats
   // null as "not onboarded", so a swallowed DB error would bounce a fully
@@ -27,4 +26,4 @@ export async function getProfile(client?: ServerClient): Promise<Profile | null>
     .maybeSingle();
   if (error) throw new Error(error.message);
   return data;
-}
+});

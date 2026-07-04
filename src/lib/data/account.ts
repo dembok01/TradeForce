@@ -1,5 +1,6 @@
 import "server-only";
 import { createClient } from "@/lib/supabase/server";
+import { getAuthedUser } from "@/lib/data/auth";
 import type { Database } from "@/lib/supabase/database.types";
 
 export type Account = Database["public"]["Tables"]["accounts"]["Row"];
@@ -15,9 +16,7 @@ export type ServerClient = Awaited<ReturnType<typeof createClient>>;
  */
 export async function getOrCreatePrimaryAccount(client?: ServerClient): Promise<Account> {
   const supabase = client ?? (await createClient());
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
+  const user = await getAuthedUser();
 
   if (!user) {
     throw new Error("Not authenticated");

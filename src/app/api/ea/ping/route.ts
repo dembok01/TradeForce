@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { verifyEaRequest, eaFailureResponse } from "@/lib/ea-auth";
 import { createServiceClient } from "@/lib/supabase/service";
+import { log } from "@/lib/log";
 
 // The force-sync half of the polling loop: one indexed read returning just the
 // config version, cheap enough for the EA to hit every few seconds. When the
@@ -18,7 +19,8 @@ export async function GET(request: Request) {
     .eq("account_id", auth.accountId)
     .maybeSingle();
   if (error) {
-    return NextResponse.json({ error: error.message }, { status: 500 });
+    log.error("ea ping read failed", { detail: error.message, accountId: auth.accountId });
+    return NextResponse.json({ error: "Failed to check config version." }, { status: 500 });
   }
 
   return NextResponse.json({

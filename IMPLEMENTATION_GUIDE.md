@@ -168,10 +168,19 @@ rate limiting (120/min, `src/lib/rate-limit.ts` — per-instance, see §5):
   re-fetch config only when it changes (the force-sync path — a DB trigger bumps
   `trading_rules.config_version` on every dashboard save)
 - `POST /api/ea/trades` — trade report ingestion (zod-validated, schema shared
-  with the manual dialog in `src/lib/schemas/trade.ts`)
+  with the manual dialog in `src/lib/schemas/trade.ts`). **Idempotent** on
+  `(account_id, broker_deal_id)`: a retried report whose first attempt committed
+  can't double-count P/L.
 - `POST /api/ea/violations` — breach reports; feeds the Violation Centre and
-  discipline score
+  discipline score. Idempotent on `(account_id, event_id)`. The `details` jsonb
+  carries the exact numbers that fired (e.g. `{tradesToday, cap}`), which
+  `src/lib/violation-explainers.ts` turns into "Blocked — this would've been
+  trade #6 today; your limit is 5."
 - `POST /api/ea/account` — equity/balance update + append-only `account_snapshots` row
+- All EA routes return generic error messages to the caller and log the raw DB
+  detail server-side via `src/lib/log.ts` (structured JSON). `verifyEaRequest`
+  distinguishes a DB failure (500, retryable) from a bad key (401), and stamps
+  `api_keys.last_used_at` at most once per 60s to avoid write amplification.
 
 The caller is `ea/TradeForce.mq5` — the MetaTrader 5 Expert Advisor. It pings
 every 5s, re-fetches config on a `configVersion` change, enforces all five
@@ -187,29 +196,49 @@ the Rule Settings page:
 curl -H "Authorization: Bearer tf_live_..." https://your-deploy/api/ea/config
 ```
 
-## 5. Known Phase 1 simplifications (intentional, documented so Phase 2 doesn't rediscover them the hard way)
+## 4a. Performance & request memoization
+
+Every dashboard render shares one Supabase client, one `auth.getUser()`, one
+primary-account read, and one `trading_rules` read via React `cache()`
+(`src/lib/data/{auth,context,rules,profile}.ts`) — data modules call these
+freely without re-querying. Analytics aggregation runs in Postgres
+(`trades_pnl_buckets`, `src/lib/data/analytics.ts` via `.rpc()`) rather than
+shipping six months of trades to the app; the equity sparkline is a
+bucket-averaged downsample (`equity_sparkline`). Composite indexes back the real
+read shapes: `trades(account_id, entry_time desc)`,
+`violations(account_id, occurred_at desc)`, `api_keys(account_id)`. RLS policies
+use `(select auth.uid())` so the check is an initplan, not per-row.
+
+## 5. Known simplifications (intentional, documented so nobody rediscovers them the hard way)
 
 - **Discipline score**: `/api/cron/discipline-scores` (Vercel Cron, `vercel.json`,
-  authorized by `CRON_SECRET`) persists one row per account per day.
-  `getDisciplineScore()` still derives a live estimate from the last 30 days of
-  `violations` when today's row doesn't exist yet (e.g. before the first cron
-  run), and prefers the persisted row when it does.
+  runs **hourly** — `30 * * * *`) upserts each account's row keyed to *its own*
+  local calendar date, which is what makes it correct in every timezone (a fixed
+  UTC daily run would stamp the wrong date behind UTC). The same job prunes
+  `account_snapshots` older than 90 days. `getDisciplineScore()` prefers the
+  persisted row and falls back to a live 30-day estimate; both paths also return
+  the underlying per-type counts + violations, which power the tappable
+  gauge drill-down (`src/components/dashboard/discipline-breakdown.tsx`).
 - **Timezones**: all daily/weekly/monthly boundaries go through
   `src/lib/time-boundaries.ts` using the account's `trading_rules.timezone`
   (fallback `profiles.timezone`, then UTC) — "today" rolls over at the trader's
   midnight, not the server's.
 - **Session windows**: `src/lib/trading-sessions.ts` uses fixed approximate
-  UTC hours for London/NY/Asian, no DST handling. Fine for a status indicator;
-  revisit with a proper timezone library if session precision becomes load-bearing.
-- **Open positions**: computed as `trades` rows with `exit_time IS NULL`,
-  regardless of entry date. Correct semantically, but Phase 1 has no live feed
-  to keep it accurate in real time — it's only as fresh as the last manual entry.
+  UTC hours for London/NY/Asian, no DST handling. Fine for the status indicator
+  and the Sessions-page timeline; the EA is the source of truth for enforcement.
+- **Open positions**: computed as `trades` rows with `exit_time IS NULL`.
 - **API key security**: SHA-256-hashed (unsalted by design — 192-bit random
   keys, and the unique-index lookup needs a deterministic hash) and shown once.
   Per-key rate limiting is in-memory/per-instance (`src/lib/rate-limit.ts`) —
   a guard against runaway EA loops, not a global quota; swap in a shared store
-  (e.g. Upstash Ratelimit) if a real fleet needs one. No key scoping or expiry
-  yet.
+  (e.g. Upstash Ratelimit) if a real fleet needs one.
+- **EA setup checklist**: `/dashboard/ea-setup` is a DB-verified checklist
+  (`src/lib/setup-checklist.ts`, `src/lib/data/setup.ts`) — steps complete
+  because the database proves it (a key exists, `last_used_at` is set, an
+  EA-sourced trade exists), not because a box was ticked. The page polls
+  `GET /api/setup-status` every ~5s while incomplete so "first check-in" flips
+  live. New users land here straight out of onboarding; the old spotlight tour
+  was removed.
 
 ## 6. Setup
 
@@ -219,11 +248,14 @@ cp .env.example .env.local   # fill in Supabase project URL + keys
 ```
 
 In the Supabase SQL editor (or via `supabase db push` if you link the CLI), run
-the migrations in `supabase/migrations/` in filename order — all three:
+every file in `supabase/migrations/` in filename order (currently four:
 `20260702000000_init_schema.sql`, `20260703000000_onboarding.sql`,
-`20260704000000_phase2_backend.sql`. Set `CRON_SECRET` in the deploy environment
-so the Vercel cron (`vercel.json`) can authenticate against
-`/api/cron/discipline-scores`. Then:
+`20260704000000_phase2_backend.sql`, `20260705000000_hardening.sql`). The last
+one adds the EA idempotency columns/indexes, composite read indexes, the RLS
+initplan rewrite, and the `trades_pnl_buckets` / `equity_sparkline` SQL
+functions. `src/lib/supabase/database.types.ts` is hand-written — keep it in
+lockstep. Set `CRON_SECRET` in the deploy environment so the Vercel cron
+(`vercel.json`) can authenticate against `/api/cron/discipline-scores`. Then:
 
 ```bash
 npm run dev
