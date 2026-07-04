@@ -148,8 +148,9 @@ the Supabase dashboard or a future admin view with `service_role`).
 - Connection badge (Connected / Last seen / Never connected, from
   `api_keys.last_used_at` via `getEaConnection()`) + the 5-step install guide
   (download → MQL5/Experts → WebRequest whitelist → API key → AutoTrading)
-- The download button appears only when `public/downloads/TradeForce.ex5`
-  exists — drop the compiled binary there (see `ea/README.md`)
+- The download button serves `public/downloads/TradeForce.ex5` — the compiled
+  binary is committed there; recompile and replace it when the EA source
+  changes (see `ea/README.md`)
 
 ### Rule Settings (`/dashboard/settings`)
 - Daily loss limit, max trades/day, max open positions, risk-per-trade %,

@@ -1,5 +1,3 @@
-import { existsSync } from "node:fs";
-import { join } from "node:path";
 import Link from "next/link";
 import { formatDistanceToNowStrict } from "date-fns";
 import { Download, KeyRound, MonitorCheck, FolderCog, Globe } from "lucide-react";
@@ -13,22 +11,19 @@ import { Reveal } from "@/components/motion/reveal";
 
 const SITE_URL = process.env.NEXT_PUBLIC_SITE_URL ?? "https://trade-force-rouge.vercel.app";
 
-// The compiled EA is dropped into public/downloads/ after each MetaEditor
-// build (see ea/README.md); until then the download step shows a notice
-// instead of a dead link.
+// The compiled EA lives in public/downloads/, rebuilt via MetaEditor on
+// Windows (see ea/README.md).
 const EA_DOWNLOAD_PATH = "/downloads/TradeForce.ex5";
-const eaBinaryAvailable = () => existsSync(join(process.cwd(), "public", EA_DOWNLOAD_PATH));
 
 export default async function EaSetupPage() {
   const { lastSeenAt } = await getEaConnection();
   const connected = eaSeenWithin(lastSeenAt, EA_CONNECTED_WINDOW_MS);
-  const hasBinary = eaBinaryAvailable();
 
   const steps = [
     {
       icon: Download,
       title: "Download the TradeForce EA",
-      body: hasBinary ? (
+      body: (
         <>
           <p>Grab the compiled Expert Advisor for MetaTrader 5.</p>
           <Button variant="gold" size="sm" className="mt-3" asChild>
@@ -37,11 +32,6 @@ export default async function EaSetupPage() {
             </a>
           </Button>
         </>
-      ) : (
-        <p>
-          The compiled <code>TradeForce.ex5</code> will be available for download here shortly.
-          If you were given the file directly, continue with step 2.
-        </p>
       ),
     },
     {

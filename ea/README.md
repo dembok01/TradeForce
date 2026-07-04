@@ -34,10 +34,9 @@ ea/
 ### Publishing the binary for users
 
 Copy the compiled `TradeForce.ex5` into this repo at
-`public/downloads/TradeForce.ex5` and deploy. The **EA Setup** page in the
-dashboard checks for that file and switches its step 1 from a "coming shortly"
-notice to a live download button. (The `.ex5` is a build artifact — decide
-whether to commit it or upload it as part of the deploy.)
+`public/downloads/TradeForce.ex5`, commit, and deploy — the **EA Setup** page's
+step-1 download button serves it from there. Recompile and replace the file
+whenever `TradeForce.mq5` changes.
 
 ## Installing / running
 
