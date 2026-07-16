@@ -3,6 +3,7 @@ import { getAuthedUser } from "@/lib/data/auth";
 import { getProfile } from "@/lib/data/profile";
 import { getSetupStatus } from "@/lib/data/setup";
 import { getEaConnection } from "@/lib/data/api-keys";
+import { getEaIncident } from "@/lib/data/ea-events";
 import { eaSeenWithin, EA_CONNECTED_WINDOW_MS } from "@/lib/ea-connection";
 import type { EaState } from "@/components/dashboard/ea-status";
 import { Sidebar } from "@/components/dashboard/sidebar";
@@ -36,11 +37,26 @@ export default async function DashboardLayout({ children }: { children: React.Re
         };
 
   const { lastSeenAt } = await getEaConnection();
-  const eaState: EaState = eaSeenWithin(lastSeenAt, EA_CONNECTED_WINDOW_MS)
+  let eaState: EaState = eaSeenWithin(lastSeenAt, EA_CONNECTED_WINDOW_MS)
     ? "live"
     : lastSeenAt
       ? "stale"
       : "never";
+  if (eaState !== "live") {
+    // A stale heartbeat has three honest explanations; prefer the specific
+    // ones. The removal POST itself bumps last_used_at, so "removed" means
+    // the removal event is the newest thing we ever heard (60s clock slack).
+    const incident = await getEaIncident();
+    if (
+      incident.removedAt &&
+      (!lastSeenAt || Date.parse(incident.removedAt) >= Date.parse(lastSeenAt) - 60_000)
+    ) {
+      eaState = "removed";
+    } else if (eaState === "stale" && incident.lossLockedToday) {
+      // Terminal closed on a loss-locked day = the EA doing its job.
+      eaState = "locked";
+    }
+  }
 
   return (
     <>

@@ -173,21 +173,40 @@ rate limiting (120/min, `src/lib/rate-limit.ts` — per-instance, see §5):
   can't double-count P/L.
 - `POST /api/ea/violations` — breach reports; feeds the Violation Centre and
   discipline score. Idempotent on `(account_id, event_id)`. The `details` jsonb
-  carries the exact numbers that fired (e.g. `{tradesToday, cap}`), which
-  `src/lib/violation-explainers.ts` turns into "Blocked — this would've been
-  trade #6 today; your limit is 5."
+  carries the exact numbers that fired (e.g. `{tradesToday, cap}`, plus the
+  v1.20 standardized keys `symbol`/`volume`/`ruleValue`/`ruleLimit` and the
+  flags `blockedPendingOrder: true` — a pending deleted before it could fill,
+  $0 cost — and `autoFixed: true` — a stop-loss repaired in place instead of
+  the position being closed), which `src/lib/violation-explainers.ts` turns
+  into "Blocked — this would've been trade #6 today; your limit is 5." /
+  "Prevented — … (no cost incurred)" / "Fixed — … (no cost incurred)".
+  Neither flag changes discipline scoring.
 - `POST /api/ea/account` — equity/balance update + append-only `account_snapshots` row
+- `POST /api/ea/events` — EA lifecycle telemetry (`EA_REMOVED`, fired
+  best-effort from `OnDeinit` when the EA is dragged off the chart). Stored in
+  `ea_events`; **not** a violation and carries no score penalty. The dashboard
+  layout uses the latest row (plus a same-local-day `DAILY_LOSS_BREACH` check,
+  `src/lib/data/ea-events.ts`) to render the EA dot as "EA was removed" /
+  "EA locked (daily loss)" instead of a vague "offline".
 - All EA routes return generic error messages to the caller and log the raw DB
   detail server-side via `src/lib/log.ts` (structured JSON). `verifyEaRequest`
   distinguishes a DB failure (500, retryable) from a bad key (401), and stamps
   `api_keys.last_used_at` at most once per 60s to avoid write amplification.
 
 The caller is `ea/TradeForce.mq5` — the MetaTrader 5 Expert Advisor. It pings
-every 5s, re-fetches config on a `configVersion` change, enforces all five
-rules close-on-violation in `OnTradeTransaction` (plus a timer-driven daily-loss
-kill switch), and reports closed deals, violations, and equity snapshots back.
-Its daily reset mirrors the web app's timezone semantics (IST/UTC/New-York with
-US DST). Compile/install/per-rule test checklist: `ea/README.md`.
+every 5s, re-fetches config on a `configVersion` change, and enforces the five
+rules in layers (v1.20): a chart overlay announces every blocked state with its
+consequence before a trade happens; pending orders placed while blocked are
+deleted before they trigger ($0); missing/oversized stop-losses are repaired in
+place via `PositionModify` ($0); market orders that fill anyway are closed by
+`OnTradeTransaction` (the fallback — costs the trader the spread); and a
+daily-loss breach flattens the account then closes the terminal itself
+(`TerminalClose`, gated by the `HardLockOnLossBreach` input). MT5 offers no
+pre-broker veto for manual orders — this layering is the maximum client-side
+enforcement that exists. Config is disk-cached so connection loss fails closed
+(last-known rules keep enforcing). Its daily reset mirrors the web app's
+timezone semantics (IST/UTC/New-York with US DST). Compile/install/per-rule
+test checklist: `ea/README.md`.
 
 The endpoints can also be tested directly with `curl` once you have a key from
 the Rule Settings page:
