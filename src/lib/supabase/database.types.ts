@@ -12,6 +12,7 @@ export type ViolationType =
   | "DAILY_LOSS_BREACH"
   | "OPEN_POSITIONS_BREACH"
   | "RISK_PER_TRADE_BREACH";
+export type EaEventType = "EA_REMOVED" | "CONNECTION_LOST";
 
 export interface Database {
   public: {
@@ -186,6 +187,24 @@ export interface Database {
           key_hash: string;
         };
         Update: Partial<Database["public"]["Tables"]["api_keys"]["Row"]>;
+        Relationships: [];
+      };
+      ea_events: {
+        Row: {
+          id: string;
+          user_id: string;
+          account_id: string;
+          event_type: EaEventType;
+          details: Json;
+          occurred_at: string;
+          created_at: string;
+        };
+        Insert: Partial<Database["public"]["Tables"]["ea_events"]["Row"]> & {
+          user_id: string;
+          account_id: string;
+          event_type: EaEventType;
+        };
+        Update: Partial<Database["public"]["Tables"]["ea_events"]["Row"]>;
         Relationships: [];
       };
       contact_messages: {

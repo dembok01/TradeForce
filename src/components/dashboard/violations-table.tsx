@@ -75,7 +75,7 @@ export function ViolationsTable({ violations }: { violations: Violation[] }) {
                         className="overflow-hidden"
                       >
                         <div className="space-y-3 border-b border-border/60 bg-background/40 px-4 py-4 text-sm">
-                          <p className="text-muted-foreground">{violationAction(v.type)}</p>
+                          <p className="text-muted-foreground">{violationAction(v)}</p>
                           {figures.length > 0 && (
                             <dl className="grid grid-cols-2 gap-x-6 gap-y-1 sm:grid-cols-4">
                               {figures.map((f) => (

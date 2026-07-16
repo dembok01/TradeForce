@@ -5,8 +5,8 @@
 //+------------------------------------------------------------------+
 #property copyright "TradeForce"
 #property link      "https://trade-force-rouge.vercel.app"
-#property version   "1.10"
-#property description "Enforces your TradeForce charter: daily loss limit, max trades/day, max open positions, risk per trade, session windows. Violating trades are closed immediately and reported."
+#property version   "1.20"
+#property description "Enforces your TradeForce charter: daily loss limit, max trades/day, max open positions, risk per trade, session windows. Blocked states are announced on the chart before you trade; violating pending orders are deleted free; missing or oversized stop-losses are repaired in place; anything else is closed immediately and reported."
 
 #include <Trade/Trade.mqh>
 #include <JAson.mqh>
@@ -17,6 +17,10 @@ input string ApiKey               = "";   // EA key from Rule Settings (tf_live_
 input int    PingSeconds          = 5;    // config-version check cadence
 input int    FullSyncSeconds      = 60;   // full config re-fetch cadence
 input int    AccountReportSeconds = 60;   // equity/balance report cadence
+input int    SessionWarnSeconds   = 300;  // chart countdown before the session closes
+input int    LossLockGraceSeconds = 30;   // notice after a daily-loss breach before MT5 closes
+input int    ReopenGraceSeconds   = 20;   // notice when MT5 is reopened during a loss-locked day
+input bool   HardLockOnLossBreach = true; // false = lock the day on-chart only, never close MT5
 
 //--- config mirrored from GET /api/ea/config ------------------------
 struct TfConfig {
@@ -39,10 +43,28 @@ struct TfConfig {
 TfConfig g_cfg;
 CTrade   g_trade;
 
+// Why the charter forbids opening anything right now. This one answer drives
+// the chart overlay, the pending-order veto and the on-chart status line.
+enum ENUM_TF_BLOCK { TF_BLOCK_NONE, TF_BLOCK_SESSION, TF_BLOCK_CAP, TF_BLOCK_LOSS };
+
 datetime g_lastFullSync      = 0;
 datetime g_lastAccountReport = 0;
+datetime g_lastPing          = 0;    // the timer now ticks at 1s; pings keep their own cadence
 int      g_lossBreachDayId   = -1;   // local trading day the daily-loss lock fired
 bool     g_webRequestHinted  = false;
+
+ENUM_TF_BLOCK g_blockNow     = TF_BLOCK_NONE;
+datetime g_lossLockDeadline  = 0;    // armed = MT5 closes at this time (daily-loss breach only)
+bool     g_cfgFromCache      = false; // rules loaded from disk because the dashboard was unreachable
+bool     g_connLossAlerted   = false; // one alert per outage, cleared on the next good fetch
+
+// The 1s timer would otherwise rescan deal history every second; these memos
+// make ComputeBlocked()/TodayLoss() cheap. A new deal invalidates both.
+int      g_cacheDayId           = -1;
+int      g_tradesTodayCache     = -1;
+datetime g_tradesTodayCacheAt   = 0;
+double   g_realizedTodayCache   = 0;
+datetime g_realizedTodayCacheAt = 0;
 
 // Failed POSTs are retried on later timer ticks (lost on EA restart - the
 // server is the durable record, this just smooths transient network drops).
@@ -215,21 +237,43 @@ bool SingleEnabledWindow(double &startOut, double &endOut) {
   return true;
 }
 
-bool SessionAllowedNow() {
+bool SessionAllowedAt(const double hourUtc) {
   if (!AnySessionRestriction()) return true; // nothing restricted = trade anytime
-  MqlDateTime dt;
-  TimeToStruct(TimeGMT(), dt);
-  double hourNow = dt.hour + dt.min / 60.0;
-  if (g_cfg.sesLondon  && InUtcWindow(8.0, 16.5, hourNow))  return true;
-  if (g_cfg.sesNewYork && InUtcWindow(13.0, 22.0, hourNow)) return true;
-  if (g_cfg.sesAsian   && InUtcWindow(0.0, 9.0, hourNow))   return true;
-  if (g_cfg.sesOverlap && InUtcWindow(13.0, 16.5, hourNow)) return true;
+  if (g_cfg.sesLondon  && InUtcWindow(8.0, 16.5, hourUtc))  return true;
+  if (g_cfg.sesNewYork && InUtcWindow(13.0, 22.0, hourUtc)) return true;
+  if (g_cfg.sesAsian   && InUtcWindow(0.0, 9.0, hourUtc))   return true;
+  if (g_cfg.sesOverlap && InUtcWindow(13.0, 16.5, hourUtc)) return true;
   if (StringLen(g_cfg.customStart) > 0 && StringLen(g_cfg.customEnd) > 0) {
     double s = ParseHourString(g_cfg.customStart);
     double e = ParseHourString(g_cfg.customEnd);
-    if (s >= 0 && e >= 0 && InUtcWindow(s, e, hourNow)) return true;
+    if (s >= 0 && e >= 0 && InUtcWindow(s, e, hourUtc)) return true;
   }
   return false;
+}
+
+bool SessionAllowedNow() {
+  MqlDateTime dt;
+  TimeToStruct(TimeGMT(), dt);
+  return SessionAllowedAt(dt.hour + dt.min / 60.0);
+}
+
+// Seconds until the currently-open session flips to blocked; -1 when
+// unrestricted or already blocked. A dumb forward scan in one-minute steps
+// stays exactly consistent with SessionAllowedAt across overlapping and
+// midnight-wrapping windows, which interval algebra would have to re-derive.
+int SecondsUntilSessionClose() {
+  if (!g_cfg.configured || !g_cfg.isActive) return -1;
+  if (!AnySessionRestriction() || !SessionAllowedNow()) return -1;
+  datetime gmtNow = TimeGMT();
+  datetime minuteStart = (gmtNow / 60) * 60;
+  for (int i = 1; i <= 1441; i++) {          // windows repeat daily; 24h scan is enough
+    datetime probe = minuteStart + i * 60;
+    MqlDateTime dt;
+    TimeToStruct(probe, dt);
+    if (!SessionAllowedAt(dt.hour + dt.min / 60.0))
+      return (int)(probe - gmtNow);          // sessions flip on minute boundaries
+  }
+  return -1;
 }
 
 //+------------------------------------------------------------------+
@@ -267,6 +311,33 @@ double RealizedPnlToday() {
   return pnl;
 }
 
+// Memoized views of the two history scans above. Both only change when a
+// deal lands (invalidated in OnTradeTransaction) or the local day rolls
+// over (invalidated in OnTimer); the 5s TTL is a safety net for history
+// arriving by other means (e.g. a terminal-side resync).
+void InvalidateDayCaches() {
+  g_tradesTodayCacheAt   = 0;
+  g_realizedTodayCacheAt = 0;
+}
+
+int CachedTradesToday() {
+  datetime now = TimeCurrent();
+  if (g_tradesTodayCacheAt == 0 || now - g_tradesTodayCacheAt >= 5) {
+    g_tradesTodayCache   = TradesOpenedToday();
+    g_tradesTodayCacheAt = now;
+  }
+  return g_tradesTodayCache;
+}
+
+double CachedRealizedToday() {
+  datetime now = TimeCurrent();
+  if (g_realizedTodayCacheAt == 0 || now - g_realizedTodayCacheAt >= 5) {
+    g_realizedTodayCache   = RealizedPnlToday();
+    g_realizedTodayCacheAt = now;
+  }
+  return g_realizedTodayCache;
+}
+
 double FloatingPnl() {
   double pnl = 0;
   for (int i = 0; i < PositionsTotal(); i++) {
@@ -278,8 +349,9 @@ double FloatingPnl() {
 }
 
 // Loss counts realized + floating, matching "if everything closed right now".
+// Runs every timer second, hence the cached realized leg.
 double TodayLoss() {
-  double total = RealizedPnlToday() + FloatingPnl();
+  double total = CachedRealizedToday() + FloatingPnl();
   return total < 0 ? -total : 0;
 }
 
@@ -305,6 +377,19 @@ void ReportAccount() {
   a["equity"]  = AccountInfoDouble(ACCOUNT_EQUITY);
   a["balance"] = AccountInfoDouble(ACCOUNT_BALANCE);
   PostJsonQueued("/api/ea/account", a.Serialize());
+}
+
+// Lifecycle events (EA removed from the chart). Direct synchronous POST, not
+// queued: the caller is OnDeinit, which never gets another timer tick to
+// flush a queue. Best-effort by design - if the terminal is dying, it dies.
+void ReportEaEvent(const string eventType) {
+  CJAVal e;
+  e["type"]       = eventType;
+  e["occurredAt"] = IsoFromServerTime(TimeCurrent());
+  int status;
+  string response;
+  Http("POST", "/api/ea/events", e.Serialize(), status, response);
+  Print("TradeForce: EA event ", eventType, " (status ", status, ")");
 }
 
 // A position (or part of one) closed - report the completed round trip.
@@ -354,11 +439,73 @@ void ReportClosedDeal(const ulong closingDeal) {
 //+------------------------------------------------------------------+
 //| Config sync                                                       |
 //+------------------------------------------------------------------+
+// Fail-closed on connection loss (founder brief): the last good config is
+// persisted to MQL5/Files and reloaded when the dashboard is unreachable, so
+// enforcement never switches off with the network. The cache is only used
+// when the FETCH fails - a server that answers "not configured" is
+// authoritative and must not be overridden by yesterday's rules.
+#define TF_CFG_FILE "TradeForce_cfg.json"
+
+void SaveConfigToDisk() {
+  if (!g_cfg.configured) return;
+  CJAVal j;
+  j["configured"]          = true;
+  j["configVersion"]       = g_cfg.configVersion;
+  j["isActive"]            = g_cfg.isActive;
+  j["dailyLossLimit"]      = g_cfg.dailyLossLimit;
+  j["maxTradesPerDay"]     = g_cfg.maxTradesPerDay;
+  j["maxOpenPositions"]    = g_cfg.maxOpenPositions;
+  j["riskPerTradePercent"] = g_cfg.riskPerTradePercent;
+  j["sesLondon"]           = g_cfg.sesLondon;
+  j["sesNewYork"]          = g_cfg.sesNewYork;
+  j["sesAsian"]            = g_cfg.sesAsian;
+  j["sesOverlap"]          = g_cfg.sesOverlap;
+  j["customStart"]         = g_cfg.customStart;
+  j["customEnd"]           = g_cfg.customEnd;
+  j["timezone"]            = g_cfg.timezone;
+  int h = FileOpen(TF_CFG_FILE, FILE_WRITE | FILE_TXT | FILE_ANSI);
+  if (h == INVALID_HANDLE) return;
+  FileWriteString(h, j.Serialize());
+  FileClose(h);
+}
+
+bool LoadConfigFromDisk() {
+  if (!FileIsExist(TF_CFG_FILE)) return false;
+  int h = FileOpen(TF_CFG_FILE, FILE_READ | FILE_TXT | FILE_ANSI);
+  if (h == INVALID_HANDLE) return false;
+  string body = "";
+  while (!FileIsEnding(h)) body += FileReadString(h);
+  FileClose(h);
+  CJAVal j;
+  if (!j.Deserialize(body)) return false;
+  if (!j["configured"].ToBool()) return false;
+  g_cfg.configured          = true;
+  g_cfg.configVersion       = j["configVersion"].ToInt();
+  g_cfg.isActive            = j["isActive"].ToBool();
+  g_cfg.dailyLossLimit      = j["dailyLossLimit"].ToDbl();
+  g_cfg.maxTradesPerDay     = (int)j["maxTradesPerDay"].ToInt();
+  g_cfg.maxOpenPositions    = (int)j["maxOpenPositions"].ToInt();
+  g_cfg.riskPerTradePercent = j["riskPerTradePercent"].ToDbl();
+  g_cfg.sesLondon           = j["sesLondon"].ToBool();
+  g_cfg.sesNewYork          = j["sesNewYork"].ToBool();
+  g_cfg.sesAsian            = j["sesAsian"].ToBool();
+  g_cfg.sesOverlap          = j["sesOverlap"].ToBool();
+  g_cfg.customStart         = j["customStart"].ToStr();
+  g_cfg.customEnd           = j["customEnd"].ToStr();
+  g_cfg.timezone            = j["timezone"].ToStr();
+  g_cfgFromCache = true;
+  return true;
+}
+
 bool FetchConfig() {
   int status;
   string body;
   if (!Http("GET", "/api/ea/config", "", status, body) || status != 200) {
     Print("TradeForce: config fetch failed (status ", status, ")");
+    if (g_cfg.configured && !g_connLossAlerted) {
+      g_connLossAlerted = true;
+      Alert("TradeForce: dashboard unreachable - enforcing last-known rules until it reconnects.");
+    }
     return false;
   }
   CJAVal json;
@@ -386,6 +533,12 @@ bool FetchConfig() {
   g_cfg.customEnd           = json["sessions"]["customEnd"].ToStr();
   g_cfg.timezone            = json["sessions"]["timezone"].ToStr();
   g_lastFullSync = TimeCurrent();
+  g_cfgFromCache = false;
+  if (g_connLossAlerted) {
+    g_connLossAlerted = false;
+    Print("TradeForce: dashboard connection restored.");
+  }
+  SaveConfigToDisk();
   Print("TradeForce: config loaded (v", g_cfg.configVersion, ", active=", g_cfg.isActive, ")");
   return true;
 }
@@ -422,9 +575,119 @@ void CloseAllPositions() {
   }
 }
 
+//+------------------------------------------------------------------+
+//| Block state - is opening anything right now against the charter?  |
+//+------------------------------------------------------------------+
+// Priority mirrors the founder brief: a dead day trumps the cap, the cap
+// trumps the session window. TF_BLOCK_NONE also covers "charter paused" -
+// the trader withdrew consent, so nothing is enforced.
+ENUM_TF_BLOCK ComputeBlocked() {
+  if (!g_cfg.configured || !g_cfg.isActive) return TF_BLOCK_NONE;
+  if (g_lossBreachDayId == LocalDayId(TimeGMT())) return TF_BLOCK_LOSS;
+  if (g_cfg.maxTradesPerDay > 0 && CachedTradesToday() >= g_cfg.maxTradesPerDay) return TF_BLOCK_CAP;
+  if (!SessionAllowedNow()) return TF_BLOCK_SESSION;
+  return TF_BLOCK_NONE;
+}
+
+bool IsPendingOrderType(const ENUM_ORDER_TYPE t) {
+  return t == ORDER_TYPE_BUY_LIMIT      || t == ORDER_TYPE_SELL_LIMIT ||
+         t == ORDER_TYPE_BUY_STOP       || t == ORDER_TYPE_SELL_STOP  ||
+         t == ORDER_TYPE_BUY_STOP_LIMIT || t == ORDER_TYPE_SELL_STOP_LIMIT;
+}
+
+// Untriggered pending orders are the one thing MT5 lets us veto for free -
+// deleting one costs nothing because it never paid the spread. Market order
+// types are never touched here: in the order list they are already in
+// transit and fighting the broker over them is pointless.
+int DeleteAllPendingOrders() {
+  int deleted = 0;
+  for (int i = OrdersTotal() - 1; i >= 0; i--) {
+    ulong ticket = OrderGetTicket(i);
+    if (ticket == 0) continue;
+    if (!IsPendingOrderType((ENUM_ORDER_TYPE)OrderGetInteger(ORDER_TYPE))) continue;
+    if (g_trade.OrderDelete(ticket)) deleted++;
+    else Print("TradeForce: could not delete pending #", ticket, " - if it fills, enforcement closes it.");
+  }
+  return deleted;
+}
+
+// A pending order placed while the charter forbids trading: delete it before
+// it can trigger and report the attempt. This is genuine prevention - the
+// order never reaches the market, so the block costs the trader $0.
+void BlockPendingOrder(const ulong ticket, const string symbol, const ENUM_TF_BLOCK cause) {
+  double volume = 0;
+  if (OrderSelect(ticket)) volume = OrderGetDouble(ORDER_VOLUME_CURRENT);
+  if (!g_trade.OrderDelete(ticket)) {
+    // Mid-fill or already gone - the resulting deal lands in EnforceOnOpen.
+    Print("TradeForce: could not delete blocked pending #", ticket);
+    return;
+  }
+  CJAVal d;
+  d["blockedPendingOrder"] = true;
+  d["orderTicket"] = IntegerToString(ticket);
+  d["symbol"]      = symbol;
+  d["volume"]      = volume;
+  string type = "OUTSIDE_SESSION";
+  if (cause == TF_BLOCK_CAP) {
+    type = "OVERTRADING";
+    d["tradesToday"] = CachedTradesToday() + 1; // the trade it would have been
+    d["cap"]         = g_cfg.maxTradesPerDay;
+    d["ruleValue"]   = CachedTradesToday() + 1;
+    d["ruleLimit"]   = g_cfg.maxTradesPerDay;
+  } else if (cause == TF_BLOCK_LOSS) {
+    type = "DAILY_LOSS_BREACH";
+    d["reason"] = "account locked for the day after daily loss breach";
+  } else {
+    d["timeUtc"] = IsoFromServerTime(TimeCurrent());
+    double ws, we;
+    if (SingleEnabledWindow(ws, we)) {
+      d["windowStart"] = FormatUtcHour(ws);
+      d["windowEnd"]   = FormatUtcHour(we);
+    }
+  }
+  ReportViolation(type, "PO-" + IntegerToString(ticket), d);
+}
+
+//+------------------------------------------------------------------+
+//| Daily-loss lockdown - the only path that ever closes the terminal |
+//+------------------------------------------------------------------+
+// Safe to be this aggressive precisely because the account is flat by the
+// time it fires: CheckDailyLoss already closed everything, so the only
+// trade a dead terminal prevents is the revenge trade.
+void ArmLossLockdown(const int graceSeconds) {
+  if (!HardLockOnLossBreach) return;
+  if (g_lossLockDeadline > 0) return; // already counting down
+  g_lossLockDeadline = TimeCurrent() + MathMax(5, graceSeconds);
+  Alert(StringFormat("TradeForce: daily loss limit hit - MT5 closes in %d seconds. Locked until your local midnight.",
+                     MathMax(5, graceSeconds)));
+}
+
+// Best-effort final drain before TerminalClose: the retry queue lives in
+// memory and dies with the terminal. Bounded to a few seconds.
+void FlushPendingHard(const int passes) {
+  for (int p = 0; p < passes && g_pendingCount > 0; p++) {
+    FlushPending();
+    if (g_pendingCount > 0) Sleep(500);
+  }
+}
+
+void ExecuteLossLockdown() {
+  DeleteAllPendingOrders(); // GTC pendings would fill server-side while MT5 is closed
+  ReportAccount();          // final equity snapshot for the dashboard
+  FlushPendingHard(3);
+  Alert("TradeForce: closing MT5 - daily loss limit. Trading resumes after your local midnight.");
+  Print("TradeForce: TerminalClose() on daily-loss lockdown.");
+  if (!TerminalClose(0))
+    Print("TradeForce: TerminalClose failed - retrying next tick.");
+  // Deadline stays armed on purpose: a failed close retries next second.
+  return;
+}
+
 // The daily-loss kill switch runs on every timer tick too - floating losses
-// can breach the limit without any new deal happening.
-void CheckDailyLoss() {
+// can breach the limit without any new deal happening. `startup=true` (from
+// OnInit, after a restart into an already-breached day) shortens the lockdown
+// notice to ReopenGraceSeconds - the trader already had the full notice once.
+void CheckDailyLoss(const bool startup = false) {
   if (!g_cfg.configured || !g_cfg.isActive || g_cfg.dailyLossLimit <= 0) return;
   double loss = TodayLoss();
   if (loss < g_cfg.dailyLossLimit) return;
@@ -436,21 +699,81 @@ void CheckDailyLoss() {
     CJAVal d;
     d["lossToday"] = loss;
     d["limit"]     = g_cfg.dailyLossLimit;
+    d["ruleValue"] = loss;
+    d["ruleLimit"] = g_cfg.dailyLossLimit;
     ReportViolation("DAILY_LOSS_BREACH", "DLB-" + IntegerToString(today), d);
   }
+  ArmLossLockdown(startup ? ReopenGraceSeconds : LossLockGraceSeconds);
+}
+
+// Scenarios 4 & 6: a missing or oversized stop-loss is repaired in place.
+// PositionModify costs nothing, PositionClose costs the spread - so the trade
+// survives, pinned to exactly the trader's own risk cap. Falls back to the
+// old close-on-violation only when the broker won't accept the compliant SL
+// (stops level too wide) or the modify itself fails (e.g. AutoTrading off).
+// The caller must have the position selected (PositionSelectByTicket).
+void AutoFixStopLoss(const ulong ticket, const long posId, const string symbol,
+                     const double openPrice, const double volume, const double riskPct) {
+  double balance  = AccountInfoDouble(ACCOUNT_BALANCE);
+  double tickSize = SymbolInfoDouble(symbol, SYMBOL_TRADE_TICK_SIZE);
+  double tickVal  = SymbolInfoDouble(symbol, SYMBOL_TRADE_TICK_VALUE);
+  long   posType  = PositionGetInteger(POSITION_TYPE);
+  double tp       = PositionGetDouble(POSITION_TP);
+
+  double newSl   = 0;
+  bool   fixable = (balance > 0 && tickSize > 0 && tickVal > 0 && volume > 0);
+  if (fixable) {
+    double riskMoney = balance * g_cfg.riskPerTradePercent / 100.0;
+    double offset    = riskMoney / (tickVal / tickSize * volume); // price distance worth exactly the cap
+    int    digits    = (int)SymbolInfoInteger(symbol, SYMBOL_DIGITS);
+    newSl = (posType == POSITION_TYPE_BUY) ? openPrice - offset : openPrice + offset;
+    newSl = NormalizeDouble(newSl, digits);
+
+    // The broker's minimum stop distance can make the compliant SL illegal.
+    double minDist = SymbolInfoInteger(symbol, SYMBOL_TRADE_STOPS_LEVEL) * SymbolInfoDouble(symbol, SYMBOL_POINT);
+    double bid = SymbolInfoDouble(symbol, SYMBOL_BID);
+    double ask = SymbolInfoDouble(symbol, SYMBOL_ASK);
+    if (posType == POSITION_TYPE_BUY  && newSl > bid - minDist) fixable = false;
+    if (posType == POSITION_TYPE_SELL && newSl < ask + minDist) fixable = false;
+  }
+
+  bool fixed = fixable && g_trade.PositionModify(ticket, newSl, tp);
+
+  CJAVal d;
+  d["symbol"]    = symbol;
+  d["volume"]    = volume;
+  d["cap"]       = g_cfg.riskPerTradePercent;
+  d["ruleLimit"] = g_cfg.riskPerTradePercent;
+  if (riskPct < 0) d["reason"] = "no stop loss attached";
+  else {
+    d["riskPercent"] = NormalizeDouble(riskPct, 2);
+    d["ruleValue"]   = NormalizeDouble(riskPct, 2);
+  }
+  if (fixed) {
+    d["autoFixed"] = true;
+    d["newSl"]     = newSl;
+    Print("TradeForce: auto-fixed stop-loss on position ", posId, " to ", DoubleToString(newSl, 8));
+  } else {
+    g_trade.PositionClose(ticket);
+  }
+  ReportViolation("RISK_PER_TRADE_BREACH", "RPT-" + IntegerToString(posId), d);
 }
 
 // A new position just opened - check it against every rule, close it if it
 // breaks the charter. "Blocking" in MT5 means closing within the same second.
 void EnforceOnOpen(const ulong openingDeal) {
   if (!g_cfg.configured || !g_cfg.isActive) return;
-  long posId = HistoryDealGetInteger(openingDeal, DEAL_POSITION_ID);
+  long   posId      = HistoryDealGetInteger(openingDeal, DEAL_POSITION_ID);
+  string dealSymbol = HistoryDealGetString(openingDeal, DEAL_SYMBOL);
+  double dealVolume = HistoryDealGetDouble(openingDeal, DEAL_VOLUME);
 
   // 1. Locked day: after a daily-loss breach, nothing new stays open today.
   if (g_lossBreachDayId == LocalDayId(TimeGMT())) {
     ClosePositionById(posId);
     CJAVal d;
     d["reason"] = "account locked for the day after daily loss breach";
+    d["symbol"] = dealSymbol;
+    d["volume"] = dealVolume;
     ReportViolation("DAILY_LOSS_BREACH", "LOCK-" + IntegerToString(posId), d);
     return;
   }
@@ -460,6 +783,8 @@ void EnforceOnOpen(const ulong openingDeal) {
     ClosePositionById(posId);
     CJAVal d;
     d["timeUtc"] = IsoFromServerTime(TimeCurrent());
+    d["symbol"]  = dealSymbol;
+    d["volume"]  = dealVolume;
     double ws, we;
     if (SingleEnabledWindow(ws, we)) {
       d["windowStart"] = FormatUtcHour(ws);
@@ -469,7 +794,22 @@ void EnforceOnOpen(const ulong openingDeal) {
     return;
   }
 
-  // 3. Daily trade cap (this deal is already included in the count).
+  // 3. Max open positions (founder-brief priority: positions before trades;
+  //    a news gate is reserved between the session and this check).
+  if (g_cfg.maxOpenPositions > 0 && PositionsTotal() > g_cfg.maxOpenPositions) {
+    ClosePositionById(posId);
+    CJAVal d;
+    d["open"]      = PositionsTotal();
+    d["cap"]       = g_cfg.maxOpenPositions;
+    d["ruleValue"] = PositionsTotal();
+    d["ruleLimit"] = g_cfg.maxOpenPositions;
+    d["symbol"]    = dealSymbol;
+    d["volume"]    = dealVolume;
+    ReportViolation("OPEN_POSITIONS_BREACH", "OPB-" + IntegerToString(posId), d);
+    return;
+  }
+
+  // 4. Daily trade cap (this deal is already included in the count).
   if (g_cfg.maxTradesPerDay > 0) {
     int today = TradesOpenedToday();
     if (today > g_cfg.maxTradesPerDay) {
@@ -477,19 +817,13 @@ void EnforceOnOpen(const ulong openingDeal) {
       CJAVal d;
       d["tradesToday"] = today;
       d["cap"]         = g_cfg.maxTradesPerDay;
+      d["ruleValue"]   = today;
+      d["ruleLimit"]   = g_cfg.maxTradesPerDay;
+      d["symbol"]      = dealSymbol;
+      d["volume"]      = dealVolume;
       ReportViolation("OVERTRADING", "OT-" + IntegerToString(posId), d);
       return;
     }
-  }
-
-  // 4. Max open positions.
-  if (g_cfg.maxOpenPositions > 0 && PositionsTotal() > g_cfg.maxOpenPositions) {
-    ClosePositionById(posId);
-    CJAVal d;
-    d["open"] = PositionsTotal();
-    d["cap"]  = g_cfg.maxOpenPositions;
-    ReportViolation("OPEN_POSITIONS_BREACH", "OPB-" + IntegerToString(posId), d);
-    return;
   }
 
   // 5. Risk per trade. A position without a stop loss is unbounded risk, which
@@ -513,20 +847,155 @@ void EnforceOnOpen(const ulong openingDeal) {
         double riskMoney = MathAbs(open - sl) / tickSize * tickVal * volume;
         riskPct = riskMoney / balance * 100.0;
       }
-      if (riskPct < 0 || riskPct > g_cfg.riskPerTradePercent) {
-        g_trade.PositionClose(ticket);
-        CJAVal d;
-        if (riskPct < 0) d["reason"] = "no stop loss attached";
-        else             d["riskPercent"] = NormalizeDouble(riskPct, 2);
-        d["cap"] = g_cfg.riskPerTradePercent;
-        ReportViolation("RISK_PER_TRADE_BREACH", "RPT-" + IntegerToString(posId), d);
-      }
+      if (riskPct < 0 || riskPct > g_cfg.riskPerTradePercent)
+        AutoFixStopLoss(ticket, posId, symbol, open, volume, riskPct);
       break;
     }
   }
 
   // Anything opened may also tip the daily loss over.
   CheckDailyLoss();
+}
+
+//+------------------------------------------------------------------+
+//| Chart overlay - banner + watermark, never an opaque cover         |
+//+------------------------------------------------------------------+
+// The candles (and any riding position) must stay visible: the overlay's job
+// is to make the blocked state impossible to miss, not to hide the market.
+// MQL5 objects have no alpha channel, so "translucent" = watermark text
+// drawn behind the candles rather than a tinted rectangle over them.
+#define TF_OBJ_BANNER     "TF_OVERLAY_BANNER"
+#define TF_OBJ_BANNER_TXT "TF_OVERLAY_BANNER_TEXT"
+#define TF_OBJ_WATERMARK  "TF_OVERLAY_WATERMARK"
+
+void RemoveOverlay() {
+  if (ObjectFind(0, TF_OBJ_BANNER) < 0 && ObjectFind(0, TF_OBJ_WATERMARK) < 0) return;
+  ObjectDelete(0, TF_OBJ_BANNER);
+  ObjectDelete(0, TF_OBJ_BANNER_TXT);
+  ObjectDelete(0, TF_OBJ_WATERMARK);
+  ChartRedraw(0);
+}
+
+void ShowOverlay(const string bannerText, const string watermarkText, const color accent) {
+  long w = ChartGetInteger(0, CHART_WIDTH_IN_PIXELS);
+  long h = ChartGetInteger(0, CHART_HEIGHT_IN_PIXELS);
+
+  if (ObjectFind(0, TF_OBJ_BANNER) < 0) {
+    ObjectCreate(0, TF_OBJ_BANNER, OBJ_RECTANGLE_LABEL, 0, 0, 0);
+    ObjectSetInteger(0, TF_OBJ_BANNER, OBJPROP_CORNER, CORNER_LEFT_UPPER);
+    ObjectSetInteger(0, TF_OBJ_BANNER, OBJPROP_XDISTANCE, 0);
+    ObjectSetInteger(0, TF_OBJ_BANNER, OBJPROP_YDISTANCE, 0);
+    ObjectSetInteger(0, TF_OBJ_BANNER, OBJPROP_BORDER_TYPE, BORDER_FLAT);
+    ObjectSetInteger(0, TF_OBJ_BANNER, OBJPROP_SELECTABLE, false);
+    ObjectSetInteger(0, TF_OBJ_BANNER, OBJPROP_HIDDEN, true);
+  }
+  ObjectSetInteger(0, TF_OBJ_BANNER, OBJPROP_XSIZE, w);
+  ObjectSetInteger(0, TF_OBJ_BANNER, OBJPROP_YSIZE, 32);
+  ObjectSetInteger(0, TF_OBJ_BANNER, OBJPROP_BGCOLOR, accent);
+  ObjectSetInteger(0, TF_OBJ_BANNER, OBJPROP_COLOR, accent);
+
+  if (ObjectFind(0, TF_OBJ_BANNER_TXT) < 0) {
+    ObjectCreate(0, TF_OBJ_BANNER_TXT, OBJ_LABEL, 0, 0, 0);
+    ObjectSetInteger(0, TF_OBJ_BANNER_TXT, OBJPROP_CORNER, CORNER_LEFT_UPPER);
+    ObjectSetInteger(0, TF_OBJ_BANNER_TXT, OBJPROP_XDISTANCE, 8);
+    ObjectSetInteger(0, TF_OBJ_BANNER_TXT, OBJPROP_YDISTANCE, 8);
+    ObjectSetInteger(0, TF_OBJ_BANNER_TXT, OBJPROP_SELECTABLE, false);
+    ObjectSetInteger(0, TF_OBJ_BANNER_TXT, OBJPROP_HIDDEN, true);
+    ObjectSetString(0, TF_OBJ_BANNER_TXT, OBJPROP_FONT, "Arial Bold");
+    ObjectSetInteger(0, TF_OBJ_BANNER_TXT, OBJPROP_FONTSIZE, 9);
+    ObjectSetInteger(0, TF_OBJ_BANNER_TXT, OBJPROP_COLOR, clrWhite);
+  }
+  ObjectSetString(0, TF_OBJ_BANNER_TXT, OBJPROP_TEXT, bannerText);
+
+  if (StringLen(watermarkText) == 0) {
+    ObjectDelete(0, TF_OBJ_WATERMARK);
+  } else {
+    if (ObjectFind(0, TF_OBJ_WATERMARK) < 0) {
+      ObjectCreate(0, TF_OBJ_WATERMARK, OBJ_LABEL, 0, 0, 0);
+      ObjectSetInteger(0, TF_OBJ_WATERMARK, OBJPROP_CORNER, CORNER_LEFT_UPPER);
+      ObjectSetInteger(0, TF_OBJ_WATERMARK, OBJPROP_ANCHOR, ANCHOR_CENTER);
+      ObjectSetInteger(0, TF_OBJ_WATERMARK, OBJPROP_SELECTABLE, false);
+      ObjectSetInteger(0, TF_OBJ_WATERMARK, OBJPROP_HIDDEN, true);
+      ObjectSetInteger(0, TF_OBJ_WATERMARK, OBJPROP_BACK, true); // draw behind the candles
+      ObjectSetString(0, TF_OBJ_WATERMARK, OBJPROP_FONT, "Arial Black");
+      ObjectSetInteger(0, TF_OBJ_WATERMARK, OBJPROP_FONTSIZE, 30);
+    }
+    ObjectSetInteger(0, TF_OBJ_WATERMARK, OBJPROP_XDISTANCE, w / 2);
+    ObjectSetInteger(0, TF_OBJ_WATERMARK, OBJPROP_YDISTANCE, h / 2);
+    ObjectSetInteger(0, TF_OBJ_WATERMARK, OBJPROP_COLOR, accent);
+    ObjectSetString(0, TF_OBJ_WATERMARK, OBJPROP_TEXT, watermarkText);
+  }
+  ChartRedraw(0);
+}
+
+// Copy rule (design review): state the consequence, not just the state - a
+// trade closed seconds after filling must read as enforcement, not a bug.
+string BlockBannerText(const ENUM_TF_BLOCK reason) {
+  switch (reason) {
+    case TF_BLOCK_LOSS:
+      return "DAY LOCKED - daily loss limit hit. Anything opened today is closed instantly at your cost.";
+    case TF_BLOCK_CAP:
+      return StringFormat("DAILY CAP REACHED (%d/%d) - another trade will be auto-closed at your cost.",
+                          CachedTradesToday(), g_cfg.maxTradesPerDay);
+    case TF_BLOCK_SESSION: {
+      double ws, we;
+      if (SingleEnabledWindow(ws, we))
+        return StringFormat("OUTSIDE SESSION (%s-%s UTC) - a trade placed now will be auto-closed at a loss (you pay the spread).",
+                            FormatUtcHour(ws), FormatUtcHour(we));
+      return "OUTSIDE SESSION - a trade placed now will be auto-closed at a loss (you pay the spread).";
+    }
+  }
+  return "";
+}
+
+string BlockWatermarkText(const ENUM_TF_BLOCK reason) {
+  if (reason == TF_BLOCK_LOSS)    return "DAY LOCKED";
+  if (reason == TF_BLOCK_CAP)     return "CAP REACHED";
+  if (reason == TF_BLOCK_SESSION) return "OUTSIDE SESSION";
+  return "";
+}
+
+// Reconcile g_blockNow with reality; transition side-effects fire exactly once.
+void RefreshBlockState() {
+  ENUM_TF_BLOCK now = ComputeBlocked();
+  if (now == g_blockNow) return;
+  g_blockNow = now;
+
+  // Entering session-blocked or a loss-locked day: sweep untriggered pending
+  // orders. They were legally placed, but they'd fill while the charter says
+  // no trading - deleting them now is free, closing them after a fill is not.
+  // Journal only, no violation: the trader broke no rule placing them.
+  if (now == TF_BLOCK_SESSION || now == TF_BLOCK_LOSS) {
+    int swept = DeleteAllPendingOrders();
+    if (swept > 0) Print("TradeForce: swept ", swept, " pending order(s) on entering a blocked state.");
+  }
+
+  if (now != TF_BLOCK_NONE) Alert("TradeForce: " + BlockBannerText(now));
+  else Print("TradeForce: trading unblocked.");
+}
+
+// Blocked -> banner + watermark. Unblocked near session end -> countdown.
+void UpdateOverlay() {
+  if (g_lossLockDeadline > 0) {
+    int left = (int)(g_lossLockDeadline - TimeCurrent());
+    if (left < 0) left = 0;
+    ShowOverlay(StringFormat("DAILY LOSS LIMIT HIT - MT5 CLOSES IN %02d:%02d. Locked until your local midnight.",
+                             left / 60, left % 60),
+                "DAY LOCKED", clrFireBrick);
+    return;
+  }
+  if (g_blockNow != TF_BLOCK_NONE) {
+    ShowOverlay(BlockBannerText(g_blockNow), BlockWatermarkText(g_blockNow),
+                g_blockNow == TF_BLOCK_SESSION ? clrChocolate : clrFireBrick);
+    return;
+  }
+  int s = SecondsUntilSessionClose();
+  if (s >= 0 && s <= SessionWarnSeconds) {
+    ShowOverlay(StringFormat("SESSION ENDS IN %02d:%02d - new trades are blocked after that.", s / 60, s % 60),
+                "", clrChocolate);
+    return;
+  }
+  RemoveOverlay();
 }
 
 //+------------------------------------------------------------------+
@@ -541,10 +1010,16 @@ void UpdateComment() {
                 : (g_lossBreachDayId == LocalDayId(TimeGMT())) ? "LOCKED (daily loss)"
                 : "ACTIVE";
   string line = StringFormat("TradeForce %s | cfg v%I64d | trades today %d%s | loss today %.2f%s",
-    status, g_cfg.configVersion, TradesOpenedToday(),
+    status, g_cfg.configVersion, CachedTradesToday(),
     g_cfg.maxTradesPerDay > 0 ? StringFormat("/%d", g_cfg.maxTradesPerDay) : "",
     TodayLoss(),
     g_cfg.dailyLossLimit > 0 ? StringFormat("/%.2f", g_cfg.dailyLossLimit) : "");
+  if (g_blockNow == TF_BLOCK_SESSION)  line += " | BLOCKED: outside session";
+  else if (g_blockNow == TF_BLOCK_CAP) line += " | BLOCKED: daily cap reached";
+  if (g_cfgFromCache)
+    line += " | LAST-KNOWN RULES (dashboard offline)";
+  if (TerminalInfoInteger(TERMINAL_TRADE_ALLOWED) == 0)
+    line += " | AUTOTRADING OFF - enforcement degraded";
   Comment(line);
 }
 
@@ -558,35 +1033,87 @@ int OnInit() {
   }
   g_cfg.configured = false;
   g_cfg.configVersion = -1;
-  FetchConfig();
+  if (!FetchConfig() && LoadConfigFromDisk())
+    Print("TradeForce: dashboard unreachable - enforcing last-known rules from the disk cache (cfg v",
+          g_cfg.configVersion, ").");
   ReportAccount();
-  EventSetTimer(MathMax(1, PingSeconds));
+  g_cacheDayId = LocalDayId(TimeGMT());
+  // 1s timer: overlay countdowns and the loss check need it; network calls
+  // keep their own cadence via the g_last* gates.
+  EventSetTimer(1);
+  CheckDailyLoss(true); // restarting into an already-breached day re-arms the lockdown
+  RefreshBlockState();
+  UpdateOverlay();
   UpdateComment();
   return INIT_SUCCEEDED;
 }
 
 void OnDeinit(const int reason) {
   EventKillTimer();
+  RemoveOverlay();
   Comment("");
+  // Removal from the chart is the one deinit reason that means "enforcement
+  // is gone". Chart close, terminal shutdown, parameter changes and our own
+  // TerminalClose are routine and stay silent.
+  if (reason == REASON_REMOVE)
+    ReportEaEvent("EA_REMOVED");
 }
 
 void OnTimer() {
-  PingForChanges();
+  // Local-day rollover: yesterday's counters (and loss lock) expire here.
+  int today = LocalDayId(TimeGMT());
+  if (today != g_cacheDayId) {
+    g_cacheDayId = today;
+    InvalidateDayCaches();
+  }
+
+  if (TimeCurrent() - g_lastPing >= PingSeconds) {
+    g_lastPing = TimeCurrent();
+    PingForChanges();
+  }
   if (TimeCurrent() - g_lastFullSync >= FullSyncSeconds) FetchConfig();
   if (TimeCurrent() - g_lastAccountReport >= AccountReportSeconds) {
     ReportAccount();
     g_lastAccountReport = TimeCurrent();
   }
+
   CheckDailyLoss();
   FlushPending();
+
+  if (g_lossLockDeadline > 0) {
+    if (!g_cfg.configured || !g_cfg.isActive) {
+      g_lossLockDeadline = 0; // charter paused on the dashboard - consent withdrawn
+      Print("TradeForce: loss lockdown cancelled - charter paused.");
+    } else if (TimeCurrent() >= g_lossLockDeadline) {
+      ExecuteLossLockdown();
+      return;
+    }
+  }
+
+  RefreshBlockState();
+  UpdateOverlay();
   UpdateComment();
 }
 
 void OnTradeTransaction(const MqlTradeTransaction &trans,
                         const MqlTradeRequest &request,
                         const MqlTradeResult &result) {
+  // Pending orders are vetoed at placement - the one free prevention MT5
+  // allows. Market order types appear here already in transit; those are
+  // EnforceOnOpen's problem once the deal lands.
+  if (trans.type == TRADE_TRANSACTION_ORDER_ADD) {
+    if (IsPendingOrderType(trans.order_type)) {
+      ENUM_TF_BLOCK blocked = ComputeBlocked();
+      if (blocked != TF_BLOCK_NONE)
+        BlockPendingOrder(trans.order, trans.symbol, blocked);
+    }
+    return;
+  }
+
   if (trans.type != TRADE_TRANSACTION_DEAL_ADD) return;
   if (!HistoryDealSelect(trans.deal)) return;
+
+  InvalidateDayCaches(); // this deal changes trades-today / realized PnL
 
   long entry = HistoryDealGetInteger(trans.deal, DEAL_ENTRY);
   long type  = HistoryDealGetInteger(trans.deal, DEAL_TYPE);
@@ -597,5 +1124,7 @@ void OnTradeTransaction(const MqlTradeTransaction &trans,
   if (entry == DEAL_ENTRY_OUT || entry == DEAL_ENTRY_OUT_BY || entry == DEAL_ENTRY_INOUT)
     ReportClosedDeal(trans.deal);
 
+  RefreshBlockState(); // the cap overlay appears the moment trade #N opens
+  UpdateOverlay();
   UpdateComment();
 }

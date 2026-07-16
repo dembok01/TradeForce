@@ -4,12 +4,24 @@ import Link from "next/link";
 import { formatDistanceToNowStrict } from "date-fns";
 import { cn } from "@/lib/utils";
 
-export type EaState = "live" | "stale" | "never";
+export type EaState = "live" | "stale" | "never" | "removed" | "locked";
 
-const STATE_CONFIG: Record<EaState, { label: string; dot: string; pulse: boolean }> = {
+const STATE_CONFIG: Record<EaState, { label: string; dot: string; pulse: boolean; hint?: string }> = {
   live: { label: "EA live", dot: "bg-success", pulse: true },
   stale: { label: "EA offline", dot: "bg-warning", pulse: false },
   never: { label: "EA not connected", dot: "bg-muted-foreground/50", pulse: false },
+  removed: {
+    label: "EA was removed",
+    dot: "bg-destructive",
+    pulse: false,
+    hint: "The EA was removed from the MT5 chart — nothing is enforcing your rules. Re-attach it to restore protection.",
+  },
+  locked: {
+    label: "EA locked (daily loss)",
+    dot: "bg-warning",
+    pulse: false,
+    hint: "Your daily loss limit hit, so the EA closed MT5 by design. Trading resumes after your local midnight.",
+  },
 };
 
 /**
@@ -34,9 +46,10 @@ export function EaStatusDot({
         className
       )}
       title={
-        lastSeenAt
+        config.hint ??
+        (lastSeenAt
           ? `Last check-in ${formatDistanceToNowStrict(new Date(lastSeenAt), { addSuffix: true })}`
-          : "The EA has never checked in"
+          : "The EA has never checked in")
       }
     >
       <span className="relative flex size-2">

@@ -33,11 +33,38 @@ function str(d: Record<string, unknown>, key: string): string | null {
   return typeof v === "string" && v.length > 0 ? v : null;
 }
 
+function flag(d: Record<string, unknown>, key: string): boolean {
+  return d[key] === true;
+}
+
 const fmtPct = (v: number) => `${Number.isInteger(v) ? v : v.toFixed(2)}%`;
 
 /** One-sentence "what happened", with the numbers that triggered it. */
 export function explainViolation(v: ViolationLike): string {
   const d = asRecord(v.details);
+
+  // Newer EA builds prevent instead of closing where MT5 allows it: a pending
+  // order deleted before it triggers costs nothing. Lead with that — the whole
+  // point is that this violation did NOT cost the trader money.
+  if (flag(d, "blockedPendingOrder")) {
+    switch (v.type) {
+      case "OVERTRADING": {
+        const cap = num(d, "cap");
+        return cap !== null
+          ? `Prevented — your pending order was deleted before it could fill; your daily cap is ${cap} trades (no cost incurred).`
+          : "Prevented — your pending order was deleted before it could become a trade over your daily cap (no cost incurred).";
+      }
+      case "DAILY_LOSS_BREACH":
+        return "Prevented — your pending order was deleted; the account is locked for the day after the loss breach (no cost incurred).";
+      default: {
+        const start = str(d, "windowStart");
+        const end = str(d, "windowEnd");
+        if (start && end)
+          return `Prevented — your pending order was deleted before it could fill outside your session window (${start}–${end} UTC), at no cost.`;
+        return "Prevented — your pending order was deleted before it could fill outside your allowed sessions (no cost incurred).";
+      }
+    }
+  }
 
   switch (v.type) {
     case "OVERTRADING": {
@@ -66,6 +93,17 @@ export function explainViolation(v: ViolationLike): string {
     case "RISK_PER_TRADE_BREACH": {
       const risk = num(d, "riskPercent");
       const cap = num(d, "cap");
+      // autoFixed = the EA repaired the stop-loss in place instead of closing;
+      // the position survived and the violation cost nothing.
+      if (flag(d, "autoFixed")) {
+        if (str(d, "reason"))
+          return cap !== null
+            ? `Fixed — the trade had no stop-loss, so the EA attached one at your ${fmtPct(cap)} risk cap (no cost incurred).`
+            : "Fixed — the trade had no stop-loss, so the EA attached one at your risk cap (no cost incurred).";
+        if (risk !== null && cap !== null)
+          return `Fixed — the trade risked ${fmtPct(risk)}, so the EA tightened your stop-loss to your ${fmtPct(cap)} cap (no cost incurred).`;
+        return "Fixed — the EA tightened your stop-loss to your risk cap (no cost incurred).";
+      }
       if (risk !== null && cap !== null)
         return `Closed — the trade risked ${fmtPct(risk)} of equity; your cap is ${fmtPct(cap)}.`;
       if (str(d, "reason") && cap !== null)
@@ -87,10 +125,15 @@ export function explainViolation(v: ViolationLike): string {
 }
 
 /** What the EA physically did about it (the incident view's second line). */
-export function violationAction(type: ViolationType): string {
-  switch (type) {
+export function violationAction(v: ViolationLike): string {
+  const d = asRecord(v.details);
+  if (flag(d, "blockedPendingOrder"))
+    return "The EA deleted the pending order before it reached the market — this prevention cost nothing.";
+  if (flag(d, "autoFixed"))
+    return "The EA repaired the stop-loss in place instead of closing the trade — the position survived, pinned to your risk cap.";
+  switch (v.type) {
     case "DAILY_LOSS_BREACH":
-      return "The EA closed every open position and locked the account until your local midnight.";
+      return "The EA closed every open position and locked the account until your local midnight; with hard lock enabled it also shut down MT5.";
     case "OVERTRADING":
     case "OPEN_POSITIONS_BREACH":
     case "RISK_PER_TRADE_BREACH":
@@ -140,5 +183,13 @@ export function violationFigures(v: ViolationLike): { label: string; value: stri
       push("Allowed window (UTC)", str(d, "windowStart") && str(d, "windowEnd") ? `${str(d, "windowStart")}–${str(d, "windowEnd")}` : null);
       break;
   }
+
+  // Standardized keys newer EA builds attach to every report.
+  push("Symbol", str(d, "symbol"));
+  push("Lot size", numStr("volume"));
+  push("Order", str(d, "orderTicket"));
+  if (flag(d, "blockedPendingOrder")) push("Blocked before fill", "Yes");
+  if (flag(d, "autoFixed")) push("Auto-fixed", "Yes");
+
   return figures;
 }
