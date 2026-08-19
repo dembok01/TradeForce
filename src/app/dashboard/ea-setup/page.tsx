@@ -2,9 +2,11 @@ import Link from "next/link";
 import { formatDistanceToNowStrict } from "date-fns";
 import { getSetupStatus } from "@/lib/data/setup";
 import { getEaConnection } from "@/lib/data/api-keys";
+import { getCloudEa } from "@/lib/data/cloud-ea";
 import { eaSeenWithin, EA_CONNECTED_WINDOW_MS } from "@/lib/ea-connection";
 import { PageHeader } from "@/components/dashboard/page-header";
 import { SetupChecklistPanel } from "@/components/dashboard/setup-checklist";
+import { CloudEaCard } from "@/components/dashboard/cloud-ea-card";
 import { Card, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Reveal } from "@/components/motion/reveal";
@@ -12,7 +14,11 @@ import { Reveal } from "@/components/motion/reveal";
 const SITE_URL = process.env.NEXT_PUBLIC_SITE_URL ?? "https://trade-force-rouge.vercel.app";
 
 export default async function EaSetupPage() {
-  const [{ checklist }, { lastSeenAt }] = await Promise.all([getSetupStatus(), getEaConnection()]);
+  const [{ checklist }, { lastSeenAt }, cloudEa] = await Promise.all([
+    getSetupStatus(),
+    getEaConnection(),
+    getCloudEa(),
+  ]);
   const connected = eaSeenWithin(lastSeenAt, EA_CONNECTED_WINDOW_MS);
 
   return (
@@ -34,6 +40,12 @@ export default async function EaSetupPage() {
           )
         }
       />
+
+      <Reveal>
+        <div className="mb-4">
+          <CloudEaCard initial={cloudEa} />
+        </div>
+      </Reveal>
 
       <SetupChecklistPanel
         initialChecklist={checklist}

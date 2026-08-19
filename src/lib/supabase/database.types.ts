@@ -12,6 +12,16 @@ export type ViolationType =
   | "DAILY_LOSS_BREACH"
   | "OPEN_POSITIONS_BREACH"
   | "RISK_PER_TRADE_BREACH";
+export type Mt5DesiredState = "running" | "stopped" | "removed";
+export type Mt5InstanceStatus =
+  | "pending"
+  | "provisioning"
+  | "running"
+  | "stopped"
+  | "login_failed"
+  | "error"
+  | "removed";
+
 export type EaEventType = "EA_REMOVED" | "CONNECTION_LOST";
 
 export interface Database {
@@ -187,6 +197,33 @@ export interface Database {
           key_hash: string;
         };
         Update: Partial<Database["public"]["Tables"]["api_keys"]["Row"]>;
+        Relationships: [];
+      };
+      mt5_instances: {
+        Row: {
+          account_id: string;
+          user_id: string;
+          mt5_login: string;
+          mt5_server: string;
+          mt5_password_cipher: string;
+          ea_key_cipher: string;
+          api_key_id: string | null;
+          server_host: string | null;
+          desired_state: Mt5DesiredState;
+          status: Mt5InstanceStatus;
+          status_detail: string | null;
+          created_at: string;
+          updated_at: string;
+        };
+        Insert: Partial<Database["public"]["Tables"]["mt5_instances"]["Row"]> & {
+          account_id: string;
+          user_id: string;
+          mt5_login: string;
+          mt5_server: string;
+          mt5_password_cipher: string;
+          ea_key_cipher: string;
+        };
+        Update: Partial<Database["public"]["Tables"]["mt5_instances"]["Row"]>;
         Relationships: [];
       };
       ea_events: {
