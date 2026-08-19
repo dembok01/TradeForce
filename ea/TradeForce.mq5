@@ -5,7 +5,7 @@
 //+------------------------------------------------------------------+
 #property copyright "TradeForce"
 #property link      "https://trade-force-rouge.vercel.app"
-#property version   "1.20"
+#property version   "1.21"
 #property description "Enforces your TradeForce charter: daily loss limit, max trades/day, max open positions, risk per trade, session windows. Blocked states are announced on the chart before you trade; violating pending orders are deleted free; missing or oversized stop-losses are repaired in place; anything else is closed immediately and reported."
 
 #include <Trade/Trade.mqh>
@@ -173,21 +173,54 @@ int LocalDayId(const datetime gmtNow) {
   return (int)((gmtNow + TimezoneOffsetMinutes(gmtNow) * 60) / 86400);
 }
 
+// Broker-server clock minus GMT, e.g. +7200 on a GMT+2 server.
+//
+// Cached rather than computed on demand, because TimeCurrent() is the time of
+// the last TICK, not the wall clock: it freezes whenever the market is closed.
+// A live (TimeCurrent() - TimeGMT()) would then read as the length of the
+// outage - about -48h over a weekend - instead of the broker's timezone, which
+// would move the day boundary below and mis-stamp every reported event. The
+// real value only changes on a DST switch, so the last tick-backed reading
+// stays correct across any outage.
+int g_serverGmtOffset = 0;
+
+void RefreshServerOffset() {
+  static datetime lastTick = 0;
+  const datetime cur = TimeCurrent();
+  if (cur == lastTick) return; // no new tick - keep the last trustworthy offset
+  lastTick = cur;
+  const int offset = (int)(cur - TimeGMT());
+  if (MathAbs(offset) <= 14 * 3600) // no real broker sits outside +/-14h of GMT
+    g_serverGmtOffset = offset;
+}
+
 // Server-clock datetime of the trader's local midnight (deal times are server time).
 datetime DayStartServerTime() {
   datetime gmtNow = TimeGMT();
   int offsetSec = TimezoneOffsetMinutes(gmtNow) * 60;
   datetime localNow = gmtNow + offsetSec;
   datetime localMidnightAsGmt = (localNow / 86400) * 86400 - offsetSec;
-  return localMidnightAsGmt + (TimeCurrent() - TimeGMT());
+  return localMidnightAsGmt + g_serverGmtOffset;
 }
 
-string IsoFromServerTime(const datetime serverTime) {
-  datetime gmt = serverTime - (TimeCurrent() - TimeGMT());
+string IsoFromGmt(const datetime gmt) {
   MqlDateTime dt;
   TimeToStruct(gmt, dt);
   return StringFormat("%04d-%02d-%02dT%02d:%02d:%02dZ", dt.year, dt.mon, dt.day, dt.hour, dt.min, dt.sec);
 }
+
+// For timestamps that come out of deal history, which are on the server clock.
+string IsoFromServerTime(const datetime serverTime) {
+  return IsoFromGmt(serverTime - g_serverGmtOffset);
+}
+
+// "Now" for stamping an event we are raising ourselves. Straight off the wall
+// clock, so it can't inherit TimeCurrent()'s freeze while the market is shut.
+string IsoNow() { return IsoFromGmt(TimeGMT()); }
+
+// Server-clock "now", projected from the wall clock rather than read from the
+// last tick - safe to use as the upper bound of a history query at any hour.
+datetime ServerNow() { return TimeGMT() + g_serverGmtOffset; }
 
 //+------------------------------------------------------------------+
 //| Sessions - mirrors src/lib/trading-sessions.ts (UTC windows)      |
@@ -281,7 +314,7 @@ int SecondsUntilSessionClose() {
 //+------------------------------------------------------------------+
 int TradesOpenedToday() {
   datetime from = DayStartServerTime();
-  if (!HistorySelect(from, TimeCurrent() + 60)) return 0;
+  if (!HistorySelect(from, ServerNow() + 60)) return 0;
   int count = 0;
   for (int i = 0; i < HistoryDealsTotal(); i++) {
     ulong ticket = HistoryDealGetTicket(i);
@@ -297,7 +330,7 @@ int TradesOpenedToday() {
 
 double RealizedPnlToday() {
   datetime from = DayStartServerTime();
-  if (!HistorySelect(from, TimeCurrent() + 60)) return 0;
+  if (!HistorySelect(from, ServerNow() + 60)) return 0;
   double pnl = 0;
   for (int i = 0; i < HistoryDealsTotal(); i++) {
     ulong ticket = HistoryDealGetTicket(i);
@@ -321,7 +354,7 @@ void InvalidateDayCaches() {
 }
 
 int CachedTradesToday() {
-  datetime now = TimeCurrent();
+  datetime now = TimeGMT(); // a 5s memo is 5s of real time, not of market time
   if (g_tradesTodayCacheAt == 0 || now - g_tradesTodayCacheAt >= 5) {
     g_tradesTodayCache   = TradesOpenedToday();
     g_tradesTodayCacheAt = now;
@@ -330,7 +363,7 @@ int CachedTradesToday() {
 }
 
 double CachedRealizedToday() {
-  datetime now = TimeCurrent();
+  datetime now = TimeGMT(); // a 5s memo is 5s of real time, not of market time
   if (g_realizedTodayCacheAt == 0 || now - g_realizedTodayCacheAt >= 5) {
     g_realizedTodayCache   = RealizedPnlToday();
     g_realizedTodayCacheAt = now;
@@ -367,7 +400,7 @@ void ReportViolation(const string type, const string eventId, CJAVal &details) {
   v["type"] = type;
   if (StringLen(eventId) > 0) v["eventId"] = eventId;
   v["details"].Set(details);
-  v["occurredAt"] = IsoFromServerTime(TimeCurrent());
+  v["occurredAt"] = IsoNow();
   PostJsonQueued("/api/ea/violations", v.Serialize());
   Print("TradeForce: VIOLATION ", type);
 }
@@ -385,7 +418,7 @@ void ReportAccount() {
 void ReportEaEvent(const string eventType) {
   CJAVal e;
   e["type"]       = eventType;
-  e["occurredAt"] = IsoFromServerTime(TimeCurrent());
+  e["occurredAt"] = IsoNow();
   int status;
   string response;
   Http("POST", "/api/ea/events", e.Serialize(), status, response);
@@ -532,7 +565,7 @@ bool FetchConfig() {
   g_cfg.customStart         = json["sessions"]["customStart"].ToStr();
   g_cfg.customEnd           = json["sessions"]["customEnd"].ToStr();
   g_cfg.timezone            = json["sessions"]["timezone"].ToStr();
-  g_lastFullSync = TimeCurrent();
+  g_lastFullSync = TimeGMT();
   g_cfgFromCache = false;
   if (g_connLossAlerted) {
     g_connLossAlerted = false;
@@ -638,7 +671,7 @@ void BlockPendingOrder(const ulong ticket, const string symbol, const ENUM_TF_BL
     type = "DAILY_LOSS_BREACH";
     d["reason"] = "account locked for the day after daily loss breach";
   } else {
-    d["timeUtc"] = IsoFromServerTime(TimeCurrent());
+    d["timeUtc"] = IsoNow();
     double ws, we;
     if (SingleEnabledWindow(ws, we)) {
       d["windowStart"] = FormatUtcHour(ws);
@@ -657,7 +690,9 @@ void BlockPendingOrder(const ulong ticket, const string symbol, const ENUM_TF_BL
 void ArmLossLockdown(const int graceSeconds) {
   if (!HardLockOnLossBreach) return;
   if (g_lossLockDeadline > 0) return; // already counting down
-  g_lossLockDeadline = TimeCurrent() + MathMax(5, graceSeconds);
+  // GMT, not TimeCurrent(): a grace countdown is real seconds for the trader,
+  // and must keep running even if the market goes quiet mid-countdown.
+  g_lossLockDeadline = TimeGMT() + MathMax(5, graceSeconds);
   Alert(StringFormat("TradeForce: daily loss limit hit - MT5 closes in %d seconds. Locked until your local midnight.",
                      MathMax(5, graceSeconds)));
 }
@@ -782,7 +817,7 @@ void EnforceOnOpen(const ulong openingDeal) {
   if (!SessionAllowedNow()) {
     ClosePositionById(posId);
     CJAVal d;
-    d["timeUtc"] = IsoFromServerTime(TimeCurrent());
+    d["timeUtc"] = IsoNow();
     d["symbol"]  = dealSymbol;
     d["volume"]  = dealVolume;
     double ws, we;
@@ -868,7 +903,13 @@ void EnforceOnOpen(const ulong openingDeal) {
 #define TF_OBJ_BANNER_TXT "TF_OVERLAY_BANNER_TEXT"
 #define TF_OBJ_WATERMARK  "TF_OVERLAY_WATERMARK"
 
+// Every ObjectSet* in ShowOverlay repaints the chart, and the 1s timer would
+// re-render an unchanged banner 60x a minute while a block is active. Both
+// overlay and comment are pushed only when they actually change.
+string g_lastOverlayKey = "";
+
 void RemoveOverlay() {
+  g_lastOverlayKey = ""; // next ShowOverlay must repaint from scratch
   if (ObjectFind(0, TF_OBJ_BANNER) < 0 && ObjectFind(0, TF_OBJ_WATERMARK) < 0) return;
   ObjectDelete(0, TF_OBJ_BANNER);
   ObjectDelete(0, TF_OBJ_BANNER_TXT);
@@ -879,6 +920,11 @@ void RemoveOverlay() {
 void ShowOverlay(const string bannerText, const string watermarkText, const color accent) {
   long w = ChartGetInteger(0, CHART_WIDTH_IN_PIXELS);
   long h = ChartGetInteger(0, CHART_HEIGHT_IN_PIXELS);
+
+  // Chart size is in the key: a resized window has to re-lay-out the banner.
+  string key = StringFormat("%s|%s|%d|%I64d|%I64d", bannerText, watermarkText, (int)accent, w, h);
+  if (key == g_lastOverlayKey) return;
+  g_lastOverlayKey = key;
 
   if (ObjectFind(0, TF_OBJ_BANNER) < 0) {
     ObjectCreate(0, TF_OBJ_BANNER, OBJ_RECTANGLE_LABEL, 0, 0, 0);
@@ -977,7 +1023,7 @@ void RefreshBlockState() {
 // Blocked -> banner + watermark. Unblocked near session end -> countdown.
 void UpdateOverlay() {
   if (g_lossLockDeadline > 0) {
-    int left = (int)(g_lossLockDeadline - TimeCurrent());
+    int left = (int)(g_lossLockDeadline - TimeGMT());
     if (left < 0) left = 0;
     ShowOverlay(StringFormat("DAILY LOSS LIMIT HIT - MT5 CLOSES IN %02d:%02d. Locked until your local midnight.",
                              left / 60, left % 60),
@@ -1001,9 +1047,19 @@ void UpdateOverlay() {
 //+------------------------------------------------------------------+
 //| Chart status line                                                 |
 //+------------------------------------------------------------------+
+// Comment() repaints the chart on every call, and the 1s timer would otherwise
+// repaint 60x a minute to write the same string. Only push real changes.
+string g_lastComment = "\x01"; // sentinel: never equal to a real line
+
+void SetComment(const string line) {
+  if (line == g_lastComment) return;
+  g_lastComment = line;
+  Comment(line);
+}
+
 void UpdateComment() {
   if (!g_cfg.configured) {
-    Comment("TradeForce: no charter configured - set rules on the dashboard.");
+    SetComment("TradeForce: no charter configured - set rules on the dashboard.");
     return;
   }
   string status = !g_cfg.isActive ? "INACTIVE"
@@ -1020,7 +1076,7 @@ void UpdateComment() {
     line += " | LAST-KNOWN RULES (dashboard offline)";
   if (TerminalInfoInteger(TERMINAL_TRADE_ALLOWED) == 0)
     line += " | AUTOTRADING OFF - enforcement degraded";
-  Comment(line);
+  SetComment(line);
 }
 
 //+------------------------------------------------------------------+
@@ -1031,6 +1087,7 @@ int OnInit() {
     Alert("TradeForce: set the ApiKey input to a key generated on the Rule Settings page.");
     return INIT_PARAMETERS_INCORRECT;
   }
+  RefreshServerOffset(); // seed before anything stamps a time or reads history
   g_cfg.configured = false;
   g_cfg.configVersion = -1;
   if (!FetchConfig() && LoadConfigFromDisk())
@@ -1060,6 +1117,8 @@ void OnDeinit(const int reason) {
 }
 
 void OnTimer() {
+  RefreshServerOffset();
+
   // Local-day rollover: yesterday's counters (and loss lock) expire here.
   int today = LocalDayId(TimeGMT());
   if (today != g_cacheDayId) {
@@ -1067,14 +1126,18 @@ void OnTimer() {
     InvalidateDayCaches();
   }
 
-  if (TimeCurrent() - g_lastPing >= PingSeconds) {
-    g_lastPing = TimeCurrent();
+  // Wall clock, never TimeCurrent(): the latter is the last TICK time and
+  // stops advancing when the market closes, which silently suspended every
+  // network call below from Friday's close until Monday's open.
+  const datetime nowGmt = TimeGMT();
+  if (nowGmt - g_lastPing >= PingSeconds) {
+    g_lastPing = nowGmt;
     PingForChanges();
   }
-  if (TimeCurrent() - g_lastFullSync >= FullSyncSeconds) FetchConfig();
-  if (TimeCurrent() - g_lastAccountReport >= AccountReportSeconds) {
+  if (nowGmt - g_lastFullSync >= FullSyncSeconds) FetchConfig();
+  if (nowGmt - g_lastAccountReport >= AccountReportSeconds) {
     ReportAccount();
-    g_lastAccountReport = TimeCurrent();
+    g_lastAccountReport = nowGmt;
   }
 
   CheckDailyLoss();
@@ -1084,7 +1147,7 @@ void OnTimer() {
     if (!g_cfg.configured || !g_cfg.isActive) {
       g_lossLockDeadline = 0; // charter paused on the dashboard - consent withdrawn
       Print("TradeForce: loss lockdown cancelled - charter paused.");
-    } else if (TimeCurrent() >= g_lossLockDeadline) {
+    } else if (TimeGMT() >= g_lossLockDeadline) {
       ExecuteLossLockdown();
       return;
     }
