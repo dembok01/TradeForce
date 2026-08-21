@@ -4,6 +4,7 @@ import { randomBytes } from "node:crypto";
 import { revalidatePath } from "next/cache";
 import { z } from "zod";
 import { getAuthedActionContext } from "@/lib/actions/_helpers";
+import { createServiceClient } from "@/lib/supabase/service";
 import { API_KEY_PREFIX, hashApiKey } from "@/lib/ea-auth";
 import { sealSecret } from "@/lib/mt5-crypto";
 import { isAcceptableServer } from "@/lib/mt5-brokers";
@@ -72,7 +73,10 @@ export async function enableCloudEaAction(
       return { error: "Couldn't set up cloud protection. Please try again." };
     }
 
-    const { error } = await supabase.from("mt5_instances").upsert(
+    // mt5_instances is deliberately not writable by the `authenticated` role --
+    // it holds ciphertext that only the server should ever produce. Writes go
+    // through the service role, scoped explicitly to this account.
+    const { error } = await createServiceClient().from("mt5_instances").upsert(
       {
         account_id: account.id,
         user_id: userId,
@@ -108,9 +112,9 @@ export async function disableCloudEaAction(): Promise<{ error: string | null }> 
   try {
     const ctx = await getAuthedActionContext();
     if (!ctx.ok) return { error: ctx.error };
-    const { supabase, account } = ctx;
+    const { account } = ctx;
 
-    const { error } = await supabase
+    const { error } = await createServiceClient()
       .from("mt5_instances")
       .update({ desired_state: "removed", updated_at: new Date().toISOString() })
       .eq("account_id", account.id);
