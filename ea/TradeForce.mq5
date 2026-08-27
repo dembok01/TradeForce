@@ -5,7 +5,7 @@
 //+------------------------------------------------------------------+
 #property copyright "TradeForce"
 #property link      "https://trade-force-rouge.vercel.app"
-#property version   "1.21"
+#property version   "1.22"
 #property description "Enforces your TradeForce charter: daily loss limit, max trades/day, max open positions, risk per trade, session windows. Blocked states are announced on the chart before you trade; violating pending orders are deleted free; missing or oversized stop-losses are repaired in place; anything else is closed immediately and reported."
 
 #include <Trade/Trade.mqh>
@@ -14,7 +14,7 @@
 //--- inputs ---------------------------------------------------------
 input string ServerUrl            = "https://trade-force-rouge.vercel.app"; // TradeForce server (no trailing slash)
 input string ApiKey               = "";   // EA key from Rule Settings (tf_live_...)
-input int    PingSeconds          = 5;    // config-version check cadence
+input int    PingSeconds          = 15;   // config-version check cadence
 input int    FullSyncSeconds      = 60;   // full config re-fetch cadence
 input int    AccountReportSeconds = 60;   // equity/balance report cadence
 input int    SessionWarnSeconds   = 300;  // chart countdown before the session closes
@@ -48,6 +48,11 @@ CTrade   g_trade;
 enum ENUM_TF_BLOCK { TF_BLOCK_NONE, TF_BLOCK_SESSION, TF_BLOCK_CAP, TF_BLOCK_LOSS };
 
 datetime g_lastFullSync      = 0;
+// Seconds to wait before retrying a FAILED full sync. Zero means healthy.
+// Without this a failed fetch retries on every 1s timer tick -- 60 requests a
+// minute per terminal -- which exhausts the server's request budget and turns a
+// brief outage into a permanent one that sustains itself.
+int      g_syncBackoff       = 0;
 datetime g_lastAccountReport = 0;
 datetime g_lastPing          = 0;    // the timer now ticks at 1s; pings keep their own cadence
 int      g_lossBreachDayId   = -1;   // local trading day the daily-loss lock fired
@@ -566,6 +571,7 @@ bool FetchConfig() {
   g_cfg.customEnd           = json["sessions"]["customEnd"].ToStr();
   g_cfg.timezone            = json["sessions"]["timezone"].ToStr();
   g_lastFullSync = TimeGMT();
+  g_syncBackoff  = 0; // healthy again
   g_cfgFromCache = false;
   if (g_connLossAlerted) {
     g_connLossAlerted = false;
@@ -1134,7 +1140,14 @@ void OnTimer() {
     g_lastPing = nowGmt;
     PingForChanges();
   }
-  if (nowGmt - g_lastFullSync >= FullSyncSeconds) FetchConfig();
+  // Retry a failed sync with exponential backoff (5s -> 5min), not every tick.
+  const int syncDue = (g_syncBackoff > 0) ? g_syncBackoff : FullSyncSeconds;
+  if (nowGmt - g_lastFullSync >= syncDue) {
+    if (!FetchConfig()) {
+      g_syncBackoff  = (g_syncBackoff == 0) ? 5 : (int)MathMin(g_syncBackoff * 2, 300);
+      g_lastFullSync = nowGmt; // FetchConfig only stamps this on success
+    }
+  }
   if (nowGmt - g_lastAccountReport >= AccountReportSeconds) {
     ReportAccount();
     g_lastAccountReport = nowGmt;
