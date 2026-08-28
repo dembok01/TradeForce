@@ -199,6 +199,24 @@ export interface Database {
         Update: Partial<Database["public"]["Tables"]["api_keys"]["Row"]>;
         Relationships: [];
       };
+      pool_servers: {
+        Row: {
+          host: string;
+          cores: number | null;
+          ram_total_mb: number | null;
+          ram_free_mb: number | null;
+          disk_free_mb: number | null;
+          load_1m: number | null;
+          instances: number;
+          capacity: number | null;
+          image_tag: string | null;
+          agent_version: string | null;
+          last_seen_at: string;
+        };
+        Insert: Partial<Database["public"]["Tables"]["pool_servers"]["Row"]> & { host: string };
+        Update: Partial<Database["public"]["Tables"]["pool_servers"]["Row"]>;
+        Relationships: [];
+      };
       mt5_instances: {
         Row: {
           account_id: string;
@@ -212,6 +230,17 @@ export interface Database {
           desired_state: Mt5DesiredState;
           status: Mt5InstanceStatus;
           status_detail: string | null;
+          cpu_cores: number | null;
+          mem_mb: number | null;
+          restarts: number;
+          started_at: string | null;
+          ea_version: string | null;
+          ea_failed_fetches: number | null;
+          ea_last_http_status: number | null;
+          ea_queued_posts: number | null;
+          ea_from_cache: boolean | null;
+          ea_backoff_seconds: number | null;
+          ea_reported_at: string | null;
           created_at: string;
           updated_at: string;
         };

@@ -5,7 +5,7 @@
 //+------------------------------------------------------------------+
 #property copyright "TradeForce"
 #property link      "https://trade-force-rouge.vercel.app"
-#property version   "1.22"
+#property version   "1.23"
 #property description "Enforces your TradeForce charter: daily loss limit, max trades/day, max open positions, risk per trade, session windows. Blocked states are announced on the chart before you trade; violating pending orders are deleted free; missing or oversized stop-losses are repaired in place; anything else is closed immediately and reported."
 
 #include <Trade/Trade.mqh>
@@ -53,6 +53,12 @@ datetime g_lastFullSync      = 0;
 // minute per terminal -- which exhausts the server's request budget and turns a
 // brief outage into a permanent one that sustains itself.
 int      g_syncBackoff       = 0;
+// Ops telemetry. A failure to REACH the server can never be reported when it
+// happens, so count locally and ship the totals on the next call that does get
+// through. Without this a retry storm is invisible server-side -- which is
+// exactly how one ran for six days unnoticed.
+int      g_failedFetches     = 0;   // since the last successful account report
+int      g_lastHttpStatus    = 0;
 datetime g_lastAccountReport = 0;
 datetime g_lastPing          = 0;    // the timer now ticks at 1s; pings keep their own cadence
 int      g_lossBreachDayId   = -1;   // local trading day the daily-loss lock fired
@@ -103,6 +109,7 @@ bool Http(const string method, const string path, const string body, int &status
     return false;
   }
   status = res;
+  g_lastHttpStatus = res;
   response = CharArrayToString(result, 0, WHOLE_ARRAY, CP_UTF8);
   if (status == 429)
     Print("TradeForce: rate limited by server; backing off until next timer tick.");
@@ -414,7 +421,28 @@ void ReportAccount() {
   CJAVal a;
   a["equity"]  = AccountInfoDouble(ACCOUNT_EQUITY);
   a["balance"] = AccountInfoDouble(ACCOUNT_BALANCE);
-  PostJsonQueued("/api/ea/account", a.Serialize());
+  // Ops fields: what the server cannot observe for itself.
+  a["failedFetches"]   = g_failedFetches;
+  a["lastHttpStatus"]  = g_lastHttpStatus;
+  a["queuedPosts"]     = g_pendingCount;
+  a["fromCache"]       = g_cfgFromCache;
+  a["backoffSeconds"]  = g_syncBackoff;
+  a["eaVersion"]       = "1.23";
+
+  int status;
+  string response;
+  bool sent = Http("POST", "/api/ea/account", a.Serialize(), status, response);
+  if (sent && status >= 200 && status < 300) {
+    g_failedFetches = 0;   // only reset once the count has actually landed
+    return;
+  }
+  // Fall back to the retry queue, but keep the counter: it must survive until
+  // a report gets through, or the storm erases its own evidence.
+  if (g_pendingCount < PENDING_MAX) {
+    g_pendingPath[g_pendingCount] = "/api/ea/account";
+    g_pendingBody[g_pendingCount] = a.Serialize();
+    g_pendingCount++;
+  }
 }
 
 // Lifecycle events (EA removed from the chart). Direct synchronous POST, not
@@ -539,6 +567,7 @@ bool FetchConfig() {
   int status;
   string body;
   if (!Http("GET", "/api/ea/config", "", status, body) || status != 200) {
+    g_failedFetches++;
     Print("TradeForce: config fetch failed (status ", status, ")");
     if (g_cfg.configured && !g_connLossAlerted) {
       g_connLossAlerted = true;
