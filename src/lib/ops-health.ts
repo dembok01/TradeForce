@@ -42,3 +42,37 @@ export function serverHealth(lastSeenAt: string): Health {
   const ms = ageMs(lastSeenAt);
   return ms !== null && ms > SERVER_STALE_MS ? "down" : "ok";
 }
+
+/**
+ * Desktop EAs have no desired_state to compare against — the trader owns the
+ * terminal. Silence still matters, but on a much longer fuse: someone who
+ * closed MT5 for the night is not an incident.
+ */
+export function desktopHealth(lastSeenAt: string | null): Health {
+  const ms = ageMs(lastSeenAt);
+  if (ms === null) return "idle";
+  if (ms > 24 * 3600_000) return "down";
+  if (ms > 3600_000) return "warn";
+  return "ok";
+}
+
+/**
+ * Uptime over a window, from heartbeat gaps.
+ *
+ * Gaps are clipped to the window rather than counted whole: a 48-hour outage
+ * that started before the window began only cost us the part inside it, and
+ * counting it in full can push a 7-day figure below zero.
+ */
+export function uptimePctFromGaps(
+  gaps: { started_at: string; ended_at: string }[],
+  windowMs: number,
+  now = Date.now(),
+): number {
+  const cutoff = now - windowMs;
+  const down = gaps.reduce((n, g) => {
+    const s = Math.max(new Date(g.started_at).getTime(), cutoff);
+    const e = Math.min(new Date(g.ended_at).getTime(), now);
+    return e > s ? n + (e - s) : n;
+  }, 0);
+  return Math.round(Math.max(0, 1 - down / windowMs) * 10000) / 100;
+}

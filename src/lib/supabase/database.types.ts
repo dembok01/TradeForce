@@ -306,6 +306,18 @@ export interface Database {
         Args: { p_account_id: string; p_hours?: number; p_buckets?: number };
         Returns: { bucket_start: string; equity: number }[];
       };
+      ea_outages: {
+        Args: { p_account_id: string; p_since?: string; p_min_minutes?: number };
+        Returns: { started_at: string; ended_at: string; minutes: number }[];
+      };
+      ea_outages_all: {
+        Args: { p_since?: string; p_min_minutes?: number };
+        Returns: { account_id: string; started_at: string; ended_at: string; minutes: number }[];
+      };
+      ea_uptime_pct: {
+        Args: { p_account_id: string; p_since?: string; p_min_minutes?: number };
+        Returns: number;
+      };
     };
     Enums: {
       trade_direction: TradeDirection;

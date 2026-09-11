@@ -1,10 +1,11 @@
 import "server-only";
 import { createServiceClient } from "@/lib/supabase/service";
+import { log } from "@/lib/log";
 
 /**
- * Ops views. Read with the service role deliberately: this is the internal
- * console and it must show EVERY tenant, which is the opposite of the RLS the
- * rest of the app relies on. Access is gated in the layout, not by RLS.
+ * Ops queries. Read with the service role deliberately: the console must span
+ * EVERY tenant, which is the opposite of the RLS the rest of the app relies on.
+ * Access is gated in the admin layout, not by RLS.
  */
 
 export type PoolServer = {
@@ -21,74 +22,200 @@ export type PoolServer = {
   last_seen_at: string;
 };
 
-export type OpsInstance = {
+/** A monitored EA, whether it runs in our cloud or on the trader's own PC. */
+export type OpsEa = {
   account_id: string;
+  user_id: string;
   email: string | null;
-  mt5_login: string;
-  mt5_server: string;
+  kind: "cloud" | "desktop";
+  eaLastSeenAt: string | null;
+
+  // cloud only
+  mt5_login: string | null;
+  mt5_server: string | null;
   server_host: string | null;
-  desired_state: string;
-  status: string;            // what the AGENT believes
+  desired_state: string | null;
+  status: string | null;
   status_detail: string | null;
   cpu_cores: number | null;
   mem_mb: number | null;
-  restarts: number;
+  restarts: number | null;
   started_at: string | null;
   ea_version: string | null;
   ea_failed_fetches: number | null;
   ea_last_http_status: number | null;
   ea_queued_posts: number | null;
   ea_from_cache: boolean | null;
-  eaLastSeenAt: string | null; // what the EA PROVES, from api_keys.last_used_at
+  ea_backoff_seconds: number | null;
 };
 
 export async function getPoolServers(): Promise<PoolServer[]> {
   const { data, error } = await createServiceClient()
-    .from("pool_servers")
-    .select("*")
-    .order("host");
+    .from("pool_servers").select("*").order("host");
   if (error) throw new Error(error.message);
   return (data ?? []) as PoolServer[];
 }
 
-export async function getOpsInstances(): Promise<OpsInstance[]> {
+/**
+ * Every account with a live EA key — not just cloud instances.
+ *
+ * The first version of this only listed mt5_instances, which made desktop-EA
+ * users invisible: an operator could not see that a desktop user's EA had been
+ * dead for 37 days, which is exactly the kind of silence this console exists
+ * to surface.
+ */
+export async function getOpsEas(): Promise<OpsEa[]> {
   const supabase = createServiceClient();
 
-  const { data: rows, error } = await supabase
-    .from("mt5_instances")
-    .select("*")
-    .neq("desired_state", "removed")
-    .order("created_at");
-  if (error) throw new Error(error.message);
-  if (!rows?.length) return [];
-
-  const accountIds = rows.map((r) => r.account_id);
-  const userIds = [...new Set(rows.map((r) => r.user_id))];
-
-  // The EA's own heartbeat. This is the column that tells the truth: the agent
-  // can believe a container is "running" long after its EA went silent, which
-  // is exactly the shape of the weekend clock freeze.
-  const [{ data: keys }, { data: profiles }] = await Promise.all([
-    supabase
-      .from("api_keys")
-      .select("account_id, last_used_at")
-      .in("account_id", accountIds)
-      .is("revoked_at", null),
-    supabase.from("profiles").select("id, email").in("id", userIds),
+  const [{ data: keys }, { data: instances }, { data: profiles }] = await Promise.all([
+    supabase.from("api_keys")
+      .select("account_id, user_id, last_used_at, revoked_at").is("revoked_at", null),
+    supabase.from("mt5_instances").select("*").neq("desired_state", "removed"),
+    supabase.from("profiles").select("id, email"),
   ]);
 
-  const lastSeen = new Map<string, string | null>();
+  const emails = new Map((profiles ?? []).map((p) => [p.id, p.email]));
+  const inst = new Map((instances ?? []).map((i) => [i.account_id, i]));
+
+  // Latest heartbeat per account across all its keys.
+  const seen = new Map<string, { userId: string; last: string | null }>();
   for (const k of keys ?? []) {
-    const prev = lastSeen.get(k.account_id);
-    if (!prev || (k.last_used_at && k.last_used_at > prev)) {
-      lastSeen.set(k.account_id, k.last_used_at);
+    const cur = seen.get(k.account_id);
+    if (!cur || (k.last_used_at && (!cur.last || k.last_used_at > cur.last))) {
+      seen.set(k.account_id, { userId: k.user_id, last: k.last_used_at ?? cur?.last ?? null });
     }
   }
-  const emails = new Map((profiles ?? []).map((p) => [p.id, p.email]));
+  for (const i of instances ?? []) {
+    if (!seen.has(i.account_id)) seen.set(i.account_id, { userId: i.user_id, last: null });
+  }
 
-  return rows.map((r) => ({
-    ...r,
-    email: emails.get(r.user_id) ?? null,
-    eaLastSeenAt: lastSeen.get(r.account_id) ?? null,
-  })) as OpsInstance[];
+  const rows: OpsEa[] = [];
+  for (const [accountId, v] of seen) {
+    const i = inst.get(accountId);
+    rows.push({
+      account_id: accountId,
+      user_id: v.userId,
+      email: emails.get(v.userId) ?? null,
+      kind: i ? "cloud" : "desktop",
+      eaLastSeenAt: v.last,
+      mt5_login: i?.mt5_login ?? null,
+      mt5_server: i?.mt5_server ?? null,
+      server_host: i?.server_host ?? null,
+      desired_state: i?.desired_state ?? null,
+      status: i?.status ?? null,
+      status_detail: i?.status_detail ?? null,
+      cpu_cores: i?.cpu_cores ?? null,
+      mem_mb: i?.mem_mb ?? null,
+      restarts: i?.restarts ?? null,
+      started_at: i?.started_at ?? null,
+      ea_version: i?.ea_version ?? null,
+      ea_failed_fetches: i?.ea_failed_fetches ?? null,
+      ea_last_http_status: i?.ea_last_http_status ?? null,
+      ea_queued_posts: i?.ea_queued_posts ?? null,
+      ea_from_cache: i?.ea_from_cache ?? null,
+      ea_backoff_seconds: i?.ea_backoff_seconds ?? null,
+    });
+  }
+  // Cloud first, then by most recently seen.
+  rows.sort((a, b) =>
+    a.kind !== b.kind ? (a.kind === "cloud" ? -1 : 1) : (b.eaLastSeenAt ?? "").localeCompare(a.eaLastSeenAt ?? ""));
+  return rows;
+}
+
+export type Outage = { started_at: string; ended_at: string; minutes: number };
+
+/** Gaps in the EA heartbeat. See the ea_outages() comment for why this is free. */
+export async function getOutages(accountId: string, days = 30, minMinutes = 20): Promise<Outage[] | null> {
+  const since = new Date(Date.now() - days * 86400_000).toISOString();
+  const { data, error } = await createServiceClient().rpc("ea_outages", {
+    p_account_id: accountId, p_since: since, p_min_minutes: minMinutes,
+  });
+  // Degrade rather than 500 the whole page: the uptime history is the newest
+  // part of the console and its migration may not be applied yet. Everything
+  // else on the page is still worth showing.
+  if (error) {
+    log.warn("ea_outages unavailable", { detail: error.message });
+    return null;
+  }
+  return data ?? [];
+}
+
+/** Every account's gaps in one scan. See ea_outages_all() for why. */
+export async function getAllOutages(days = 30, minMinutes = 20): Promise<(Outage & { account_id: string })[] | null> {
+  const since = new Date(Date.now() - days * 86400_000).toISOString();
+  const { data, error } = await createServiceClient().rpc("ea_outages_all", {
+    p_since: since, p_min_minutes: minMinutes,
+  });
+  if (error) {
+    log.warn("ea_outages_all unavailable", { detail: error.message });
+    return null;
+  }
+  return data ?? [];
+}
+
+export async function getUptimePct(accountId: string, days = 7): Promise<number | null> {
+  const since = new Date(Date.now() - days * 86400_000).toISOString();
+  const { data, error } = await createServiceClient().rpc("ea_uptime_pct", {
+    p_account_id: accountId, p_since: since, p_min_minutes: 20,
+  });
+  if (error) return null;
+  return typeof data === "number" ? data : null;
+}
+
+export type EaDetail = {
+  /** Read once here so the page can render purely from its props. */
+  now: number;
+  ea: OpsEa;
+  profile: { email: string; full_name: string | null; timezone: string; prop_firm: string | null; created_at: string } | null;
+  account: { name: string; broker: string | null; starting_balance: number | null; current_equity: number | null; is_primary: boolean } | null;
+  rules: Record<string, unknown> | null;
+  server: PoolServer | null;
+  uptime7d: number | null;
+  /** null = the uptime query is unavailable, NOT 'no outages'. */
+  outages: Outage[] | null;
+  violations: { id: string; type: string; occurred_at: string; details: unknown }[];
+  trades: { id: string; symbol: string | null; pnl: number | null; exit_time: string | null }[];
+  events: { event_type: string; occurred_at: string; details: unknown }[];
+  snapshots: { equity: number; recorded_at: string }[];
+};
+
+export async function getEaDetail(accountId: string): Promise<EaDetail | null> {
+  const supabase = createServiceClient();
+  const eas = await getOpsEas();
+  const ea = eas.find((e) => e.account_id === accountId);
+  if (!ea) return null;
+
+  const [
+    { data: profile }, { data: account }, { data: rules }, { data: violations },
+    { data: trades }, { data: events }, { data: snapshots }, servers,
+  ] = await Promise.all([
+    supabase.from("profiles").select("email, full_name, timezone, prop_firm, created_at").eq("id", ea.user_id).maybeSingle(),
+    supabase.from("accounts").select("name, broker, starting_balance, current_equity, is_primary").eq("id", accountId).maybeSingle(),
+    supabase.from("trading_rules").select("*").eq("account_id", accountId).maybeSingle(),
+    supabase.from("violations").select("id, type, occurred_at, details")
+      .eq("account_id", accountId).order("occurred_at", { ascending: false }).limit(25),
+    supabase.from("trades").select("id, symbol, pnl, exit_time")
+      .eq("account_id", accountId).order("exit_time", { ascending: false }).limit(25),
+    supabase.from("ea_events").select("event_type, occurred_at, details")
+      .eq("account_id", accountId).order("occurred_at", { ascending: false }).limit(25),
+    supabase.from("account_snapshots").select("equity, recorded_at")
+      .eq("account_id", accountId).order("recorded_at", { ascending: false }).limit(240),
+    getPoolServers(),
+  ]);
+
+  const [uptime7d, outages] = await Promise.all([
+    getUptimePct(accountId, 7),
+    getOutages(accountId, 30),
+  ]);
+
+  return {
+    now: Date.now(),
+    ea, profile: profile ?? null, account: account ?? null, rules: rules ?? null,
+    server: servers.find((s) => s.host === ea.server_host) ?? null,
+    uptime7d, outages,
+    violations: (violations ?? []) as EaDetail["violations"],
+    trades: (trades ?? []) as EaDetail["trades"],
+    events: (events ?? []) as EaDetail["events"],
+    snapshots: ((snapshots ?? []) as EaDetail["snapshots"]).reverse(),
+  };
 }
