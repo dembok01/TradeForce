@@ -5,7 +5,7 @@
 //+------------------------------------------------------------------+
 #property copyright "TradeForce"
 #property link      "https://trade-force-rouge.vercel.app"
-#property version   "1.23"
+#property version   "1.24"
 #property description "Enforces your TradeForce charter: daily loss limit, max trades/day, max open positions, risk per trade, session windows. Blocked states are announced on the chart before you trade; violating pending orders are deleted free; missing or oversized stop-losses are repaired in place; anything else is closed immediately and reported."
 
 #include <Trade/Trade.mqh>
@@ -14,9 +14,7 @@
 //--- inputs ---------------------------------------------------------
 input string ServerUrl            = "https://trade-force-rouge.vercel.app"; // TradeForce server (no trailing slash)
 input string ApiKey               = "";   // EA key from Rule Settings (tf_live_...)
-input int    PingSeconds          = 15;   // config-version check cadence
-input int    FullSyncSeconds      = 60;   // full config re-fetch cadence
-input int    AccountReportSeconds = 60;   // equity/balance report cadence
+input int    SyncSeconds          = 60;   // one call: config check + equity report
 input int    SessionWarnSeconds   = 300;  // chart countdown before the session closes
 input int    LossLockGraceSeconds = 30;   // notice after a daily-loss breach before MT5 closes
 input int    ReopenGraceSeconds   = 20;   // notice when MT5 is reopened during a loss-locked day
@@ -59,8 +57,6 @@ int      g_syncBackoff       = 0;
 // exactly how one ran for six days unnoticed.
 int      g_failedFetches     = 0;   // since the last successful account report
 int      g_lastHttpStatus    = 0;
-datetime g_lastAccountReport = 0;
-datetime g_lastPing          = 0;    // the timer now ticks at 1s; pings keep their own cadence
 int      g_lossBreachDayId   = -1;   // local trading day the daily-loss lock fired
 bool     g_webRequestHinted  = false;
 
@@ -79,6 +75,7 @@ datetime g_realizedTodayCacheAt = 0;
 
 // Failed POSTs are retried on later timer ticks (lost on EA restart - the
 // server is the durable record, this just smooths transient network drops).
+#define EA_VERSION  "1.24"
 #define PENDING_MAX 64
 string g_pendingPath[PENDING_MAX];
 string g_pendingBody[PENDING_MAX];
@@ -417,8 +414,9 @@ void ReportViolation(const string type, const string eventId, CJAVal &details) {
   Print("TradeForce: VIOLATION ", type);
 }
 
-void ReportAccount() {
-  CJAVal a;
+// The equity + ops-telemetry body, shared by the periodic sync and the
+// one-shot final report taken just before a lockdown closes the terminal.
+void BuildReport(CJAVal &a) {
   a["equity"]  = AccountInfoDouble(ACCOUNT_EQUITY);
   a["balance"] = AccountInfoDouble(ACCOUNT_BALANCE);
   // Ops fields: what the server cannot observe for itself.
@@ -427,7 +425,14 @@ void ReportAccount() {
   a["queuedPosts"]     = g_pendingCount;
   a["fromCache"]       = g_cfgFromCache;
   a["backoffSeconds"]  = g_syncBackoff;
-  a["eaVersion"]       = "1.23";
+  a["eaVersion"]       = EA_VERSION;
+}
+
+// A report on its own, with no config round trip: used for the final snapshot
+// on lockdown. The periodic path goes through SyncWithServer() instead.
+void ReportAccount() {
+  CJAVal a;
+  BuildReport(a);
 
   int status;
   string response;
@@ -563,64 +568,101 @@ bool LoadConfigFromDisk() {
   return true;
 }
 
-bool FetchConfig() {
+// Copy a config object into g_cfg and persist it. The object has the same
+// shape whether it arrived nested under "config" from /api/ea/sync or at the
+// top level from the older /api/ea/config, because the server builds both with
+// one shapeConfig().
+// c is a CJAVal* because JAson's operator[] returns a pointer; MQL5 applies
+// operator[] straight through it, which is what json["sessions"]["london"]
+// has always relied on.
+void ApplyConfig(CJAVal *c) {
+  g_cfg.configVersion       = c["configVersion"].ToInt();
+  g_cfg.isActive            = c["isActive"].ToBool();
+  g_cfg.dailyLossLimit      = c["dailyLossLimit"].ToDbl();
+  g_cfg.maxTradesPerDay     = (int)c["maxTradesPerDay"].ToInt();
+  g_cfg.maxOpenPositions    = (int)c["maxOpenPositions"].ToInt();
+  g_cfg.riskPerTradePercent = c["riskPerTradePercent"].ToDbl();
+  g_cfg.sesLondon           = c["sessions"]["london"].ToBool();
+  g_cfg.sesNewYork          = c["sessions"]["newYork"].ToBool();
+  g_cfg.sesAsian            = c["sessions"]["asian"].ToBool();
+  g_cfg.sesOverlap          = c["sessions"]["londonNyOverlap"].ToBool();
+  g_cfg.customStart         = c["sessions"]["customStart"].ToStr();
+  g_cfg.customEnd           = c["sessions"]["customEnd"].ToStr();
+  g_cfg.timezone            = c["sessions"]["timezone"].ToStr();
+  g_cfgFromCache = false;
+  SaveConfigToDisk();
+  Print("TradeForce: config loaded (v", g_cfg.configVersion, ", active=", g_cfg.isActive, ")");
+}
+
+// One request replaces the old ping + config + account trio.
+//
+// Those three were 360 requests an hour per terminal, and two of them read the
+// same rules row. The equity report was already going out every 60s, so it now
+// carries the version we hold and the server replies with the full config only
+// when ours is stale. 60 requests an hour, same enforcement: the daily-loss
+// check runs locally on every tick and never waited on the network.
+bool SyncWithServer() {
+  CJAVal a;
+  BuildReport(a);
+  a["knownConfigVersion"] = g_cfg.configured ? g_cfg.configVersion : -1;
+
   int status;
   string body;
-  if (!Http("GET", "/api/ea/config", "", status, body) || status != 200) {
+  if (!Http("POST", "/api/ea/sync", a.Serialize(), status, body) || status != 200) {
     g_failedFetches++;
-    Print("TradeForce: config fetch failed (status ", status, ")");
+    Print("TradeForce: sync failed (status ", status, ")");
     if (g_cfg.configured && !g_connLossAlerted) {
       g_connLossAlerted = true;
       Alert("TradeForce: dashboard unreachable - enforcing last-known rules until it reconnects.");
     }
+    // The equity reading still matters even when the config half failed. Queue
+    // it against the report-only endpoint so a replay days later cannot drag a
+    // stale config back over live rules.
+    if (g_pendingCount < PENDING_MAX) {
+      CJAVal r;
+      BuildReport(r);
+      g_pendingPath[g_pendingCount] = "/api/ea/account";
+      g_pendingBody[g_pendingCount] = r.Serialize();
+      g_pendingCount++;
+    }
     return false;
   }
+
   CJAVal json;
   if (!json.Deserialize(body)) {
-    Print("TradeForce: config parse failed: ", body);
+    Print("TradeForce: sync parse failed: ", body);
     return false;
   }
-  g_cfg.configured = json["configured"].ToBool();
-  if (!g_cfg.configured) {
-    g_cfg.isActive = false;
-    Print("TradeForce: no charter configured yet - set rules on the dashboard.");
-    return true;
-  }
-  g_cfg.configVersion       = json["configVersion"].ToInt();
-  g_cfg.isActive            = json["isActive"].ToBool();
-  g_cfg.dailyLossLimit      = json["dailyLossLimit"].ToDbl();
-  g_cfg.maxTradesPerDay     = (int)json["maxTradesPerDay"].ToInt();
-  g_cfg.maxOpenPositions    = (int)json["maxOpenPositions"].ToInt();
-  g_cfg.riskPerTradePercent = json["riskPerTradePercent"].ToDbl();
-  g_cfg.sesLondon           = json["sessions"]["london"].ToBool();
-  g_cfg.sesNewYork          = json["sessions"]["newYork"].ToBool();
-  g_cfg.sesAsian            = json["sessions"]["asian"].ToBool();
-  g_cfg.sesOverlap          = json["sessions"]["londonNyOverlap"].ToBool();
-  g_cfg.customStart         = json["sessions"]["customStart"].ToStr();
-  g_cfg.customEnd           = json["sessions"]["customEnd"].ToStr();
-  g_cfg.timezone            = json["sessions"]["timezone"].ToStr();
-  g_lastFullSync = TimeGMT();
-  g_syncBackoff  = 0; // healthy again
-  g_cfgFromCache = false;
+
+  g_failedFetches = 0;   // the report landed, so the count has been delivered
+  g_lastFullSync  = TimeGMT();
+  g_syncBackoff   = 0;   // healthy again
   if (g_connLossAlerted) {
     g_connLossAlerted = false;
     Print("TradeForce: dashboard connection restored.");
   }
-  SaveConfigToDisk();
-  Print("TradeForce: config loaded (v", g_cfg.configVersion, ", active=", g_cfg.isActive, ")");
-  return true;
-}
 
-void PingForChanges() {
-  int status;
-  string body;
-  if (!Http("GET", "/api/ea/ping", "", status, body) || status != 200) return;
-  CJAVal json;
-  if (!json.Deserialize(body)) return;
-  long remoteVersion = json["configVersion"].ToInt();
-  bool remoteConfigured = json["configured"].ToBool();
-  if (remoteConfigured != g_cfg.configured || remoteVersion != g_cfg.configVersion)
-    FetchConfig(); // something changed on the dashboard - apply within seconds
+  if (!json["configured"].ToBool()) {
+    g_cfg.configured = false;
+    g_cfg.isActive   = false;
+    Print("TradeForce: no charter configured yet - set rules on the dashboard.");
+    return true;
+  }
+
+  const long remoteVersion = json["configVersion"].ToInt();
+  if (!g_cfg.configured || remoteVersion != g_cfg.configVersion) {
+    // The server sends "config" exactly when our version is stale. Confirm it
+    // really arrived before overwriting live rules: applying an absent object
+    // would zero every limit and silently disable enforcement.
+    if (json["config"]["configVersion"].ToInt() == remoteVersion) {
+      g_cfg.configured = true;
+      ApplyConfig(json["config"]);
+    } else {
+      Print("TradeForce: sync announced v", remoteVersion,
+            " but sent no config - keeping current rules.");
+    }
+  }
+  return true;
 }
 
 //+------------------------------------------------------------------+
@@ -1125,10 +1167,9 @@ int OnInit() {
   RefreshServerOffset(); // seed before anything stamps a time or reads history
   g_cfg.configured = false;
   g_cfg.configVersion = -1;
-  if (!FetchConfig() && LoadConfigFromDisk())
+  if (!SyncWithServer() && LoadConfigFromDisk())
     Print("TradeForce: dashboard unreachable - enforcing last-known rules from the disk cache (cfg v",
           g_cfg.configVersion, ").");
-  ReportAccount();
   g_cacheDayId = LocalDayId(TimeGMT());
   // 1s timer: overlay countdowns and the loss check need it; network calls
   // keep their own cadence via the g_last* gates.
@@ -1165,21 +1206,14 @@ void OnTimer() {
   // stops advancing when the market closes, which silently suspended every
   // network call below from Friday's close until Monday's open.
   const datetime nowGmt = TimeGMT();
-  if (nowGmt - g_lastPing >= PingSeconds) {
-    g_lastPing = nowGmt;
-    PingForChanges();
-  }
-  // Retry a failed sync with exponential backoff (5s -> 5min), not every tick.
-  const int syncDue = (g_syncBackoff > 0) ? g_syncBackoff : FullSyncSeconds;
+  // One call does the config check and the equity report. Retry a failed sync
+  // with exponential backoff (5s -> 5min), not every tick.
+  const int syncDue = (g_syncBackoff > 0) ? g_syncBackoff : SyncSeconds;
   if (nowGmt - g_lastFullSync >= syncDue) {
-    if (!FetchConfig()) {
+    if (!SyncWithServer()) {
       g_syncBackoff  = (g_syncBackoff == 0) ? 5 : (int)MathMin(g_syncBackoff * 2, 300);
-      g_lastFullSync = nowGmt; // FetchConfig only stamps this on success
+      g_lastFullSync = nowGmt; // SyncWithServer only stamps this on success
     }
-  }
-  if (nowGmt - g_lastAccountReport >= AccountReportSeconds) {
-    ReportAccount();
-    g_lastAccountReport = nowGmt;
   }
 
   CheckDailyLoss();
