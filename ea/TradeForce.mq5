@@ -5,7 +5,7 @@
 //+------------------------------------------------------------------+
 #property copyright "TradeForce"
 #property link      "https://trade-force-rouge.vercel.app"
-#property version   "1.24"
+#property version   "1.25"
 #property description "Enforces your TradeForce charter: daily loss limit, max trades/day, max open positions, risk per trade, session windows. Blocked states are announced on the chart before you trade; violating pending orders are deleted free; missing or oversized stop-losses are repaired in place; anything else is closed immediately and reported."
 
 #include <Trade/Trade.mqh>
@@ -19,6 +19,7 @@ input int    SessionWarnSeconds   = 300;  // chart countdown before the session 
 input int    LossLockGraceSeconds = 30;   // notice after a daily-loss breach before MT5 closes
 input int    ReopenGraceSeconds   = 20;   // notice when MT5 is reopened during a loss-locked day
 input bool   HardLockOnLossBreach = true; // false = lock the day on-chart only, never close MT5
+input bool   CloudMode            = false; // hosted terminal: no chart drawing, one chart, lean Market Watch
 
 //--- config mirrored from GET /api/ea/config ------------------------
 struct TfConfig {
@@ -75,7 +76,7 @@ datetime g_realizedTodayCacheAt = 0;
 
 // Failed POSTs are retried on later timer ticks (lost on EA restart - the
 // server is the durable record, this just smooths transient network drops).
-#define EA_VERSION  "1.24"
+#define EA_VERSION  "1.25"
 #define PENDING_MAX 64
 string g_pendingPath[PENDING_MAX];
 string g_pendingBody[PENDING_MAX];
@@ -84,6 +85,23 @@ int    g_pendingCount = 0;
 //+------------------------------------------------------------------+
 //| HTTP                                                              |
 //+------------------------------------------------------------------+
+// On a hosted terminal nobody sees the window or hears the sound an Alert makes,
+// and under Wine each one costs window-system round trips. The journal line is
+// the part that matters there.
+void Notify(const string message) {
+  if (CloudMode) Print(message);
+  else Alert(message);
+}
+
+// Hosted terminals keep Market Watch to the chart symbol, so a traded symbol may
+// need adding before its prices can be read. Wait briefly for the first quote:
+// a zero bid would make the stop-loss repair wrongly fall back to closing.
+void EnsureSymbol(const string symbol) {
+  if (SymbolInfoInteger(symbol, SYMBOL_SELECT)) return;
+  SymbolSelect(symbol, true);
+  for (int i = 0; i < 20 && SymbolInfoDouble(symbol, SYMBOL_BID) <= 0; i++) Sleep(50);
+}
+
 bool Http(const string method, const string path, const string body, int &status, string &response) {
   status = 0;
   response = "";
@@ -363,8 +381,12 @@ void InvalidateDayCaches() {
 }
 
 int CachedTradesToday() {
-  datetime now = TimeGMT(); // a 5s memo is 5s of real time, not of market time
-  if (g_tradesTodayCacheAt == 0 || now - g_tradesTodayCacheAt >= 5) {
+  datetime now = TimeGMT();
+  // Event-driven: InvalidateDayCaches() runs on every deal, so the count is
+  // fresh the moment a trade lands. 60s only catches history that arrives
+  // without a trade event (a reconnect). It was 5s: 24 history reloads a
+  // minute per terminal for numbers that had not changed.
+  if (g_tradesTodayCacheAt == 0 || now - g_tradesTodayCacheAt >= 60) {
     g_tradesTodayCache   = TradesOpenedToday();
     g_tradesTodayCacheAt = now;
   }
@@ -372,8 +394,8 @@ int CachedTradesToday() {
 }
 
 double CachedRealizedToday() {
-  datetime now = TimeGMT(); // a 5s memo is 5s of real time, not of market time
-  if (g_realizedTodayCacheAt == 0 || now - g_realizedTodayCacheAt >= 5) {
+  datetime now = TimeGMT();
+  if (g_realizedTodayCacheAt == 0 || now - g_realizedTodayCacheAt >= 60) { // see CachedTradesToday
     g_realizedTodayCache   = RealizedPnlToday();
     g_realizedTodayCacheAt = now;
   }
@@ -613,7 +635,7 @@ bool SyncWithServer() {
     Print("TradeForce: sync failed (status ", status, ")");
     if (g_cfg.configured && !g_connLossAlerted) {
       g_connLossAlerted = true;
-      Alert("TradeForce: dashboard unreachable - enforcing last-known rules until it reconnects.");
+      Notify("TradeForce: dashboard unreachable - enforcing last-known rules until it reconnects.");
     }
     // The equity reading still matters even when the config half failed. Queue
     // it against the report-only endpoint so a replay days later cannot drag a
@@ -672,13 +694,30 @@ bool ClosePositionById(const long posId) {
   for (int i = 0; i < PositionsTotal(); i++) {
     ulong ticket = PositionGetTicket(i);
     if (ticket != 0 && PositionSelectByTicket(ticket) &&
-        PositionGetInteger(POSITION_IDENTIFIER) == posId)
+        PositionGetInteger(POSITION_IDENTIFIER) == posId) {
+      EnsureSymbol(PositionGetString(POSITION_SYMBOL));
       return g_trade.PositionClose(ticket);
+    }
   }
   return false; // already gone (closed/SL/TP)
 }
 
+// Daily-loss breach: every position is closed at once instead of one broker
+// round trip after another. OrderSendAsync is no faster per order - the gain is
+// not waiting for position 1's reply before sending position 2's close. Then
+// confirm, and close anything still open the ordinary way.
 void CloseAllPositions() {
+  if (PositionsTotal() == 0) return;
+  g_trade.SetAsyncMode(true);
+  for (int i = PositionsTotal() - 1; i >= 0; i--) {
+    ulong ticket = PositionGetTicket(i);
+    if (ticket == 0 || !PositionSelectByTicket(ticket)) continue;
+    EnsureSymbol(PositionGetString(POSITION_SYMBOL));
+    g_trade.PositionClose(ticket);
+  }
+  g_trade.SetAsyncMode(false);
+  ulong until = GetTickCount64() + 5000;
+  while (PositionsTotal() > 0 && GetTickCount64() < until) Sleep(25);
   for (int i = PositionsTotal() - 1; i >= 0; i--) {
     ulong ticket = PositionGetTicket(i);
     if (ticket != 0) g_trade.PositionClose(ticket);
@@ -770,7 +809,7 @@ void ArmLossLockdown(const int graceSeconds) {
   // GMT, not TimeCurrent(): a grace countdown is real seconds for the trader,
   // and must keep running even if the market goes quiet mid-countdown.
   g_lossLockDeadline = TimeGMT() + MathMax(5, graceSeconds);
-  Alert(StringFormat("TradeForce: daily loss limit hit - MT5 closes in %d seconds. Locked until your local midnight.",
+  Notify(StringFormat("TradeForce: daily loss limit hit - MT5 closes in %d seconds. Locked until your local midnight.",
                      MathMax(5, graceSeconds)));
 }
 
@@ -787,7 +826,7 @@ void ExecuteLossLockdown() {
   DeleteAllPendingOrders(); // GTC pendings would fill server-side while MT5 is closed
   ReportAccount();          // final equity snapshot for the dashboard
   FlushPendingHard(3);
-  Alert("TradeForce: closing MT5 - daily loss limit. Trading resumes after your local midnight.");
+  Notify("TradeForce: closing MT5 - daily loss limit. Trading resumes after your local midnight.");
   Print("TradeForce: TerminalClose() on daily-loss lockdown.");
   if (!TerminalClose(0))
     Print("TradeForce: TerminalClose failed - retrying next tick.");
@@ -826,6 +865,7 @@ void CheckDailyLoss(const bool startup = false) {
 // The caller must have the position selected (PositionSelectByTicket).
 void AutoFixStopLoss(const ulong ticket, const long posId, const string symbol,
                      const double openPrice, const double volume, const double riskPct) {
+  EnsureSymbol(symbol);
   double balance  = AccountInfoDouble(ACCOUNT_BALANCE);
   double tickSize = SymbolInfoDouble(symbol, SYMBOL_TRADE_TICK_SIZE);
   double tickVal  = SymbolInfoDouble(symbol, SYMBOL_TRADE_TICK_VALUE);
@@ -878,6 +918,7 @@ void EnforceOnOpen(const ulong openingDeal) {
   long   posId      = HistoryDealGetInteger(openingDeal, DEAL_POSITION_ID);
   string dealSymbol = HistoryDealGetString(openingDeal, DEAL_SYMBOL);
   double dealVolume = HistoryDealGetDouble(openingDeal, DEAL_VOLUME);
+  EnsureSymbol(dealSymbol);
 
   // 1. Locked day: after a daily-loss breach, nothing new stays open today.
   if (g_lossBreachDayId == LocalDayId(TimeGMT())) {
@@ -1093,12 +1134,13 @@ void RefreshBlockState() {
     if (swept > 0) Print("TradeForce: swept ", swept, " pending order(s) on entering a blocked state.");
   }
 
-  if (now != TF_BLOCK_NONE) Alert("TradeForce: " + BlockBannerText(now));
+  if (now != TF_BLOCK_NONE) Notify("TradeForce: " + BlockBannerText(now));
   else Print("TradeForce: trading unblocked.");
 }
 
 // Blocked -> banner + watermark. Unblocked near session end -> countdown.
 void UpdateOverlay() {
+  if (CloudMode) return; // nobody looks at a hosted chart
   if (g_lossLockDeadline > 0) {
     int left = (int)(g_lossLockDeadline - TimeGMT());
     if (left < 0) left = 0;
@@ -1135,6 +1177,7 @@ void SetComment(const string line) {
 }
 
 void UpdateComment() {
+  if (CloudMode) return;
   if (!g_cfg.configured) {
     SetComment("TradeForce: no charter configured - set rules on the dashboard.");
     return;
@@ -1159,9 +1202,28 @@ void UpdateComment() {
 //+------------------------------------------------------------------+
 //| MT5 entry points                                                  |
 //+------------------------------------------------------------------+
+// A hosted terminal needs one chart - the EA's - and the chart symbol in Market
+// Watch. [StartUp] opens a fresh chart on every launch and MT5 saves the old ones,
+// so a container restarted ten times was processing prices for eleven charts.
+// Symbols with open positions or orders cannot be hidden, which is what we want;
+// anything traded later is added back by EnsureSymbol().
+void CloudTrim() {
+  long me = ChartID(), ids[];
+  for (long id = ChartFirst(); id >= 0; id = ChartNext(id))
+    if (id != me) { int n = ArraySize(ids); ArrayResize(ids, n + 1); ids[n] = id; }
+  for (int i = 0; i < ArraySize(ids); i++) ChartClose(ids[i]);
+  int hidden = 0;
+  for (int i = SymbolsTotal(true) - 1; i >= 0; i--) {
+    string sym = SymbolName(i, true);
+    if (sym != _Symbol && SymbolSelect(sym, false)) hidden++;
+  }
+  if (ArraySize(ids) > 0 || hidden > 0)
+    PrintFormat("TradeForce: cloud mode - closed %d extra chart(s), hid %d symbol(s).", ArraySize(ids), hidden);
+}
+
 int OnInit() {
   if (StringLen(ApiKey) == 0 || StringFind(ApiKey, "tf_live_") != 0) {
-    Alert("TradeForce: set the ApiKey input to a key generated on the Rule Settings page.");
+    Notify("TradeForce: set the ApiKey input to a key generated on the Rule Settings page.");
     return INIT_PARAMETERS_INCORRECT;
   }
   RefreshServerOffset(); // seed before anything stamps a time or reads history
@@ -1171,6 +1233,7 @@ int OnInit() {
     Print("TradeForce: dashboard unreachable - enforcing last-known rules from the disk cache (cfg v",
           g_cfg.configVersion, ").");
   g_cacheDayId = LocalDayId(TimeGMT());
+  if (CloudMode) CloudTrim();
   // 1s timer: overlay countdowns and the loss check need it; network calls
   // keep their own cadence via the g_last* gates.
   EventSetTimer(1);
