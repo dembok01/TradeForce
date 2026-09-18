@@ -50,8 +50,8 @@ remove_bridge() {
 agent_up() {  # agent_up <since epoch> -> the restarted agent reported in
   local since=$1
   for i in $(seq 1 30); do
-    if journalctl -u tf-agent --since "@$since" --no-pager 2>/dev/null | grep -q "tf-agent 1.3 up"; then
-      rest "pool_servers?select=agent_version&host=eq.$TF_HOST" | grep -q '"1.3"' && return 0
+    if journalctl -u tf-agent --since "@$since" --no-pager 2>/dev/null | grep -qE "tf-agent 1\.3(\.[0-9]+)? up"; then
+      rest "pool_servers?select=agent_version&host=eq.$TF_HOST" | grep -q '"1\.3' && return 0
     fi
     sleep 5
   done

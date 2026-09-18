@@ -34,7 +34,7 @@ const STATUS: Record<
   starting: {
     label: "Starting…",
     variant: "warning",
-    blurb: "Setting up your cloud terminal. This usually takes about a minute.",
+    blurb: "Setting up your cloud terminal. This usually takes a few minutes.",
   },
   protected: {
     label: "Protected 24/7",
