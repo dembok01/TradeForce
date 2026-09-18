@@ -1,7 +1,7 @@
 import "server-only";
 import { z } from "zod";
 import { EA_REPORT_BOUNDS } from "@/lib/schemas/trade";
-import type { Database } from "@/lib/supabase/database.types";
+import type { Database, EaEventType, ViolationType } from "@/lib/supabase/database.types";
 import type { createServiceClient } from "@/lib/supabase/service";
 
 type Rules = Database["public"]["Tables"]["trading_rules"]["Row"];
@@ -14,6 +14,11 @@ type Service = ReturnType<typeof createServiceClient>;
  * EAs already installed on traders' own PCs still use them and we cannot force
  * an upgrade — but every byte of their behaviour is defined here exactly once,
  * so the merged route can never drift from the routes it replaces.
+ *
+ * Hosted EAs don't call these routes at all: they hand the same JSON bodies to
+ * the pool agent as files (infra/pool-agent/tf_bridge.py), which re-implements
+ * these schemas in Python. infra/pool-agent/contract/ea-payloads.json holds the
+ * cases both implementations are tested against, so they cannot drift either.
  */
 
 export const eaReportSchema = z.object({
@@ -44,6 +49,45 @@ export const eaSyncSchema = eaReportSchema.extend({
 });
 
 export type EaReport = z.infer<typeof eaReportSchema>;
+
+const VIOLATION_TYPES = [
+  "OVERTRADING",
+  "OUTSIDE_SESSION",
+  "DAILY_LOSS_BREACH",
+  "OPEN_POSITIONS_BREACH",
+  "RISK_PER_TRADE_BREACH",
+] as const satisfies readonly ViolationType[];
+
+const EA_EVENT_TYPES = ["EA_REMOVED", "CONNECTION_LOST"] as const satisfies readonly EaEventType[];
+
+const eaDetails = z
+  .record(z.string(), z.unknown())
+  .refine((d) => JSON.stringify(d).length <= 2_000, "details too large")
+  .optional();
+
+const eaOccurredAt = z
+  .string()
+  .refine((v) => Number.isFinite(Date.parse(v)), "Invalid occurredAt.")
+  .optional();
+
+/** POST /api/ea/violations */
+export const eaViolationReportSchema = z.object({
+  type: z.enum(VIOLATION_TYPES),
+  details: eaDetails,
+  occurredAt: eaOccurredAt,
+  tradeId: z.uuid().nullable().optional(),
+  // Deterministic id the EA derives from the triggering event (e.g.
+  // type + deal ticket, or type + local day for daily-loss). When present,
+  // (account, eventId) is the idempotency key for retried reports.
+  eventId: z.string().trim().min(1).max(64).optional(),
+});
+
+/** POST /api/ea/events */
+export const eaEventSchema = z.object({
+  type: z.enum(EA_EVENT_TYPES),
+  details: eaDetails,
+  occurredAt: eaOccurredAt,
+});
 
 export function shapeConfig(rules: Rules) {
   return {

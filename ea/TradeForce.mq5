@@ -5,7 +5,7 @@
 //+------------------------------------------------------------------+
 #property copyright "TradeForce"
 #property link      "https://trade-force-rouge.vercel.app"
-#property version   "1.25"
+#property version   "1.26"
 #property description "Enforces your TradeForce charter: daily loss limit, max trades/day, max open positions, risk per trade, session windows. Blocked states are announced on the chart before you trade; violating pending orders are deleted free; missing or oversized stop-losses are repaired in place; anything else is closed immediately and reported."
 
 #include <Trade/Trade.mqh>
@@ -20,6 +20,7 @@ input int    LossLockGraceSeconds = 30;   // notice after a daily-loss breach be
 input int    ReopenGraceSeconds   = 20;   // notice when MT5 is reopened during a loss-locked day
 input bool   HardLockOnLossBreach = true; // false = lock the day on-chart only, never close MT5
 input bool   CloudMode            = false; // hosted terminal: no chart drawing, one chart, lean Market Watch
+input bool   BridgeMode           = false; // hosted terminal: trade files with the pool agent, no web requests
 
 //--- config mirrored from GET /api/ea/config ------------------------
 struct TfConfig {
@@ -76,11 +77,27 @@ datetime g_realizedTodayCacheAt = 0;
 
 // Failed POSTs are retried on later timer ticks (lost on EA restart - the
 // server is the durable record, this just smooths transient network drops).
-#define EA_VERSION  "1.25"
+#define EA_VERSION  "1.26"
 #define PENDING_MAX 64
 string g_pendingPath[PENDING_MAX];
 string g_pendingBody[PENDING_MAX];
 int    g_pendingCount = 0;
+// Retries back off exactly like the sync does. Before 1.26 a report the server
+// kept refusing sat at the head of this queue and was resent every second,
+// forever: ~86,000 requests a day per terminal, all to be refused again.
+datetime g_flushNextAt  = 0;
+int      g_flushBackoff = 0;
+
+// Bridge mode (hosted terminals): reports go to files the pool agent relays to
+// the database, and rules arrive in a file the agent keeps current. The agent
+// stamps each rules file with when it last confirmed them against the database.
+#define TF_BRIDGE_OUT           "tf_bridge\\out\\"
+#define TF_BRIDGE_INBOX         "tf_bridge\\in\\config.json"
+#define TF_BRIDGE_STALE_SECONDS 120   // agent heartbeats every 30s
+long     g_inboxMtime = 0;
+int      g_bridgeSeq  = 0;
+
+enum ENUM_TF_DELIVERY { TF_DELIVERED, TF_DELIVERY_RETRY, TF_DELIVERY_REJECTED };
 
 //+------------------------------------------------------------------+
 //| HTTP                                                              |
@@ -131,35 +148,133 @@ bool Http(const string method, const string path, const string body, int &status
   return true;
 }
 
-void PostJsonQueued(const string path, const string body) {
-  int status;
-  string response;
-  bool sent = Http("POST", path, body, status, response);
-  if (sent && status >= 200 && status < 300) return;
-  if (g_pendingCount < PENDING_MAX) {
-    g_pendingPath[g_pendingCount] = path;
-    g_pendingBody[g_pendingCount] = body;
-    g_pendingCount++;
-    Print("TradeForce: queued failed POST ", path, " (status ", status, ", queue ", g_pendingCount, ")");
-  } else {
-    Print("TradeForce: retry queue full - dropping POST ", path);
+//+------------------------------------------------------------------+
+//| Bridge files (BridgeMode)                                         |
+//+------------------------------------------------------------------+
+// One report = one file. Written under a .tmp name and renamed into place, so
+// the agent (which only picks up *.json) never reads half a report. Names start
+// with the time so the agent replays a backlog in the order it happened.
+bool BridgeWrite(const string kind, const string body) {
+  const datetime now = TimeGMT();
+  const string envelope = "{\"v\":1,\"kind\":\"" + kind + "\",\"writtenAt\":" + IntegerToString((long)now) +
+                          ",\"body\":" + body + "}";
+  const string base = StringFormat("%010I64d-%010I64u-%04d-%s", (long)now, GetTickCount64() % 10000000000,
+                                   g_bridgeSeq++ % 10000, kind);
+  const string tmp = TF_BRIDGE_OUT + base + ".tmp";
+  uchar bytes[];
+  const int n = StringToCharArray(envelope, bytes, 0, WHOLE_ARRAY, CP_UTF8) - 1; // minus the NUL
+  ResetLastError();
+  int h = FileOpen(tmp, FILE_WRITE | FILE_BIN);
+  if (h == INVALID_HANDLE) {
+    // The folder may have been removed under us; recreate once and retry.
+    FolderCreate("tf_bridge");
+    FolderCreate("tf_bridge\\out");
+    h = FileOpen(tmp, FILE_WRITE | FILE_BIN);
   }
+  if (h == INVALID_HANDLE) {
+    Print("TradeForce: bridge write failed for ", kind, " (error ", GetLastError(), ")");
+    return false;
+  }
+  const uint written = FileWriteArray(h, bytes, 0, n);
+  FileClose(h);
+  if ((int)written != n || !FileMove(tmp, 0, TF_BRIDGE_OUT + base + ".json", FILE_REWRITE)) {
+    Print("TradeForce: bridge write incomplete for ", kind, " (error ", GetLastError(), ")");
+    FileDelete(tmp);
+    return false;
+  }
+  return true;
 }
 
-void FlushPending() {
+bool ReadSmallFile(const string name, string &text) {
+  int h = FileOpen(name, FILE_READ | FILE_BIN | FILE_SHARE_READ | FILE_SHARE_WRITE);
+  if (h == INVALID_HANDLE) return false;
+  const ulong size = FileSize(h);
+  uchar bytes[];
+  uint got = 0;
+  if (size > 0 && size <= 65536) got = FileReadArray(h, bytes, 0, (int)size);
+  FileClose(h);
+  if (got == 0) return false;
+  text = CharArrayToString(bytes, 0, (int)got, CP_UTF8);
+  return true;
+}
+
+// "/api/ea/violations" -> "violations": the agent routes on the same names.
+string BridgeKind(const string path) {
+  return StringSubstr(path, StringLen("/api/ea/"));
+}
+
+//+------------------------------------------------------------------+
+//| Delivery + retry queue                                            |
+//+------------------------------------------------------------------+
+ENUM_TF_DELIVERY Deliver(const string path, const string body) {
+  if (BridgeMode) return BridgeWrite(BridgeKind(path), body) ? TF_DELIVERED : TF_DELIVERY_RETRY;
+  int status;
+  string response;
+  if (!Http("POST", path, body, status, response)) return TF_DELIVERY_RETRY;
+  if (status >= 200 && status < 300) return TF_DELIVERED;
+  // The server read this report and refused it. The same bytes will be refused
+  // every time, so retrying only blocks the reports queued behind it.
+  if (status == 400 || status == 413 || status == 422) {
+    Print("TradeForce: server refused POST ", path, " (status ", status, "): ", StringSubstr(response, 0, 300),
+          " | body: ", StringSubstr(body, 0, 300));
+    return TF_DELIVERY_REJECTED;
+  }
+  return TF_DELIVERY_RETRY; // 401/403/429/5xx: nothing wrong with the report itself
+}
+
+void RemovePending(const int index) {
+  for (int i = index + 1; i < g_pendingCount; i++) {
+    g_pendingPath[i - 1] = g_pendingPath[i];
+    g_pendingBody[i - 1] = g_pendingBody[i];
+  }
+  g_pendingCount--;
+}
+
+void Enqueue(const string path, const string body) {
+  // Only the newest equity report is worth keeping: a replay is recorded at the
+  // time it finally lands, so older ones add traffic and no history.
+  if (path == "/api/ea/account") {
+    for (int i = 0; i < g_pendingCount; i++)
+      if (g_pendingPath[i] == path) { g_pendingBody[i] = body; return; }
+  }
+  if (g_pendingCount >= PENDING_MAX) {
+    // Full: an equity report gives way to a trade or violation, never the reverse.
+    int victim = -1;
+    for (int i = 0; i < g_pendingCount && victim < 0; i++)
+      if (g_pendingPath[i] == "/api/ea/account") victim = i;
+    if (victim < 0 || path == "/api/ea/account") {
+      Print("TradeForce: retry queue full - dropping POST ", path);
+      return;
+    }
+    RemovePending(victim);
+  }
+  g_pendingPath[g_pendingCount] = path;
+  g_pendingBody[g_pendingCount] = body;
+  g_pendingCount++;
+}
+
+void PostJsonQueued(const string path, const string body) {
+  if (Deliver(path, body) != TF_DELIVERY_RETRY) return;
+  Enqueue(path, body);
+  Print("TradeForce: queued ", path, " for retry (queue ", g_pendingCount, ")");
+}
+
+// force = the lockdown's last drain before TerminalClose, which ignores backoff.
+void FlushPending(const bool force = false) {
+  if (g_pendingCount == 0) return;
+  if (!force && TimeGMT() < g_flushNextAt) return;
   int flushed = 0;
   while (g_pendingCount > 0 && flushed < 4) {   // a few per tick, keep the timer snappy
-    int status;
-    string response;
-    bool sent = Http("POST", g_pendingPath[0], g_pendingBody[0], status, response);
-    if (!sent || status < 200 || status >= 300) return; // still failing - try next tick
-    for (int i = 1; i < g_pendingCount; i++) {
-      g_pendingPath[i - 1] = g_pendingPath[i];
-      g_pendingBody[i - 1] = g_pendingBody[i];
+    if (Deliver(g_pendingPath[0], g_pendingBody[0]) == TF_DELIVERY_RETRY) {
+      g_flushBackoff = (g_flushBackoff == 0) ? 5 : (int)MathMin(g_flushBackoff * 2, 300);
+      g_flushNextAt  = TimeGMT() + g_flushBackoff;
+      return;
     }
-    g_pendingCount--;
+    RemovePending(0);   // delivered, or refused for good
     flushed++;
   }
+  g_flushBackoff = 0;
+  g_flushNextAt  = 0;
 }
 
 //+------------------------------------------------------------------+
@@ -443,7 +558,7 @@ void BuildReport(CJAVal &a) {
   a["balance"] = AccountInfoDouble(ACCOUNT_BALANCE);
   // Ops fields: what the server cannot observe for itself.
   a["failedFetches"]   = g_failedFetches;
-  a["lastHttpStatus"]  = g_lastHttpStatus;
+  if (!BridgeMode) a["lastHttpStatus"] = g_lastHttpStatus; // no HTTP to report on
   a["queuedPosts"]     = g_pendingCount;
   a["fromCache"]       = g_cfgFromCache;
   a["backoffSeconds"]  = g_syncBackoff;
@@ -455,34 +570,28 @@ void BuildReport(CJAVal &a) {
 void ReportAccount() {
   CJAVal a;
   BuildReport(a);
+  const string body = a.Serialize();
 
-  int status;
-  string response;
-  bool sent = Http("POST", "/api/ea/account", a.Serialize(), status, response);
-  if (sent && status >= 200 && status < 300) {
+  const ENUM_TF_DELIVERY r = Deliver("/api/ea/account", body);
+  if (r == TF_DELIVERED) {
     g_failedFetches = 0;   // only reset once the count has actually landed
     return;
   }
   // Fall back to the retry queue, but keep the counter: it must survive until
   // a report gets through, or the storm erases its own evidence.
-  if (g_pendingCount < PENDING_MAX) {
-    g_pendingPath[g_pendingCount] = "/api/ea/account";
-    g_pendingBody[g_pendingCount] = a.Serialize();
-    g_pendingCount++;
-  }
+  if (r == TF_DELIVERY_RETRY) Enqueue("/api/ea/account", body);
 }
 
 // Lifecycle events (EA removed from the chart). Direct synchronous POST, not
 // queued: the caller is OnDeinit, which never gets another timer tick to
 // flush a queue. Best-effort by design - if the terminal is dying, it dies.
+// (In bridge mode it is a local file and survives the terminal closing.)
 void ReportEaEvent(const string eventType) {
   CJAVal e;
   e["type"]       = eventType;
   e["occurredAt"] = IsoNow();
-  int status;
-  string response;
-  Http("POST", "/api/ea/events", e.Serialize(), status, response);
-  Print("TradeForce: EA event ", eventType, " (status ", status, ")");
+  const ENUM_TF_DELIVERY r = Deliver("/api/ea/events", e.Serialize());
+  Print("TradeForce: EA event ", eventType, (r == TF_DELIVERED ? " delivered" : " not delivered"));
 }
 
 // A position (or part of one) closed - report the completed round trip.
@@ -616,6 +725,77 @@ void ApplyConfig(CJAVal *c) {
   Print("TradeForce: config loaded (v", g_cfg.configVersion, ", active=", g_cfg.isActive, ")");
 }
 
+// The pool agent's rules file has the same shape as a /api/ea/sync response,
+// plus bridgeAt: when the agent last confirmed these rules against the database.
+// Returns true when that confirmation is recent.
+bool ReadBridgeInbox() {
+  g_inboxMtime = FileGetInteger(TF_BRIDGE_INBOX, FILE_MODIFY_DATE);
+  string text;
+  if (!ReadSmallFile(TF_BRIDGE_INBOX, text)) return false;
+  CJAVal j;
+  if (!j.Deserialize(text) || j["v"].ToInt() != 1) {
+    Print("TradeForce: bridge rules file unreadable - keeping current rules.");
+    return false;
+  }
+  const bool fresh = (long)TimeGMT() - j["bridgeAt"].ToInt() <= TF_BRIDGE_STALE_SECONDS;
+  const bool configured = j["configured"].ToBool();
+  const long remoteVersion = j["configVersion"].ToInt();
+
+  if (fresh && !configured) {
+    // Authoritative, exactly like the server answering "not configured".
+    if (g_cfg.configured) Print("TradeForce: no charter configured yet - set rules on the dashboard.");
+    g_cfg.configured = false;
+    g_cfg.isActive   = false;
+  } else if (configured && (!g_cfg.configured || (fresh && remoteVersion != g_cfg.configVersion))) {
+    // A stale file is good enough to START from - it is the newest copy there
+    // is while the agent is down - but it never replaces rules already running.
+    if (j["config"]["configVersion"].ToInt() == remoteVersion) {
+      g_cfg.configured = true;
+      ApplyConfig(j["config"]);
+    } else {
+      Print("TradeForce: bridge announced v", remoteVersion, " but sent no config - keeping current rules.");
+    }
+  }
+  if (g_cfg.configured) g_cfgFromCache = !fresh;
+  return fresh;
+}
+
+void NoteBridgeFreshness(const bool fresh) {
+  if (!fresh) {
+    if (g_cfg.configured && !g_connLossAlerted) {
+      g_connLossAlerted = true;
+      Notify("TradeForce: dashboard unreachable - enforcing last-known rules until it reconnects.");
+    }
+  } else if (g_connLossAlerted) {
+    g_connLossAlerted = false;
+    Print("TradeForce: dashboard connection restored.");
+  }
+}
+
+// Every timer second, but only a stat() unless the agent rewrote the file: a
+// dashboard rule change lands here within a few seconds.
+void PollBridgeInbox() {
+  const long mtime = FileGetInteger(TF_BRIDGE_INBOX, FILE_MODIFY_DATE);
+  if (mtime <= 0 || mtime == g_inboxMtime) return;
+  NoteBridgeFreshness(ReadBridgeInbox());
+}
+
+// Bridge-mode sync: the equity report becomes a file, and the rules file is
+// re-read regardless of whether it changed, which is what notices an agent that
+// has stopped heartbeating.
+bool BridgeSync() {
+  CJAVal a;
+  BuildReport(a);
+  a["knownConfigVersion"] = g_cfg.configured ? g_cfg.configVersion : -1;
+  const bool wrote = BridgeWrite("sync", a.Serialize());
+  const bool fresh = ReadBridgeInbox();
+  g_lastFullSync = TimeGMT(); // fixed cadence: a local file has nothing to back off from
+  if (wrote) g_failedFetches = 0;
+  else g_failedFetches++;
+  NoteBridgeFreshness(fresh);
+  return wrote && fresh;
+}
+
 // One request replaces the old ping + config + account trio.
 //
 // Those three were 360 requests an hour per terminal, and two of them read the
@@ -624,6 +804,7 @@ void ApplyConfig(CJAVal *c) {
 // when ours is stale. 60 requests an hour, same enforcement: the daily-loss
 // check runs locally on every tick and never waited on the network.
 bool SyncWithServer() {
+  if (BridgeMode) return BridgeSync();
   CJAVal a;
   BuildReport(a);
   a["knownConfigVersion"] = g_cfg.configured ? g_cfg.configVersion : -1;
@@ -639,14 +820,10 @@ bool SyncWithServer() {
     }
     // The equity reading still matters even when the config half failed. Queue
     // it against the report-only endpoint so a replay days later cannot drag a
-    // stale config back over live rules.
-    if (g_pendingCount < PENDING_MAX) {
-      CJAVal r;
-      BuildReport(r);
-      g_pendingPath[g_pendingCount] = "/api/ea/account";
-      g_pendingBody[g_pendingCount] = r.Serialize();
-      g_pendingCount++;
-    }
+    // stale config back over live rules. Enqueue keeps only the newest one.
+    CJAVal r;
+    BuildReport(r);
+    Enqueue("/api/ea/account", r.Serialize());
     return false;
   }
 
@@ -659,6 +836,8 @@ bool SyncWithServer() {
   g_failedFetches = 0;   // the report landed, so the count has been delivered
   g_lastFullSync  = TimeGMT();
   g_syncBackoff   = 0;   // healthy again
+  g_flushNextAt   = 0;   // and so is the server: drain the retry queue now
+  g_flushBackoff  = 0;
   if (g_connLossAlerted) {
     g_connLossAlerted = false;
     Print("TradeForce: dashboard connection restored.");
@@ -684,6 +863,8 @@ bool SyncWithServer() {
             " but sent no config - keeping current rules.");
     }
   }
+  // Rules loaded from the disk cache at startup are confirmed current now.
+  if (g_cfg.configured && g_cfg.configVersion == remoteVersion) g_cfgFromCache = false;
   return true;
 }
 
@@ -763,13 +944,13 @@ int DeleteAllPendingOrders() {
 // A pending order placed while the charter forbids trading: delete it before
 // it can trigger and report the attempt. This is genuine prevention - the
 // order never reaches the market, so the block costs the trader $0.
-void BlockPendingOrder(const ulong ticket, const string symbol, const ENUM_TF_BLOCK cause) {
+bool BlockPendingOrder(const ulong ticket, const string symbol, const ENUM_TF_BLOCK cause) {
   double volume = 0;
   if (OrderSelect(ticket)) volume = OrderGetDouble(ORDER_VOLUME_CURRENT);
   if (!g_trade.OrderDelete(ticket)) {
     // Mid-fill or already gone - the resulting deal lands in EnforceOnOpen.
     Print("TradeForce: could not delete blocked pending #", ticket);
-    return;
+    return false;
   }
   CJAVal d;
   d["blockedPendingOrder"] = true;
@@ -795,6 +976,55 @@ void BlockPendingOrder(const ulong ticket, const string symbol, const ENUM_TF_BL
     }
   }
   ReportViolation(type, "PO-" + IntegerToString(ticket), d);
+  return true;
+}
+
+// Pending orders placed while blocked, waiting to go live on the broker's
+// server. TRADE_TRANSACTION_ORDER_ADD fires as the terminal SENDS the order,
+// before the broker has accepted it, and a cancel sent in that gap is refused
+// as "invalid request". Before 1.26 that was the end of it: on the bridge proof
+// (remote demo server) the order was accepted 2ms after the failed cancel and
+// stayed live. So a veto now waits for ORDER_STATE_PLACED, re-checked on every
+// order update and every timer second, for up to 30 seconds.
+#define VETO_MAX 32
+ulong    g_vetoTicket[VETO_MAX];
+datetime g_vetoSince[VETO_MAX];
+int      g_vetoCount = 0;
+
+void RemoveVeto(const int index) {
+  for (int i = index + 1; i < g_vetoCount; i++) {
+    g_vetoTicket[i - 1] = g_vetoTicket[i];
+    g_vetoSince[i - 1]  = g_vetoSince[i];
+  }
+  g_vetoCount--;
+}
+
+void QueueVeto(const ulong ticket, const datetime since) {
+  for (int i = 0; i < g_vetoCount; i++)
+    if (g_vetoTicket[i] == ticket) return;
+  if (g_vetoCount >= VETO_MAX) RemoveVeto(0);
+  g_vetoTicket[g_vetoCount] = ticket;
+  g_vetoSince[g_vetoCount]  = since;
+  g_vetoCount++;
+}
+
+void ProcessVetoes() {
+  const datetime now = TimeGMT();
+  for (int i = g_vetoCount - 1; i >= 0; i--) {
+    const ulong ticket = g_vetoTicket[i];
+    const datetime since = g_vetoSince[i];
+    const bool expired = now - since > 30;
+    // Not in the live order list: not accepted yet, or already filled
+    // (EnforceOnOpen's job), rejected or cancelled.
+    if (!OrderSelect(ticket)) { if (expired) RemoveVeto(i); continue; }
+    const ENUM_ORDER_STATE state = (ENUM_ORDER_STATE)OrderGetInteger(ORDER_STATE);
+    if (state != ORDER_STATE_PLACED && state != ORDER_STATE_PARTIAL) { if (expired) RemoveVeto(i); continue; }
+    const string symbol = OrderGetString(ORDER_SYMBOL);
+    RemoveVeto(i);
+    const ENUM_TF_BLOCK blocked = ComputeBlocked();
+    if (blocked == TF_BLOCK_NONE) continue; // the block ended while it was in flight
+    if (!BlockPendingOrder(ticket, symbol, blocked) && !expired) QueueVeto(ticket, since);
+  }
 }
 
 //+------------------------------------------------------------------+
@@ -817,7 +1047,7 @@ void ArmLossLockdown(const int graceSeconds) {
 // memory and dies with the terminal. Bounded to a few seconds.
 void FlushPendingHard(const int passes) {
   for (int p = 0; p < passes && g_pendingCount > 0; p++) {
-    FlushPending();
+    FlushPending(true);
     if (g_pendingCount > 0) Sleep(500);
   }
 }
@@ -1229,7 +1459,15 @@ int OnInit() {
   RefreshServerOffset(); // seed before anything stamps a time or reads history
   g_cfg.configured = false;
   g_cfg.configVersion = -1;
-  if (!SyncWithServer() && LoadConfigFromDisk())
+  if (BridgeMode) {
+    FolderCreate("tf_bridge");
+    FolderCreate("tf_bridge\\out");
+    FolderCreate("tf_bridge\\in");
+    Print("TradeForce: bridge mode - reports and rules go through the pool agent, no web requests.");
+  }
+  // A failed bridge sync may still have started us on the agent's last rules
+  // file, which is newer than the disk cache; only fall back when it didn't.
+  if (!SyncWithServer() && !g_cfg.configured && LoadConfigFromDisk())
     Print("TradeForce: dashboard unreachable - enforcing last-known rules from the disk cache (cfg v",
           g_cfg.configVersion, ").");
   g_cacheDayId = LocalDayId(TimeGMT());
@@ -1265,6 +1503,9 @@ void OnTimer() {
     InvalidateDayCaches();
   }
 
+  // New rules first, so everything below this tick already enforces them.
+  if (BridgeMode) PollBridgeInbox();
+
   // Wall clock, never TimeCurrent(): the latter is the last TICK time and
   // stops advancing when the market closes, which silently suspended every
   // network call below from Friday's close until Monday's open.
@@ -1273,13 +1514,14 @@ void OnTimer() {
   // with exponential backoff (5s -> 5min), not every tick.
   const int syncDue = (g_syncBackoff > 0) ? g_syncBackoff : SyncSeconds;
   if (nowGmt - g_lastFullSync >= syncDue) {
-    if (!SyncWithServer()) {
+    if (!SyncWithServer() && !BridgeMode) {
       g_syncBackoff  = (g_syncBackoff == 0) ? 5 : (int)MathMin(g_syncBackoff * 2, 300);
       g_lastFullSync = nowGmt; // SyncWithServer only stamps this on success
     }
   }
 
   CheckDailyLoss();
+  if (g_vetoCount > 0) ProcessVetoes();
   FlushPending();
 
   if (g_lossLockDeadline > 0) {
@@ -1303,12 +1545,11 @@ void OnTradeTransaction(const MqlTradeTransaction &trans,
   // Pending orders are vetoed at placement - the one free prevention MT5
   // allows. Market order types appear here already in transit; those are
   // EnforceOnOpen's problem once the deal lands.
-  if (trans.type == TRADE_TRANSACTION_ORDER_ADD) {
-    if (IsPendingOrderType(trans.order_type)) {
-      ENUM_TF_BLOCK blocked = ComputeBlocked();
-      if (blocked != TF_BLOCK_NONE)
-        BlockPendingOrder(trans.order, trans.symbol, blocked);
-    }
+  if (trans.type == TRADE_TRANSACTION_ORDER_ADD || trans.type == TRADE_TRANSACTION_ORDER_UPDATE) {
+    if (trans.type == TRADE_TRANSACTION_ORDER_ADD && IsPendingOrderType(trans.order_type) &&
+        ComputeBlocked() != TF_BLOCK_NONE)
+      QueueVeto(trans.order, TimeGMT());
+    if (g_vetoCount > 0) ProcessVetoes();
     return;
   }
 

@@ -1,34 +1,9 @@
 import { NextResponse } from "next/server";
-import { z } from "zod";
 import { verifyEaRequest, eaFailureResponse } from "@/lib/ea-auth";
+import { eaViolationReportSchema } from "@/lib/ea-payload";
 import { createServiceClient } from "@/lib/supabase/service";
 import { log } from "@/lib/log";
-import type { Json, ViolationType } from "@/lib/supabase/database.types";
-
-const VIOLATION_TYPES = [
-  "OVERTRADING",
-  "OUTSIDE_SESSION",
-  "DAILY_LOSS_BREACH",
-  "OPEN_POSITIONS_BREACH",
-  "RISK_PER_TRADE_BREACH",
-] as const satisfies readonly ViolationType[];
-
-const violationReportSchema = z.object({
-  type: z.enum(VIOLATION_TYPES),
-  details: z
-    .record(z.string(), z.unknown())
-    .refine((d) => JSON.stringify(d).length <= 2_000, "details too large")
-    .optional(),
-  occurredAt: z
-    .string()
-    .refine((v) => Number.isFinite(Date.parse(v)), "Invalid occurredAt.")
-    .optional(),
-  tradeId: z.uuid().nullable().optional(),
-  // Deterministic id the EA derives from the triggering event (e.g.
-  // type + deal ticket, or type + local day for daily-loss). When present,
-  // (account, eventId) is the idempotency key for retried reports.
-  eventId: z.string().trim().min(1).max(64).optional(),
-});
+import type { Json } from "@/lib/supabase/database.types";
 
 // The return path of the enforcement loop: when the EA blocks (or detects) a
 // rule breach it reports it here, which is what feeds the Violation Centre,
@@ -38,7 +13,7 @@ export async function POST(request: Request) {
   if (!auth.ok) return eaFailureResponse(auth);
 
   const body = await request.json().catch(() => null);
-  const parsed = violationReportSchema.safeParse(body);
+  const parsed = eaViolationReportSchema.safeParse(body);
   if (!parsed.success) {
     return NextResponse.json({ error: "Invalid payload.", issues: parsed.error.issues }, { status: 400 });
   }
