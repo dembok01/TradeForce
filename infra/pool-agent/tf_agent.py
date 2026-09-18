@@ -39,7 +39,7 @@ POLL = int(os.environ.get("TF_POLL", "15"))
 # Which hosted EAs use the file bridge: "off", "all", or account ids, comma-separated.
 BRIDGE = os.environ.get("TF_BRIDGE", "off")
 
-AGENT_VERSION = "1.3"
+AGENT_VERSION = "1.3.1"
 TELEMETRY_EVERY = int(os.environ.get("TF_TELEMETRY_EVERY", "4"))  # passes; 4 x 15s = 60s
 
 REST = f"{SUPABASE}/rest/v1/mt5_instances"
@@ -235,6 +235,30 @@ def host_stats() -> dict:
     }
 
 
+# What the dashboard shows when a sign-in is rejected: it is the most likely
+# failure for a self-serve user, and MT5 is the only thing that knows.
+_login_reported = {}
+
+
+def check_logins():
+    for name in containers():
+        if not name.startswith("tf-"):
+            continue
+        acc = name[3:]
+        state = tf_bridge.login_state(os.path.join(DATA, acc))
+        if state is None or _login_reported.get(acc) == state[0]:
+            continue
+        _login_reported[acc] = state[0]
+        if state[0] == "failed":
+            print(f"login rejected for {acc}: {state[1]}", flush=True)
+            report(acc, status="login_failed",
+                   status_detail=f"Your broker refused the sign-in ({state[1]}). "
+                                 "Check the account number, password and server address.")
+        else:
+            print(f"login ok for {acc}", flush=True)
+            report(acc, status="running", status_detail=None)
+
+
 def report_telemetry():
     """Best-effort: telemetry must never break reconciliation."""
     try:
@@ -246,6 +270,8 @@ def report_telemetry():
         )
     except requests.RequestException as e:
         print(f"host telemetry failed: {e}", flush=True)
+
+    check_logins()
 
     for name in containers():
         if not name.startswith("tf-"):

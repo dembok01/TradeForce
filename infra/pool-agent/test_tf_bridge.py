@@ -237,6 +237,26 @@ class FilesystemTest(FsCase):
         self.assertNotIn("00000.json", bad)
 
 
+class LoginStateTest(FsCase):
+    def write_log(self, *lines):
+        d = self.vol.joinpath(*b.LOGIN_LOGS)
+        d.mkdir(parents=True, exist_ok=True)
+        (d / "20260918.log").write_bytes("\n".join(lines).encode("utf-16-le"))
+
+    def test_reads_the_last_outcome(self):
+        self.assertIsNone(b.login_state(str(self.vol)))
+        self.write_log("0\t1\t09:00:00.000\tNetwork\t'123': authorization on Broker-Live failed (Invalid account)")
+        self.assertEqual(b.login_state(str(self.vol)), ("failed", "Invalid account"))
+        self.write_log(
+            "0\t1\t09:00:00.000\tNetwork\t'123': authorization on Broker-Live failed (Invalid account)",
+            "0\t1\t09:00:30.000\tNetwork\t'123': authorized on Broker-Live",
+        )
+        self.assertEqual(b.login_state(str(self.vol)), ("ok", ""))
+
+    def test_missing_volume_is_silent(self):
+        self.assertIsNone(b.login_state("/nonexistent"))
+
+
 # ================================================================ Supabase
 class FakeRest:
     """Records every request; `routes` maps (method, table) to a response or a callable."""

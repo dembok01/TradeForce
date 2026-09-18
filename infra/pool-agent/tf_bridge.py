@@ -593,6 +593,42 @@ def housekeep(dirs: BridgeDirs, now: float) -> None:
                 pass
 
 
+# =========================================================== login watch
+# MT5 states the outcome of every sign-in attempt in its own journal. Without
+# reading it, a wrong server address or password is indistinguishable from
+# "still starting" on the dashboard - forever.
+LOGIN_LOGS = (".wine", "drive_c", "Program Files", "MetaTrader 5", "logs")
+
+
+def login_state(volume: str) -> tuple[str, str] | None:
+    """('ok'|'failed', detail) from the newest MT5 journal, or None if it says nothing yet."""
+    d = os.path.join(volume, *LOGIN_LOGS)
+    try:
+        newest = max((os.path.join(d, n) for n in os.listdir(d) if n.endswith(".log")),
+                     key=os.path.getmtime, default=None)
+    except OSError:
+        return None
+    if newest is None:
+        return None
+    try:
+        with open(newest, "rb") as f:
+            f.seek(0, os.SEEK_END)
+            f.seek(max(f.tell() - 200_000, 0))  # the tail is enough; these grow all day
+            text = f.read().decode("utf-16-le", "ignore")
+    except OSError:
+        return None
+    result = None
+    for line in text.splitlines():
+        low = line.lower()
+        if "authorized on" in low:
+            result = ("ok", "")
+        elif "authorization" in low and "failed" in low:
+            # "...: authorization on Broker-Server failed (Invalid account)"
+            reason = line.split("failed", 1)[1].strip(" ()\t") or "rejected by the broker"
+            result = ("failed", reason)
+    return result
+
+
 # =========================================================== Supabase
 
 class Transient(Exception):
