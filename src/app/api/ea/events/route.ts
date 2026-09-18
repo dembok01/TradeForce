@@ -1,23 +1,9 @@
 import { NextResponse } from "next/server";
-import { z } from "zod";
 import { verifyEaRequest, eaFailureResponse } from "@/lib/ea-auth";
+import { eaEventSchema } from "@/lib/ea-payload";
 import { createServiceClient } from "@/lib/supabase/service";
 import { log } from "@/lib/log";
-import type { EaEventType, Json } from "@/lib/supabase/database.types";
-
-const EA_EVENT_TYPES = ["EA_REMOVED", "CONNECTION_LOST"] as const satisfies readonly EaEventType[];
-
-const eaEventSchema = z.object({
-  type: z.enum(EA_EVENT_TYPES),
-  details: z
-    .record(z.string(), z.unknown())
-    .refine((d) => JSON.stringify(d).length <= 2_000, "details too large")
-    .optional(),
-  occurredAt: z
-    .string()
-    .refine((v) => Number.isFinite(Date.parse(v)), "Invalid occurredAt.")
-    .optional(),
-});
+import type { Json } from "@/lib/supabase/database.types";
 
 // Lifecycle telemetry, not violations: an EA removed from the chart can't
 // enforce anything, so the dashboard must say so - but the event carries no

@@ -1,0 +1,739 @@
+{
+  "_comment": "Payloads a TradeForce EA may send, and whether each must be accepted. src/lib/ea-contract.test.ts runs them through the website's zod schemas and infra/pool-agent/test_tf_bridge.py through the pool agent's validators: the two ingestion paths (HTTP for desktop EAs, file bridge for hosted ones) must agree on every case. `expect` lists normalised output fields where the schema transforms the input.",
+  "cases": [
+    {
+      "name": "sync: what EA v1.26 sends",
+      "kind": "sync",
+      "valid": true,
+      "body": {
+        "equity": 10012.35,
+        "balance": 10000.0,
+        "failedFetches": 0,
+        "lastHttpStatus": 200,
+        "queuedPosts": 0,
+        "fromCache": false,
+        "backoffSeconds": 0,
+        "eaVersion": "1.26",
+        "knownConfigVersion": 11
+      }
+    },
+    {
+      "name": "sync: minimal",
+      "kind": "sync",
+      "valid": true,
+      "body": {
+        "equity": 0
+      }
+    },
+    {
+      "name": "sync: EA holding no config",
+      "kind": "sync",
+      "valid": true,
+      "body": {
+        "equity": 5,
+        "knownConfigVersion": -1
+      }
+    },
+    {
+      "name": "sync: null balance",
+      "kind": "sync",
+      "valid": true,
+      "body": {
+        "equity": 5,
+        "balance": null
+      }
+    },
+    {
+      "name": "sync: negative equity at the bound",
+      "kind": "sync",
+      "valid": true,
+      "body": {
+        "equity": -1000000000.0
+      }
+    },
+    {
+      "name": "sync: unknown keys are ignored",
+      "kind": "sync",
+      "valid": true,
+      "body": {
+        "equity": 5,
+        "somethingNew": [
+          1,
+          2
+        ]
+      },
+      "expect": {
+        "equity": 5
+      }
+    },
+    {
+      "name": "sync: missing equity",
+      "kind": "sync",
+      "valid": false,
+      "body": {
+        "balance": 5
+      }
+    },
+    {
+      "name": "sync: equity as a string",
+      "kind": "sync",
+      "valid": false,
+      "body": {
+        "equity": "100"
+      }
+    },
+    {
+      "name": "sync: equity as a boolean",
+      "kind": "sync",
+      "valid": false,
+      "body": {
+        "equity": true
+      }
+    },
+    {
+      "name": "sync: equity over the bound",
+      "kind": "sync",
+      "valid": false,
+      "body": {
+        "equity": 1000000001
+      }
+    },
+    {
+      "name": "sync: negative failedFetches",
+      "kind": "sync",
+      "valid": false,
+      "body": {
+        "equity": 1,
+        "failedFetches": -1
+      }
+    },
+    {
+      "name": "sync: fractional failedFetches",
+      "kind": "sync",
+      "valid": false,
+      "body": {
+        "equity": 1,
+        "failedFetches": 1.5
+      }
+    },
+    {
+      "name": "sync: null failedFetches (optional is not nullable)",
+      "kind": "sync",
+      "valid": false,
+      "body": {
+        "equity": 1,
+        "failedFetches": null
+      }
+    },
+    {
+      "name": "sync: failedFetches as a boolean",
+      "kind": "sync",
+      "valid": false,
+      "body": {
+        "equity": 1,
+        "failedFetches": false
+      }
+    },
+    {
+      "name": "sync: lastHttpStatus 600",
+      "kind": "sync",
+      "valid": false,
+      "body": {
+        "equity": 1,
+        "lastHttpStatus": 600
+      }
+    },
+    {
+      "name": "sync: queuedPosts 1001",
+      "kind": "sync",
+      "valid": false,
+      "body": {
+        "equity": 1,
+        "queuedPosts": 1001
+      }
+    },
+    {
+      "name": "sync: fromCache as a string",
+      "kind": "sync",
+      "valid": false,
+      "body": {
+        "equity": 1,
+        "fromCache": "false"
+      }
+    },
+    {
+      "name": "sync: fromCache as a number",
+      "kind": "sync",
+      "valid": false,
+      "body": {
+        "equity": 1,
+        "fromCache": 0
+      }
+    },
+    {
+      "name": "sync: backoffSeconds over a day",
+      "kind": "sync",
+      "valid": false,
+      "body": {
+        "equity": 1,
+        "backoffSeconds": 86401
+      }
+    },
+    {
+      "name": "sync: eaVersion 17 chars",
+      "kind": "sync",
+      "valid": false,
+      "body": {
+        "equity": 1,
+        "eaVersion": "12345678901234567"
+      }
+    },
+    {
+      "name": "sync: knownConfigVersion -2",
+      "kind": "sync",
+      "valid": false,
+      "body": {
+        "equity": 1,
+        "knownConfigVersion": -2
+      }
+    },
+    {
+      "name": "sync: knownConfigVersion over int4",
+      "kind": "sync",
+      "valid": false,
+      "body": {
+        "equity": 1,
+        "knownConfigVersion": 2147483648
+      }
+    },
+    {
+      "name": "sync: body is an array",
+      "kind": "sync",
+      "valid": false,
+      "body": [
+        {
+          "equity": 1
+        }
+      ]
+    },
+    {
+      "name": "sync: body is null",
+      "kind": "sync",
+      "valid": false,
+      "body": null
+    },
+    {
+      "name": "account: what the lockdown report sends",
+      "kind": "account",
+      "valid": true,
+      "body": {
+        "equity": 10012.35,
+        "balance": 10000.0,
+        "failedFetches": 0,
+        "lastHttpStatus": 200,
+        "queuedPosts": 0,
+        "fromCache": false,
+        "backoffSeconds": 0,
+        "eaVersion": "1.26"
+      }
+    },
+    {
+      "name": "account: knownConfigVersion is simply ignored",
+      "kind": "account",
+      "valid": true,
+      "body": {
+        "equity": 1,
+        "knownConfigVersion": 3
+      },
+      "expect": {
+        "equity": 1
+      }
+    },
+    {
+      "name": "account: missing equity",
+      "kind": "account",
+      "valid": false,
+      "body": {}
+    },
+    {
+      "name": "trades: what EA v1.26 sends (symbol and id normalised)",
+      "kind": "trades",
+      "valid": true,
+      "body": {
+        "symbol": "eurusd ",
+        "direction": "LONG",
+        "entryPrice": 1.1,
+        "exitPrice": 1.2,
+        "quantity": 0.1,
+        "pnl": 10.5,
+        "entryTime": "2026-09-17T10:00:00Z",
+        "exitTime": "2026-09-17T10:05:00Z",
+        "brokerDealId": " 123456 "
+      },
+      "expect": {
+        "symbol": "EURUSD",
+        "brokerDealId": "123456"
+      }
+    },
+    {
+      "name": "trades: minimal",
+      "kind": "trades",
+      "valid": true,
+      "body": {
+        "symbol": "XAUUSD",
+        "direction": "SHORT",
+        "entryPrice": 2400,
+        "entryTime": "2026-09-17T10:00:00Z"
+      }
+    },
+    {
+      "name": "trades: nullable fields null",
+      "kind": "trades",
+      "valid": true,
+      "body": {
+        "symbol": "eurusd ",
+        "direction": "LONG",
+        "entryPrice": 1.1,
+        "exitPrice": null,
+        "quantity": null,
+        "pnl": null,
+        "entryTime": "2026-09-17T10:00:00Z",
+        "exitTime": null,
+        "brokerDealId": " 123456 "
+      }
+    },
+    {
+      "name": "trades: zero quantity",
+      "kind": "trades",
+      "valid": true,
+      "body": {
+        "symbol": "eurusd ",
+        "direction": "LONG",
+        "entryPrice": 1.1,
+        "exitPrice": 1.2,
+        "quantity": 0,
+        "pnl": 10.5,
+        "entryTime": "2026-09-17T10:00:00Z",
+        "exitTime": "2026-09-17T10:05:00Z",
+        "brokerDealId": " 123456 "
+      }
+    },
+    {
+      "name": "trades: fractional-second and offset timestamps",
+      "kind": "trades",
+      "valid": true,
+      "body": {
+        "symbol": "eurusd ",
+        "direction": "LONG",
+        "entryPrice": 1.1,
+        "exitPrice": 1.2,
+        "quantity": 0.1,
+        "pnl": 10.5,
+        "entryTime": "2026-09-17T10:00:00.123Z",
+        "exitTime": "2026-09-17T15:35:00+05:30",
+        "brokerDealId": " 123456 "
+      }
+    },
+    {
+      "name": "trades: entryPrice 0 (opening deal not found)",
+      "kind": "trades",
+      "valid": false,
+      "body": {
+        "symbol": "eurusd ",
+        "direction": "LONG",
+        "entryPrice": 0,
+        "exitPrice": 1.2,
+        "quantity": 0.1,
+        "pnl": 10.5,
+        "entryTime": "2026-09-17T10:00:00Z",
+        "exitTime": "2026-09-17T10:05:00Z",
+        "brokerDealId": " 123456 "
+      }
+    },
+    {
+      "name": "trades: exitPrice 0",
+      "kind": "trades",
+      "valid": false,
+      "body": {
+        "symbol": "eurusd ",
+        "direction": "LONG",
+        "entryPrice": 1.1,
+        "exitPrice": 0,
+        "quantity": 0.1,
+        "pnl": 10.5,
+        "entryTime": "2026-09-17T10:00:00Z",
+        "exitTime": "2026-09-17T10:05:00Z",
+        "brokerDealId": " 123456 "
+      }
+    },
+    {
+      "name": "trades: direction BUY",
+      "kind": "trades",
+      "valid": false,
+      "body": {
+        "symbol": "eurusd ",
+        "direction": "BUY",
+        "entryPrice": 1.1,
+        "exitPrice": 1.2,
+        "quantity": 0.1,
+        "pnl": 10.5,
+        "entryTime": "2026-09-17T10:00:00Z",
+        "exitTime": "2026-09-17T10:05:00Z",
+        "brokerDealId": " 123456 "
+      }
+    },
+    {
+      "name": "trades: blank symbol",
+      "kind": "trades",
+      "valid": false,
+      "body": {
+        "symbol": "   ",
+        "direction": "LONG",
+        "entryPrice": 1.1,
+        "exitPrice": 1.2,
+        "quantity": 0.1,
+        "pnl": 10.5,
+        "entryTime": "2026-09-17T10:00:00Z",
+        "exitTime": "2026-09-17T10:05:00Z",
+        "brokerDealId": " 123456 "
+      }
+    },
+    {
+      "name": "trades: 33-char symbol",
+      "kind": "trades",
+      "valid": false,
+      "body": {
+        "symbol": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+        "direction": "LONG",
+        "entryPrice": 1.1,
+        "exitPrice": 1.2,
+        "quantity": 0.1,
+        "pnl": 10.5,
+        "entryTime": "2026-09-17T10:00:00Z",
+        "exitTime": "2026-09-17T10:05:00Z",
+        "brokerDealId": " 123456 "
+      }
+    },
+    {
+      "name": "trades: unparseable entryTime",
+      "kind": "trades",
+      "valid": false,
+      "body": {
+        "symbol": "eurusd ",
+        "direction": "LONG",
+        "entryPrice": 1.1,
+        "exitPrice": 1.2,
+        "quantity": 0.1,
+        "pnl": 10.5,
+        "entryTime": "not a date",
+        "exitTime": "2026-09-17T10:05:00Z",
+        "brokerDealId": " 123456 "
+      }
+    },
+    {
+      "name": "trades: empty entryTime",
+      "kind": "trades",
+      "valid": false,
+      "body": {
+        "symbol": "eurusd ",
+        "direction": "LONG",
+        "entryPrice": 1.1,
+        "exitPrice": 1.2,
+        "quantity": 0.1,
+        "pnl": 10.5,
+        "entryTime": "",
+        "exitTime": "2026-09-17T10:05:00Z",
+        "brokerDealId": " 123456 "
+      }
+    },
+    {
+      "name": "trades: missing entryTime",
+      "kind": "trades",
+      "valid": false,
+      "body": {
+        "symbol": "eurusd ",
+        "direction": "LONG",
+        "entryPrice": 1.1,
+        "exitPrice": 1.2,
+        "quantity": 0.1,
+        "pnl": 10.5,
+        "exitTime": "2026-09-17T10:05:00Z",
+        "brokerDealId": " 123456 "
+      }
+    },
+    {
+      "name": "trades: blank brokerDealId",
+      "kind": "trades",
+      "valid": false,
+      "body": {
+        "symbol": "eurusd ",
+        "direction": "LONG",
+        "entryPrice": 1.1,
+        "exitPrice": 1.2,
+        "quantity": 0.1,
+        "pnl": 10.5,
+        "entryTime": "2026-09-17T10:00:00Z",
+        "exitTime": "2026-09-17T10:05:00Z",
+        "brokerDealId": "  "
+      }
+    },
+    {
+      "name": "trades: 65-char brokerDealId",
+      "kind": "trades",
+      "valid": false,
+      "body": {
+        "symbol": "eurusd ",
+        "direction": "LONG",
+        "entryPrice": 1.1,
+        "exitPrice": 1.2,
+        "quantity": 0.1,
+        "pnl": 10.5,
+        "entryTime": "2026-09-17T10:00:00Z",
+        "exitTime": "2026-09-17T10:05:00Z",
+        "brokerDealId": "99999999999999999999999999999999999999999999999999999999999999999"
+      }
+    },
+    {
+      "name": "trades: negative quantity",
+      "kind": "trades",
+      "valid": false,
+      "body": {
+        "symbol": "eurusd ",
+        "direction": "LONG",
+        "entryPrice": 1.1,
+        "exitPrice": 1.2,
+        "quantity": -1,
+        "pnl": 10.5,
+        "entryTime": "2026-09-17T10:00:00Z",
+        "exitTime": "2026-09-17T10:05:00Z",
+        "brokerDealId": " 123456 "
+      }
+    },
+    {
+      "name": "trades: pnl over the bound",
+      "kind": "trades",
+      "valid": false,
+      "body": {
+        "symbol": "eurusd ",
+        "direction": "LONG",
+        "entryPrice": 1.1,
+        "exitPrice": 1.2,
+        "quantity": 0.1,
+        "pnl": 1000000001,
+        "entryTime": "2026-09-17T10:00:00Z",
+        "exitTime": "2026-09-17T10:05:00Z",
+        "brokerDealId": " 123456 "
+      }
+    },
+    {
+      "name": "trades: entryPrice as a string",
+      "kind": "trades",
+      "valid": false,
+      "body": {
+        "symbol": "eurusd ",
+        "direction": "LONG",
+        "entryPrice": "1.1",
+        "exitPrice": 1.2,
+        "quantity": 0.1,
+        "pnl": 10.5,
+        "entryTime": "2026-09-17T10:00:00Z",
+        "exitTime": "2026-09-17T10:05:00Z",
+        "brokerDealId": " 123456 "
+      }
+    },
+    {
+      "name": "violations: daily-loss breach as EA v1.26 sends it",
+      "kind": "violations",
+      "valid": true,
+      "body": {
+        "type": "DAILY_LOSS_BREACH",
+        "eventId": "DLB-20348",
+        "details": {
+          "lossToday": 512.3,
+          "limit": 500,
+          "ruleValue": 512.3,
+          "ruleLimit": 500
+        },
+        "occurredAt": "2026-09-17T10:00:00Z"
+      }
+    },
+    {
+      "name": "violations: minimal",
+      "kind": "violations",
+      "valid": true,
+      "body": {
+        "type": "OVERTRADING"
+      }
+    },
+    {
+      "name": "violations: eventId is trimmed",
+      "kind": "violations",
+      "valid": true,
+      "body": {
+        "type": "OUTSIDE_SESSION",
+        "eventId": "  SESS-1  "
+      },
+      "expect": {
+        "eventId": "SESS-1"
+      }
+    },
+    {
+      "name": "violations: null tradeId",
+      "kind": "violations",
+      "valid": true,
+      "body": {
+        "type": "OVERTRADING",
+        "tradeId": null
+      }
+    },
+    {
+      "name": "violations: uuid tradeId",
+      "kind": "violations",
+      "valid": true,
+      "body": {
+        "type": "OVERTRADING",
+        "tradeId": "8e003a17-afbc-4f87-8393-1f716a624fb7"
+      }
+    },
+    {
+      "name": "violations: details exactly 2000 chars of JSON",
+      "kind": "violations",
+      "valid": true,
+      "body": {
+        "type": "OVERTRADING",
+        "details": {
+          "k": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+        }
+      }
+    },
+    {
+      "name": "violations: details 2001 chars of JSON",
+      "kind": "violations",
+      "valid": false,
+      "body": {
+        "type": "OVERTRADING",
+        "details": {
+          "k": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+        }
+      }
+    },
+    {
+      "name": "violations: unknown type",
+      "kind": "violations",
+      "valid": false,
+      "body": {
+        "type": "REVENGE_TRADING"
+      }
+    },
+    {
+      "name": "violations: details is a string",
+      "kind": "violations",
+      "valid": false,
+      "body": {
+        "type": "OVERTRADING",
+        "details": "x"
+      }
+    },
+    {
+      "name": "violations: details is null",
+      "kind": "violations",
+      "valid": false,
+      "body": {
+        "type": "OVERTRADING",
+        "details": null
+      }
+    },
+    {
+      "name": "violations: details is an array",
+      "kind": "violations",
+      "valid": false,
+      "body": {
+        "type": "OVERTRADING",
+        "details": [
+          1
+        ]
+      }
+    },
+    {
+      "name": "violations: unparseable occurredAt",
+      "kind": "violations",
+      "valid": false,
+      "body": {
+        "type": "OVERTRADING",
+        "occurredAt": "yesterday-ish"
+      }
+    },
+    {
+      "name": "violations: tradeId not a uuid",
+      "kind": "violations",
+      "valid": false,
+      "body": {
+        "type": "OVERTRADING",
+        "tradeId": "123"
+      }
+    },
+    {
+      "name": "violations: tradeId with an invalid version digit",
+      "kind": "violations",
+      "valid": false,
+      "body": {
+        "type": "OVERTRADING",
+        "tradeId": "8e003a17-afbc-9f87-8393-1f716a624fb7"
+      }
+    },
+    {
+      "name": "violations: blank eventId",
+      "kind": "violations",
+      "valid": false,
+      "body": {
+        "type": "OVERTRADING",
+        "eventId": "   "
+      }
+    },
+    {
+      "name": "violations: 65-char eventId",
+      "kind": "violations",
+      "valid": false,
+      "body": {
+        "type": "OVERTRADING",
+        "eventId": "EEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEE"
+      }
+    },
+    {
+      "name": "events: EA removed as EA v1.26 sends it",
+      "kind": "events",
+      "valid": true,
+      "body": {
+        "type": "EA_REMOVED",
+        "occurredAt": "2026-09-17T10:00:00Z"
+      }
+    },
+    {
+      "name": "events: connection lost with details",
+      "kind": "events",
+      "valid": true,
+      "body": {
+        "type": "CONNECTION_LOST",
+        "details": {
+          "reason": "broker"
+        }
+      }
+    },
+    {
+      "name": "events: unknown type",
+      "kind": "events",
+      "valid": false,
+      "body": {
+        "type": "EA_ADDED"
+      }
+    },
+    {
+      "name": "events: missing type",
+      "kind": "events",
+      "valid": false,
+      "body": {
+        "occurredAt": "2026-09-17T10:00:00Z"
+      }
+    }
+  ]
+}
