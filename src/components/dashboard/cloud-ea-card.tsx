@@ -2,7 +2,7 @@
 
 import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
-import { ShieldCheck, Smartphone, Loader2 } from "lucide-react";
+import { ShieldCheck, Loader2 } from "lucide-react";
 import { toast } from "sonner";
 import { enableCloudEaAction, disableCloudEaAction, requestBrokerAction } from "@/lib/actions/cloud-ea";
 import { MT5_BROKER_NAMES, serversForBroker, brokerLabel } from "@/lib/mt5-brokers";
@@ -61,7 +61,7 @@ const STATUS: Record<
 
 export function CloudEaCard({ initial }: { initial: CloudEa }) {
   const router = useRouter();
-  const [login, setLogin] = useState("");
+  const [login, setLogin] = useState(initial.login ?? "");
   const [password, setPassword] = useState("");
   const [broker, setBroker] = useState("");
   const [serverAddress, setServerAddress] = useState("");
@@ -98,6 +98,9 @@ export function CloudEaCard({ initial }: { initial: CloudEa }) {
   }
 
   const s = STATUS[initial.status];
+  // "Login failed" means the details were wrong, so ask for them again rather
+  // than leaving the trader with nothing but a Turn-off button.
+  const needsDetails = !initial.enabled || initial.status === "login_failed";
 
   function handleEnable() {
     startTransition(async () => {
@@ -130,12 +133,13 @@ export function CloudEaCard({ initial }: { initial: CloudEa }) {
         <div className="flex items-start justify-between gap-3">
           <div>
             <CardTitle className="flex items-center gap-2">
-              <Smartphone className="size-4" aria-hidden />
-              Protect me on mobile
+              <ShieldCheck className="size-4" aria-hidden />
+              Your MetaTrader account
             </CardTitle>
             <CardDescription>
-              We run MetaTrader for you, so your rules are enforced when your PC is off — including
-              trades you place from the phone app.
+              We sign in to your broker and run your terminal for you. Your rules are enforced
+              around the clock — including trades you place on your phone, with your own computer
+              switched off.
             </CardDescription>
           </div>
           {initial.enabled ? <Badge variant={s.variant}>{s.label}</Badge> : null}
@@ -143,7 +147,7 @@ export function CloudEaCard({ initial }: { initial: CloudEa }) {
       </CardHeader>
 
       <CardContent>
-        {initial.enabled ? (
+        {!needsDetails ? (
           <div className="space-y-4">
             <div className="flex items-start gap-3 rounded-lg border p-3">
               {initial.status === "protected" ? (
@@ -173,6 +177,16 @@ export function CloudEaCard({ initial }: { initial: CloudEa }) {
           </div>
         ) : (
           <div className="space-y-4">
+            {initial.status === "login_failed" ? (
+              <div className="rounded-lg border border-destructive/40 bg-destructive/5 p-3 text-sm">
+                <p className="font-medium">{s.blurb}</p>
+                <p className="mt-1 text-muted-foreground">
+                  Use the <strong>trading</strong> password for account {initial.login}, not your
+                  broker website login. Check the server too, then try again.
+                </p>
+              </div>
+            ) : null}
+
             <div className="grid gap-3 sm:grid-cols-3">
               <div className="space-y-1.5">
                 <Label htmlFor="mt5-login">MT5 account number</Label>
@@ -319,7 +333,7 @@ export function CloudEaCard({ initial }: { initial: CloudEa }) {
             </p>
 
             <Button onClick={handleEnable} disabled={pending || !login || !password || !effectiveServer}>
-              {pending ? "Starting…" : "Enable 24/7 protection"}
+              {pending ? "Connecting…" : "Connect my account"}
             </Button>
           </div>
         )}

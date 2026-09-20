@@ -219,3 +219,88 @@ export async function getEaDetail(accountId: string): Promise<EaDetail | null> {
     snapshots: ((snapshots ?? []) as EaDetail["snapshots"]).reverse(),
   };
 }
+
+/**
+ * Every person who ever signed up, whether or not they got as far as
+ * connecting anything. getOpsEas() only sees accounts with a key or a cloud
+ * instance, so someone who signed up and stalled is invisible there -- which
+ * is exactly the person an operator needs to see during a trial.
+ */
+export type Signup = {
+  userId: string;
+  email: string;
+  fullName: string | null;
+  propFirm: string | null;
+  createdAt: string;
+  onboardedAt: string | null;
+  accountId: string | null;
+  broker: string | null;
+  equity: number | null;
+  rulesConfigured: boolean;
+  rulesActive: boolean;
+  connection: "cloud" | "desktop" | "none";
+  cloudStatus: string | null;
+  cloudDesired: string | null;
+  cloudDetail: string | null;
+  mt5Login: string | null;
+  mt5Server: string | null;
+  serverHost: string | null;
+  activeKeys: number;
+  lastSeenAt: string | null;
+};
+
+export async function getSignups(): Promise<Signup[]> {
+  const supabase = createServiceClient();
+  const [{ data: profiles }, { data: accounts }, { data: rules }, { data: keys }, { data: instances }] =
+    await Promise.all([
+      supabase.from("profiles").select("id, email, full_name, prop_firm, created_at, onboarded_at"),
+      supabase.from("accounts").select("id, user_id, broker, current_equity, is_primary"),
+      supabase.from("trading_rules").select("account_id, is_active, daily_loss_limit, max_trades_per_day"),
+      supabase.from("api_keys").select("user_id, account_id, last_used_at, revoked_at"),
+      supabase.from("mt5_instances").select("*"),
+    ]);
+
+  const acctByUser = new Map<string, (typeof accounts extends (infer T)[] | null ? T : never)>();
+  for (const a of accounts ?? []) {
+    const cur = acctByUser.get(a.user_id);
+    if (!cur || a.is_primary) acctByUser.set(a.user_id, a);
+  }
+  const rulesByAccount = new Map((rules ?? []).map((r) => [r.account_id, r]));
+  const instByAccount = new Map((instances ?? []).map((i) => [i.account_id, i]));
+
+  return (profiles ?? [])
+    .map((p) => {
+      const account = acctByUser.get(p.id) ?? null;
+      const rule = account ? rulesByAccount.get(account.id) : undefined;
+      const inst = account ? instByAccount.get(account.id) : undefined;
+      const mine = (keys ?? []).filter((k) => k.user_id === p.id && !k.revoked_at);
+      const lastSeenAt = mine.reduce<string | null>(
+        (best, k) => (k.last_used_at && (!best || k.last_used_at > best) ? k.last_used_at : best),
+        null
+      );
+      const hasCloud = Boolean(inst && inst.desired_state !== "removed");
+      return {
+        userId: p.id,
+        email: p.email,
+        fullName: p.full_name,
+        propFirm: p.prop_firm,
+        createdAt: p.created_at,
+        onboardedAt: p.onboarded_at,
+        accountId: account?.id ?? null,
+        broker: account?.broker ?? null,
+        equity: account?.current_equity ?? null,
+        rulesConfigured: Boolean(rule && (rule.daily_loss_limit || rule.max_trades_per_day)),
+        rulesActive: Boolean(rule?.is_active),
+        connection: hasCloud ? "cloud" : mine.length > 0 ? "desktop" : "none",
+        cloudStatus: inst?.status ?? null,
+        cloudDesired: inst?.desired_state ?? null,
+        cloudDetail: inst?.status_detail ?? null,
+        mt5Login: inst?.mt5_login ?? null,
+        mt5Server: inst?.mt5_server ?? null,
+        serverHost: inst?.server_host ?? null,
+        activeKeys: mine.length,
+        lastSeenAt,
+      } satisfies Signup;
+    })
+    .sort((a, b) => b.createdAt.localeCompare(a.createdAt));
+}

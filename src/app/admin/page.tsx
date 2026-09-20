@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { getPoolServers, getOpsEas } from "@/lib/data/admin";
+import { getPoolServers, getOpsEas, getSignups } from "@/lib/data/admin";
 import {
   eaHealth, serverHealth, fmtAge, ageMs,
   FAILED_FETCH_ALERT, type Health,
@@ -10,7 +10,8 @@ import { Dot, Tile, Panel, Table } from "@/components/admin/ui";
 export const dynamic = "force-dynamic";
 
 export default async function AdminPage() {
-  const [servers, eas] = await Promise.all([getPoolServers(), getOpsEas()]);
+  const [servers, eas, signups] = await Promise.all([getPoolServers(), getOpsEas(), getSignups()]);
+  const notConnected = signups.filter((s) => s.connection === "none");
 
   const cloud = eas.filter((e) => e.kind === "cloud");
   const desktop = eas.filter((e) => e.kind === "desktop");
@@ -75,6 +76,10 @@ export default async function AdminPage() {
               tone={serversUp.length === servers.length ? "ok" : "down"} href="/admin/servers" />
         <Tile label="Capacity used" value={capacity ? `${running.length} / ${capacity}` : "—"}
               href="/admin/servers" />
+        <Tile label="Signed up" value={String(signups.length)} href="/admin/users" />
+        <Tile label="Never connected" value={String(notConnected.length)}
+              tone={notConnected.length ? "warn" : "ok"}
+              hint="signed up, nothing running" href="/admin/users" />
       </div>
 
       <Panel title="Alerts">

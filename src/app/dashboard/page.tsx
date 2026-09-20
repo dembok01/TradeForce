@@ -76,6 +76,19 @@ export default async function DashboardHomePage() {
         action={<StatusBadge status={overview.status} />}
       />
 
+      {!eaIsLive && (
+        <Reveal y={8} className="mb-8">
+          <CharterCallout
+            title="Your rules aren't being enforced yet."
+            href="/dashboard/ea-setup"
+            cta="Connect your account"
+          >
+            Connect your MetaTrader account and we run your terminal for you, day and night.
+            Until then nothing is watching your trades.
+          </CharterCallout>
+        </Reveal>
+      )}
+
       {!isConfigured && (
         <Reveal y={8} className="mb-8">
           <CharterCallout
