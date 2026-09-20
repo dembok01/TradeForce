@@ -129,6 +129,10 @@ export function SetupChecklistPanel({
     "download-ea": (
       <>
         <p>The compiled Expert Advisor for MetaTrader 5.</p>
+        <p className="text-xs text-muted-foreground">
+          Needs MetaTrader 5 build 6194 or newer (Help &rarr; About). An older terminal will not
+          run it. Note that this only protects you while this computer is on.
+        </p>
         <Button variant="gold" size="sm" className="mt-3" asChild>
           <a href={EA_DOWNLOAD_PATH} download onClick={markDownloaded}>
             Download TradeForce.ex5
