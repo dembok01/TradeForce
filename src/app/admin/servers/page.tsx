@@ -1,6 +1,6 @@
 import Link from "next/link";
 import { getPoolServers, getOpsEas } from "@/lib/data/admin";
-import { serverHealth, fmtAge } from "@/lib/ops-health";
+import { serverHealth, fmtAge, diskHeadroomUsers } from "@/lib/ops-health";
 import { AutoRefresh } from "@/components/dashboard/auto-refresh";
 import { Dot, Panel, Table, Facts, Cmd } from "@/components/admin/ui";
 
@@ -34,6 +34,7 @@ export default async function ServersPage() {
         const mine = eas.filter((e) => e.server_host === s.host);
         const usedCores = mine.reduce((n, e) => n + (e.cpu_cores ?? 0), 0);
         const headroom = s.cores ? Math.floor(s.cores * USERS_PER_CORE) - mine.length : null;
+        const diskRoom = diskHeadroomUsers(s.disk_free_mb);
 
         return (
           <Panel key={s.host} title={s.host}
@@ -50,7 +51,8 @@ export default async function ServersPage() {
               <Facts rows={[
                 ["Instances", `${s.instances}${s.capacity ? ` / ${s.capacity}` : ""}`],
                 ["CPU in use", usedCores ? `${usedCores.toFixed(1)} of ${s.cores ?? "?"} cores` : "—"],
-                ["Room for", headroom === null ? "—" : `${headroom} more users (at ${USERS_PER_CORE}/core, measured)`],
+                ["Room for (CPU)", headroom === null ? "—" : `${headroom} more users (at ${USERS_PER_CORE}/core, measured)`],
+                ["Room for (disk)", diskRoom === null ? "—" : `${diskRoom} more users (~3 GB each, 8 GB held back)`],
                 ["Image / agent", `${s.image_tag ?? "—"} · ${s.agent_version ?? "—"}`],
               ]} />
             </div>

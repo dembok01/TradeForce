@@ -76,3 +76,23 @@ export function uptimePctFromGaps(
   }, 0);
   return Math.round(Math.max(0, 1 - down / windowMs) * 10000) / 100;
 }
+
+/**
+ * How many more hosted users the disk can take.
+ *
+ * Disk, not CPU, is what runs out first on the current pool: each user gets a
+ * full ~3 GB copy of MetaTrader. Provisioning a user with no room left fails
+ * part-way and leaves a half-built terminal, so this is the number to check
+ * before raising the capacity setting.
+ */
+export const DISK_PER_USER_MB = 3000;
+export const DISK_RESERVE_MB = 8000;   // logs, history growth, an image pull
+
+export function diskHeadroomUsers(
+  diskFreeMb: number | null,
+  perUserMb = DISK_PER_USER_MB,
+  reserveMb = DISK_RESERVE_MB,
+): number | null {
+  if (diskFreeMb === null) return null;
+  return Math.max(0, Math.floor((diskFreeMb - reserveMb) / perUserMb));
+}

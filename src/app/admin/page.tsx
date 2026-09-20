@@ -2,7 +2,7 @@ import Link from "next/link";
 import { getPoolServers, getOpsEas, getSignups } from "@/lib/data/admin";
 import {
   eaHealth, serverHealth, fmtAge, ageMs,
-  FAILED_FETCH_ALERT, type Health,
+  FAILED_FETCH_ALERT, diskHeadroomUsers, type Health,
 } from "@/lib/ops-health";
 import { AutoRefresh } from "@/components/dashboard/auto-refresh";
 import { Dot, Tile, Panel, Table } from "@/components/admin/ui";
@@ -27,9 +27,17 @@ export default async function AdminPage() {
       alerts.push({ level: "down", href: "/admin/servers",
         text: `Pool server ${s.host} last reported ${fmtAge(s.last_seen_at)} — every instance on it is unmonitored.` });
     }
-    if ((s.disk_free_mb ?? Infinity) < 15_000) {
+    // Disk runs out before CPU on this pool, and a user provisioned with no
+    // room left gets a half-built terminal. Alert on the number that decides
+    // it: how many more users actually fit.
+    const diskRoom = diskHeadroomUsers(s.disk_free_mb);
+    if (diskRoom !== null && diskRoom < 2) {
+      alerts.push({ level: diskRoom === 0 ? "down" : "warn", href: "/admin/servers",
+        text: `${s.host}: disk has room for ${diskRoom} more user(s) (${Math.round((s.disk_free_mb ?? 0) / 1024)} GB free). Provisioning fails part-way without space.` });
+    }
+    if (diskRoom !== null && s.capacity && s.instances + diskRoom < s.capacity) {
       alerts.push({ level: "warn", href: "/admin/servers",
-        text: `${s.host}: only ${Math.round((s.disk_free_mb ?? 0) / 1024)} GB free — provisioning fails silently without space.` });
+        text: `${s.host}: capacity is set to ${s.capacity} but disk only fits ${s.instances + diskRoom}. Signups past that will sit unprovisioned.` });
     }
     if (s.capacity && s.instances >= s.capacity * 0.8) {
       alerts.push({ level: "warn", href: "/admin/servers",

@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { uptimePctFromGaps, desktopHealth, eaHealth } from "./ops-health";
+import { uptimePctFromGaps, desktopHealth, eaHealth, diskHeadroomUsers } from "./ops-health";
 
 const NOW = Date.parse("2026-08-29T12:00:00Z");
 const WEEK = 7 * 86400_000;
@@ -57,5 +57,18 @@ describe("eaHealth", () => {
   });
   it("is down on a cloud instance silent past the dead threshold", () => {
     expect(eaHealth(new Date(Date.now() - 20 * 60_000).toISOString(), "running")).toBe("down");
+  });
+});
+
+describe("diskHeadroomUsers", () => {
+  it("counts whole users, after holding back a reserve", () => {
+    // 72 GB free - 8 GB reserve = 64 GB, at 3 GB each
+    expect(diskHeadroomUsers(72_000)).toBe(21);
+  });
+  it("never goes negative when the disk is already fuller than the reserve", () => {
+    expect(diskHeadroomUsers(5_000)).toBe(0);
+  });
+  it("is unknown when the server has not reported disk yet", () => {
+    expect(diskHeadroomUsers(null)).toBeNull();
   });
 });
