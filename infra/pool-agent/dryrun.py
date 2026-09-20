@@ -147,11 +147,14 @@ def run_good():
         _, snaps = api("GET", f"account_snapshots?account_id=eq.{acc_id}&select=equity,recorded_at&order=recorded_at.desc&limit=1")
         _, keys = api("GET", f"api_keys?account_id=eq.{acc_id}&select=last_used_at")
         row = instance(acc_id)
-        log(f"  EA journal:\n{ea}")
+        log(f"  EA journal:\n{ea}" if ea else "  EA journal: not flushed to disk yet (MT5 writes it in batches)")
         log(f"  first equity report: {snaps}")
         log(f"  dashboard EA badge (last_used_at): {keys[0]['last_used_at'] if keys else None}")
-        log(f"  telemetry: ea_version={row.get('ea_version')} reported={row.get('ea_reported_at')}")
-        ok = bool(snaps) and "bridge mode" in ea
+        log(f"  telemetry: ea_version={row.get('ea_version')} detail={row.get('status_detail')!r}")
+        # A relayed equity report IS the proof: it can only have arrived as a
+        # file the agent picked up, which means the EA ran in bridge mode. The
+        # journal is written minutes late, so it can't be part of the verdict.
+        ok = bool(snaps) and row.get("ea_version") == "1.26"
     log(f"RESULT good-credentials: {'PASS' if ok else 'FAIL'}")
     cleanup(uid, acc_id)
     return ok

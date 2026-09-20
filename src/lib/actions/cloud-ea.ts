@@ -4,6 +4,7 @@ import { randomBytes } from "node:crypto";
 import { revalidatePath } from "next/cache";
 import { z } from "zod";
 import { getAuthedActionContext } from "@/lib/actions/_helpers";
+import { getAuthedUser } from "@/lib/data/auth";
 import { createServiceClient } from "@/lib/supabase/service";
 import { API_KEY_PREFIX, hashApiKey } from "@/lib/ea-auth";
 import { sealSecret } from "@/lib/mt5-crypto";
@@ -128,5 +129,46 @@ export async function disableCloudEaAction(): Promise<{ error: string | null }> 
     return { error: null };
   } catch (err) {
     return { error: toActionErrorMessage(err, "cloud-ea") };
+  }
+}
+
+const brokerRequestSchema = z.object({
+  broker: z.string().trim().min(2, "Tell us who your broker is.").max(80),
+  serverName: z.string().trim().max(80).optional(),
+});
+
+/**
+ * "My broker isn't listed."
+ *
+ * Adding a broker costs us one address lookup, once, after which every trader
+ * with that broker connects instantly -- so the fastest path for the user is to
+ * tell us who they are with, rather than hunt down a server address. Lands in
+ * contact_messages, which is already the inbox we watch.
+ */
+export async function requestBrokerAction(input: unknown): Promise<{ error: string | null }> {
+  try {
+    const parsed = brokerRequestSchema.safeParse(input);
+    if (!parsed.success) {
+      return { error: parsed.error.issues[0]?.message ?? "Check the details and try again." };
+    }
+    const ctx = await getAuthedActionContext();
+    if (!ctx.ok) return { error: ctx.error };
+    const user = await getAuthedUser();
+
+    const { error } = await createServiceClient()
+      .from("contact_messages")
+      .insert({
+        name: `Broker request · account ${ctx.account.id}`,
+        email: user?.email ?? "unknown",
+        message: `Broker: ${parsed.data.broker}\nServer name: ${parsed.data.serverName || "(not given)"}`,
+      });
+
+    if (error) {
+      log.error("broker request insert failed", { detail: error.message, accountId: ctx.account.id });
+      return { error: "Couldn't send that just now. Please try again." };
+    }
+    return { error: null };
+  } catch (err) {
+    return { error: toActionErrorMessage(err, "broker-request") };
   }
 }

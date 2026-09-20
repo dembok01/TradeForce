@@ -1,5 +1,12 @@
 import { describe, it, expect } from "vitest";
-import { isValidServerAddress, isAcceptableServer, brokerLabel, MT5_BROKERS } from "./mt5-brokers";
+import {
+  isValidServerAddress,
+  isAcceptableServer,
+  brokerLabel,
+  serversForBroker,
+  MT5_SERVERS,
+  MT5_BROKER_NAMES,
+} from "./mt5-brokers";
 
 describe("mt5 server address validation", () => {
   it("accepts ip:port and host:port", () => {
@@ -20,13 +27,38 @@ describe("mt5 server address validation", () => {
   });
 
   it("accepts listed brokers and any valid custom address", () => {
-    expect(isAcceptableServer(MT5_BROKERS[0].server)).toBe(true);
+    expect(isAcceptableServer(MT5_SERVERS[0].address)).toBe(true);
     expect(isAcceptableServer("some.broker.ae:443")).toBe(true);
     expect(isAcceptableServer("Exness-Real12")).toBe(false);
   });
 
   it("labels a known broker, echoes an unknown address", () => {
-    expect(brokerLabel(MT5_BROKERS[0].server)).toContain("MetaQuotes");
+    expect(brokerLabel(MT5_SERVERS[0].address)).toContain(MT5_SERVERS[0].broker);
     expect(brokerLabel("x.broker.com:443")).toBe("x.broker.com:443");
+  });
+});
+
+describe("broker picker", () => {
+  it("offers each broker once, alphabetically", () => {
+    expect(MT5_BROKER_NAMES).toEqual([...new Set(MT5_BROKER_NAMES)].sort((a, b) => a.localeCompare(b)));
+    expect(MT5_BROKER_NAMES).toContain("MetaQuotes");
+  });
+
+  it("finds a broker's servers however the trader types it", () => {
+    expect(serversForBroker("metaquotes").length).toBeGreaterThan(0);
+    expect(serversForBroker("  MetaQuotes  ").length).toBeGreaterThan(0);
+    expect(serversForBroker("Not A Broker")).toEqual([]);
+    expect(serversForBroker("")).toEqual([]);
+  });
+
+  it("every catalogued address is one MT5 would accept", () => {
+    for (const s of MT5_SERVERS) {
+      expect(isValidServerAddress(s.address), `${s.broker} ${s.label}`).toBe(true);
+    }
+  });
+
+  it("never lists the same address twice", () => {
+    const addresses = MT5_SERVERS.map((s) => s.address);
+    expect(addresses).toEqual([...new Set(addresses)]);
   });
 });

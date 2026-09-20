@@ -251,7 +251,7 @@ class LoginStateTest(FsCase):
             "0\t1\t09:00:00.000\tNetwork\t'123': authorization on Broker-Live failed (Invalid account)",
             "0\t1\t09:00:30.000\tNetwork\t'123': authorized on Broker-Live",
         )
-        self.assertEqual(b.login_state(str(self.vol)), ("ok", ""))
+        self.assertEqual(b.login_state(str(self.vol)), ("ok", "Broker-Live"))
 
     def test_missing_volume_is_silent(self):
         self.assertIsNone(b.login_state("/nonexistent"))

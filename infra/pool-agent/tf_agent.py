@@ -39,7 +39,7 @@ POLL = int(os.environ.get("TF_POLL", "15"))
 # Which hosted EAs use the file bridge: "off", "all", or account ids, comma-separated.
 BRIDGE = os.environ.get("TF_BRIDGE", "off")
 
-AGENT_VERSION = "1.3.1"
+AGENT_VERSION = "1.3.2"
 TELEMETRY_EVERY = int(os.environ.get("TF_TELEMETRY_EVERY", "4"))  # passes; 4 x 15s = 60s
 
 REST = f"{SUPABASE}/rest/v1/mt5_instances"
@@ -255,8 +255,11 @@ def check_logins():
                    status_detail=f"Your broker refused the sign-in ({state[1]}). "
                                  "Check the account number, password and server address.")
         else:
-            print(f"login ok for {acc}", flush=True)
-            report(acc, status="running", status_detail=None)
+            # The server name confirms to the trader that they picked the right
+            # one, and teaches us which name answers at that address.
+            print(f"login ok for {acc}: {state[1] or 'server name not logged'}", flush=True)
+            report(acc, status="running",
+                   status_detail=f"Connected to {state[1]}" if state[1] else None)
 
 
 def report_telemetry():

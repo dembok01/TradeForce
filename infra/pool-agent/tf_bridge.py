@@ -621,7 +621,11 @@ def login_state(volume: str) -> tuple[str, str] | None:
     for line in text.splitlines():
         low = line.lower()
         if "authorized on" in low:
-            result = ("ok", "")
+            # "'111484503': authorized on ICMarketsSC-Demo through Access Point EU 0"
+            # The server NAME is the one thing only the broker can tell us, and it
+            # is how we learn which name lives at the address the trader picked.
+            name = line.split("authorized on", 1)[1].split(" through")[0].strip()
+            result = ("ok", name)
         elif "authorization" in low and "failed" in low:
             # "...: authorization on Broker-Server failed (Invalid account)"
             reason = line.split("failed", 1)[1].strip(" ()\t") or "rejected by the broker"
