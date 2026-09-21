@@ -329,6 +329,9 @@ class RelayTest(unittest.TestCase):
                          {"current_equity": 1, "ea_trade_block": "ALGO_TRADING_OFF"})
         self.assertIsNone(self.apply("account", {"equity": 1, "tradeBlock": ""}))
         self.assertEqual(self.rest.of("PATCH", "accounts")[1][3], {"current_equity": 1, "ea_trade_block": None})
+        # What v1.27 actually sends when it can trade: JAson writes "" as null.
+        self.assertIsNone(self.apply("sync", {"equity": 1, "tradeBlock": None}))
+        self.assertEqual(self.rest.of("PATCH", "accounts")[2][3], {"current_equity": 1, "ea_trade_block": None})
 
     def test_report_without_balance_or_telemetry(self):
         self.assertIsNone(self.apply("account", {"equity": 5}))

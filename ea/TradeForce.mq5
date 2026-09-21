@@ -67,6 +67,17 @@ datetime g_lossLockDeadline  = 0;    // armed = MT5 closes at this time (daily-l
 bool     g_cfgFromCache      = false; // rules loaded from disk because the dashboard was unreachable
 bool     g_connLossAlerted   = false; // one alert per outage, cleared on the next good fetch
 
+// Enforcement that the broker refuses. Before 1.27 a refused close was silent:
+// the violation was reported as if enforced, and a daily-loss lockdown then
+// closed MT5 with the losing trades still open (21 Sep, a prop-firm trial
+// account whose server rejects EA orders).
+string   g_closeError        = "";    // broker's reason for the last refused close
+string   g_tradeBlock        = "";    // why this EA cannot trade right now, "" = it can
+string   g_blockCandidate    = "";    // a change must hold 10s before it is announced
+datetime g_blockCandidateAt  = 0;
+datetime g_closeAllNextAt    = 0;     // daily-loss close-all retry gate
+bool     g_notFlatWarned     = false; // lockdown held open: said once per breach
+
 // The 1s timer would otherwise rescan deal history every second; these memos
 // make ComputeBlocked()/TodayLoss() cheap. A new deal invalidates both.
 int      g_cacheDayId           = -1;
@@ -77,7 +88,7 @@ datetime g_realizedTodayCacheAt = 0;
 
 // Failed POSTs are retried on later timer ticks (lost on EA restart - the
 // server is the durable record, this just smooths transient network drops).
-#define EA_VERSION  "1.26"
+#define EA_VERSION  "1.27"
 #define PENDING_MAX 64
 string g_pendingPath[PENDING_MAX];
 string g_pendingBody[PENDING_MAX];
@@ -563,6 +574,7 @@ void BuildReport(CJAVal &a) {
   a["fromCache"]       = g_cfgFromCache;
   a["backoffSeconds"]  = g_syncBackoff;
   a["eaVersion"]       = EA_VERSION;
+  a["tradeBlock"]      = g_tradeBlock; // "" clears the dashboard warning
 }
 
 // A report on its own, with no config round trip: used for the final snapshot
@@ -869,18 +881,121 @@ bool SyncWithServer() {
 }
 
 //+------------------------------------------------------------------+
+//| Trade permission - can this EA close anything at all?             |
+//+------------------------------------------------------------------+
+// Each code has a plain-language fix on the dashboard (src/lib/ea-trade-block.ts);
+// keep the two lists in step. Order matters: account flags read as "not allowed"
+// while the terminal is disconnected, so connection is checked first.
+string TradeBlockNow() {
+  if (!TerminalInfoInteger(TERMINAL_CONNECTED))    return "NO_CONNECTION";
+  if (!AccountInfoInteger(ACCOUNT_TRADE_ALLOWED))  return "ACCOUNT_READ_ONLY";
+  if (!AccountInfoInteger(ACCOUNT_TRADE_EXPERT))   return "BROKER_BLOCKS_EA";
+  if (!TerminalInfoInteger(TERMINAL_TRADE_ALLOWED)) return "ALGO_TRADING_OFF";
+  if (!MQLInfoInteger(MQL_TRADE_ALLOWED))          return "EA_TRADING_OFF";
+  return "";
+}
+
+string TradeBlockText(const string code) {
+  if (code == "NO_CONNECTION")     return "MetaTrader has no connection to your broker";
+  if (code == "ACCOUNT_READ_ONLY") return "This login cannot trade - it is the investor (read-only) password, or your broker has disabled trading on the account";
+  if (code == "BROKER_BLOCKS_EA")  return "Your broker does not allow Expert Advisors to trade on this account, so TradeForce cannot close trades";
+  if (code == "ALGO_TRADING_OFF")  return "Algo Trading is switched off - click the Algo Trading button in the MetaTrader toolbar so it turns green";
+  if (code == "EA_TRADING_OFF")    return "Allow Algo Trading is unticked for TradeForce - open the EA's settings (Common tab) and tick it";
+  return code;
+}
+
+// Called every timer second. A change has to hold for 10s before it is
+// announced, so a brief reconnect does not pop an alert or flap the dashboard.
+void CheckTradePermission() {
+  const string now = TradeBlockNow();
+  if (now == g_tradeBlock) { g_blockCandidate = now; return; }
+  if (now != g_blockCandidate) { g_blockCandidate = now; g_blockCandidateAt = TimeGMT(); return; }
+  if (TimeGMT() - g_blockCandidateAt < 10) return;
+  const string was = g_tradeBlock;
+  g_tradeBlock = now;
+  if (now == "") Print("TradeForce: trading permission restored (was ", was, ").");
+  else if (now == "NO_CONNECTION") Print("TradeForce: ", TradeBlockText(now), ".");
+  else Notify("TradeForce: " + TradeBlockText(now) + ".");
+  ReportAccount(); // the dashboard hears now, not at the next minute's sync
+}
+
+//+------------------------------------------------------------------+
 //| Enforcement                                                       |
 //+------------------------------------------------------------------+
+// The broker's own words for a refused request, e.g. "Autotrading disabled by
+// server (10026)". When the request never left the terminal there is no
+// retcode, only the MQL error.
+string CloseErrorText() {
+  const uint rc = g_trade.ResultRetcode();
+  if (rc != 0) return StringFormat("%s (%u)", g_trade.ResultRetcodeDescription(), rc);
+  return StringFormat("error %d", GetLastError());
+}
+
+bool CloseAccepted() {
+  const uint rc = g_trade.ResultRetcode();
+  return rc == TRADE_RETCODE_DONE || rc == TRADE_RETCODE_PLACED;
+}
+
+// true = the position is gone (closed now, or already closed by SL/TP).
+// false = the broker refused; g_closeError says why.
 bool ClosePositionById(const long posId) {
+  g_closeError = "";
   for (int i = 0; i < PositionsTotal(); i++) {
     ulong ticket = PositionGetTicket(i);
     if (ticket != 0 && PositionSelectByTicket(ticket) &&
         PositionGetInteger(POSITION_IDENTIFIER) == posId) {
       EnsureSymbol(PositionGetString(POSITION_SYMBOL));
-      return g_trade.PositionClose(ticket);
+      if (g_trade.PositionClose(ticket) && CloseAccepted()) return true;
+      g_closeError = CloseErrorText();
+      return false;
     }
   }
-  return false; // already gone (closed/SL/TP)
+  return true;
+}
+
+// Refused closes are retried every 10s until the position is gone: the cause
+// is often something the trader fixes in a click (AutoTrading off), and the
+// moment they do, the breach is closed without them having to remember it.
+#define CLOSE_RETRY_MAX 32
+long     g_retryPos[CLOSE_RETRY_MAX];
+datetime g_retryAt[CLOSE_RETRY_MAX];
+int      g_retryCount = 0;
+
+void QueueCloseRetry(const long posId) {
+  for (int i = 0; i < g_retryCount; i++)
+    if (g_retryPos[i] == posId) return;
+  if (g_retryCount >= CLOSE_RETRY_MAX) return; // the daily-loss sweep still covers these
+  g_retryPos[g_retryCount] = posId;
+  g_retryAt[g_retryCount]  = TimeGMT() + 10;
+  g_retryCount++;
+}
+
+void ProcessCloseRetries() {
+  const datetime now = TimeGMT();
+  for (int i = g_retryCount - 1; i >= 0; i--) {
+    if (now < g_retryAt[i]) continue;
+    if (!ClosePositionById(g_retryPos[i])) { g_retryAt[i] = now + 10; continue; }
+    Print("TradeForce: position ", g_retryPos[i], " closed on retry.");
+    for (int j = i + 1; j < g_retryCount; j++) {
+      g_retryPos[j - 1] = g_retryPos[j];
+      g_retryAt[j - 1]  = g_retryAt[j];
+    }
+    g_retryCount--;
+  }
+}
+
+// Close a position that breaks the charter and record the outcome on the
+// violation: a breach we could not close is a different thing from one we did,
+// and the dashboard must not show the first as enforced.
+void CloseAndNote(const long posId, CJAVal &d) {
+  if (ClosePositionById(posId)) { d["closed"] = true; return; }
+  d["closed"]     = false;
+  d["closeError"] = g_closeError;
+  if (g_tradeBlock != "") d["tradeBlock"] = g_tradeBlock;
+  QueueCloseRetry(posId);
+  Notify("TradeForce: could not close position #" + IntegerToString(posId) + " - " + g_closeError +
+         (g_tradeBlock != "" ? ". " + TradeBlockText(g_tradeBlock) : "") +
+         ". Close it yourself; TradeForce keeps retrying every 10 seconds.");
 }
 
 // Daily-loss breach: every position is closed at once instead of one broker
@@ -889,19 +1004,26 @@ bool ClosePositionById(const long posId) {
 // confirm, and close anything still open the ordinary way.
 void CloseAllPositions() {
   if (PositionsTotal() == 0) return;
+  g_closeError = "";
+  int sent = 0;
   g_trade.SetAsyncMode(true);
   for (int i = PositionsTotal() - 1; i >= 0; i--) {
     ulong ticket = PositionGetTicket(i);
     if (ticket == 0 || !PositionSelectByTicket(ticket)) continue;
     EnsureSymbol(PositionGetString(POSITION_SYMBOL));
-    g_trade.PositionClose(ticket);
+    if (g_trade.PositionClose(ticket)) sent++;
   }
   g_trade.SetAsyncMode(false);
-  ulong until = GetTickCount64() + 5000;
-  while (PositionsTotal() > 0 && GetTickCount64() < until) Sleep(25);
+  // Nothing was accepted for sending (AutoTrading off, EA trading disabled):
+  // waiting for fills that cannot come would only stall the timer.
+  if (sent > 0) {
+    ulong until = GetTickCount64() + 5000;
+    while (PositionsTotal() > 0 && GetTickCount64() < until) Sleep(25);
+  }
   for (int i = PositionsTotal() - 1; i >= 0; i--) {
     ulong ticket = PositionGetTicket(i);
-    if (ticket != 0) g_trade.PositionClose(ticket);
+    if (ticket != 0 && !(g_trade.PositionClose(ticket) && CloseAccepted()))
+      g_closeError = CloseErrorText();
   }
 }
 
@@ -1039,6 +1161,7 @@ void ArmLossLockdown(const int graceSeconds) {
   // GMT, not TimeCurrent(): a grace countdown is real seconds for the trader,
   // and must keep running even if the market goes quiet mid-countdown.
   g_lossLockDeadline = TimeGMT() + MathMax(5, graceSeconds);
+  g_notFlatWarned = false;
   Notify(StringFormat("TradeForce: daily loss limit hit - MT5 closes in %d seconds. Locked until your local midnight.",
                      MathMax(5, graceSeconds)));
 }
@@ -1052,7 +1175,21 @@ void FlushPendingHard(const int passes) {
   }
 }
 
-void ExecuteLossLockdown() {
+// Returns true when MT5 is being closed. Held while positions are still open:
+// the header above assumes a flat account, and when the broker refuses the
+// closes, closing MT5 would leave the losing trades running with nothing
+// watching them and the trader locked out of the terminal that can close them.
+bool ExecuteLossLockdown() {
+  if (PositionsTotal() > 0) {
+    if (!g_notFlatWarned) {
+      g_notFlatWarned = true;
+      Notify("TradeForce: " + IntegerToString(PositionsTotal()) + " trade(s) are still open - " +
+             (g_closeError != "" ? g_closeError : "the close has not gone through") +
+             ". MT5 stays open so you can close them; it closes once the account is flat.");
+      ReportAccount();
+    }
+    return false;
+  }
   DeleteAllPendingOrders(); // GTC pendings would fill server-side while MT5 is closed
   ReportAccount();          // final equity snapshot for the dashboard
   FlushPendingHard(3);
@@ -1061,7 +1198,7 @@ void ExecuteLossLockdown() {
   if (!TerminalClose(0))
     Print("TradeForce: TerminalClose failed - retrying next tick.");
   // Deadline stays armed on purpose: a failed close retries next second.
-  return;
+  return true;
 }
 
 // The daily-loss kill switch runs on every timer tick too - floating losses
@@ -1074,7 +1211,12 @@ void CheckDailyLoss(const bool startup = false) {
   if (loss < g_cfg.dailyLossLimit) return;
   int today = LocalDayId(TimeGMT());
   bool firstBreachToday = (g_lossBreachDayId != today);
-  if (PositionsTotal() > 0) CloseAllPositions();
+  // Runs every second while breached. Refused closes retry every 10s, not
+  // every tick: each attempt can wait up to 5s for fills that never come.
+  if (PositionsTotal() > 0 && TimeGMT() >= g_closeAllNextAt) {
+    CloseAllPositions();
+    if (PositionsTotal() > 0) g_closeAllNextAt = TimeGMT() + 10;
+  }
   if (firstBreachToday) {
     g_lossBreachDayId = today;
     CJAVal d;
@@ -1082,6 +1224,15 @@ void CheckDailyLoss(const bool startup = false) {
     d["limit"]     = g_cfg.dailyLossLimit;
     d["ruleValue"] = loss;
     d["ruleLimit"] = g_cfg.dailyLossLimit;
+    d["closed"]    = (PositionsTotal() == 0);
+    if (PositionsTotal() > 0) {
+      d["stillOpen"]  = PositionsTotal();
+      d["closeError"] = g_closeError;
+      if (g_tradeBlock != "") d["tradeBlock"] = g_tradeBlock;
+      Notify("TradeForce: daily loss limit hit but " + IntegerToString(PositionsTotal()) +
+             " trade(s) could not be closed - " + g_closeError +
+             (g_tradeBlock != "" ? ". " + TradeBlockText(g_tradeBlock) : "") + ". Close them yourself now.");
+    }
     ReportViolation("DAILY_LOSS_BREACH", "DLB-" + IntegerToString(today), d);
   }
   ArmLossLockdown(startup ? ReopenGraceSeconds : LossLockGraceSeconds);
@@ -1136,7 +1287,7 @@ void AutoFixStopLoss(const ulong ticket, const long posId, const string symbol,
     d["newSl"]     = newSl;
     Print("TradeForce: auto-fixed stop-loss on position ", posId, " to ", DoubleToString(newSl, 8));
   } else {
-    g_trade.PositionClose(ticket);
+    CloseAndNote(posId, d);
   }
   ReportViolation("RISK_PER_TRADE_BREACH", "RPT-" + IntegerToString(posId), d);
 }
@@ -1152,8 +1303,8 @@ void EnforceOnOpen(const ulong openingDeal) {
 
   // 1. Locked day: after a daily-loss breach, nothing new stays open today.
   if (g_lossBreachDayId == LocalDayId(TimeGMT())) {
-    ClosePositionById(posId);
     CJAVal d;
+    CloseAndNote(posId, d);
     d["reason"] = "account locked for the day after daily loss breach";
     d["symbol"] = dealSymbol;
     d["volume"] = dealVolume;
@@ -1163,8 +1314,8 @@ void EnforceOnOpen(const ulong openingDeal) {
 
   // 2. Session gate.
   if (!SessionAllowedNow()) {
-    ClosePositionById(posId);
     CJAVal d;
+    CloseAndNote(posId, d);
     d["timeUtc"] = IsoNow();
     d["symbol"]  = dealSymbol;
     d["volume"]  = dealVolume;
@@ -1180,8 +1331,8 @@ void EnforceOnOpen(const ulong openingDeal) {
   // 3. Max open positions (founder-brief priority: positions before trades;
   //    a news gate is reserved between the session and this check).
   if (g_cfg.maxOpenPositions > 0 && PositionsTotal() > g_cfg.maxOpenPositions) {
-    ClosePositionById(posId);
     CJAVal d;
+    CloseAndNote(posId, d);
     d["open"]      = PositionsTotal();
     d["cap"]       = g_cfg.maxOpenPositions;
     d["ruleValue"] = PositionsTotal();
@@ -1196,8 +1347,8 @@ void EnforceOnOpen(const ulong openingDeal) {
   if (g_cfg.maxTradesPerDay > 0) {
     int today = TradesOpenedToday();
     if (today > g_cfg.maxTradesPerDay) {
-      ClosePositionById(posId);
       CJAVal d;
+      CloseAndNote(posId, d);
       d["tradesToday"] = today;
       d["cap"]         = g_cfg.maxTradesPerDay;
       d["ruleValue"]   = today;
@@ -1424,8 +1575,10 @@ void UpdateComment() {
   else if (g_blockNow == TF_BLOCK_CAP) line += " | BLOCKED: daily cap reached";
   if (g_cfgFromCache)
     line += " | LAST-KNOWN RULES (dashboard offline)";
-  if (TerminalInfoInteger(TERMINAL_TRADE_ALLOWED) == 0)
-    line += " | AUTOTRADING OFF - enforcement degraded";
+  if (g_tradeBlock != "")
+    line += " | CANNOT CLOSE TRADES: " + TradeBlockText(g_tradeBlock);
+  if (g_retryCount > 0)
+    line += StringFormat(" | %d close(s) refused, retrying", g_retryCount);
   SetComment(line);
 }
 
@@ -1457,6 +1610,12 @@ int OnInit() {
     return INIT_PARAMETERS_INCORRECT;
   }
   RefreshServerOffset(); // seed before anything stamps a time or reads history
+  // Known before the first report, so the dashboard hears about a blocked
+  // account at attach time rather than after the 10s debounce.
+  g_tradeBlock = TradeBlockNow();
+  g_blockCandidate = g_tradeBlock;
+  if (g_tradeBlock != "" && g_tradeBlock != "NO_CONNECTION")
+    Notify("TradeForce: " + TradeBlockText(g_tradeBlock) + ".");
   g_cfg.configured = false;
   g_cfg.configVersion = -1;
   if (BridgeMode) {
@@ -1520,7 +1679,9 @@ void OnTimer() {
     }
   }
 
+  CheckTradePermission();
   CheckDailyLoss();
+  if (g_retryCount > 0) ProcessCloseRetries();
   if (g_vetoCount > 0) ProcessVetoes();
   FlushPending();
 
@@ -1528,8 +1689,7 @@ void OnTimer() {
     if (!g_cfg.configured || !g_cfg.isActive) {
       g_lossLockDeadline = 0; // charter paused on the dashboard - consent withdrawn
       Print("TradeForce: loss lockdown cancelled - charter paused.");
-    } else if (TimeGMT() >= g_lossLockDeadline) {
-      ExecuteLossLockdown();
+    } else if (TimeGMT() >= g_lossLockDeadline && ExecuteLossLockdown()) {
       return;
     }
   }

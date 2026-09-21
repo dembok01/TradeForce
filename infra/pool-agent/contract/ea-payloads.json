@@ -283,6 +283,25 @@
       }
     },
     {
+      "name": "sync: tradeBlock null is how EA v1.27 says it can trade (JAson writes \"\" as null)",
+      "kind": "sync",
+      "valid": true,
+      "body": {
+        "equity": 99996.08,
+        "balance": 99996.08,
+        "failedFetches": 0,
+        "queuedPosts": 0,
+        "fromCache": false,
+        "backoffSeconds": 0,
+        "eaVersion": "1.27",
+        "tradeBlock": null,
+        "knownConfigVersion": -1
+      },
+      "expect": {
+        "tradeBlock": null
+      }
+    },
+    {
       "name": "account: tradeBlock longer than 32 characters is rejected",
       "kind": "account",
       "valid": false,

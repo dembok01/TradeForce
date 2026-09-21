@@ -40,9 +40,10 @@ export const eaReportSchema = z.object({
   fromCache: z.boolean().optional(),
   backoffSeconds: z.number().int().min(0).max(86_400).optional(),
   eaVersion: z.string().max(16).optional(),
-  // v1.27+: why the EA cannot trade right now ("" = it can). A plain string, not
+  // v1.27+: why the EA cannot trade right now. "It can" arrives as null: the
+  // EA's JSON library serialises an empty string that way. A plain string, not
   // an enum, so a code added in a later EA never fails the whole report.
-  tradeBlock: z.string().max(32).optional(),
+  tradeBlock: z.string().max(32).nullable().optional(),
 });
 
 /** /api/ea/sync additionally carries the config version the EA already holds. */

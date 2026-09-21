@@ -267,7 +267,8 @@ def _report(body, *, sync: bool) -> dict:
     _put(out, "fromCache", _boolean(d, "fromCache"))
     _put(out, "backoffSeconds", _number(d, "backoffSeconds", lo=0, hi=86_400, integer=True))
     _put(out, "eaVersion", _string(d, "eaVersion", max_len=16))
-    _put(out, "tradeBlock", _string(d, "tradeBlock", max_len=32))
+    # null = the EA can trade (JAson writes "" as null), absent = pre-1.27 EA
+    _put(out, "tradeBlock", _string(d, "tradeBlock", max_len=32, nullable=True))
     if sync:
         _put(out, "knownConfigVersion",
              _number(d, "knownConfigVersion", lo=-1, hi=2_147_483_647, integer=True))
@@ -764,7 +765,7 @@ class Relay:
         patch = {"current_equity": d["equity"]}
         if d.get("balance") is not None:
             patch["starting_balance"] = d["balance"]
-        if "tradeBlock" in d:  # v1.27+; "" means the EA can trade again
+        if "tradeBlock" in d:  # v1.27+; null or "" means the EA can trade again
             patch["ea_trade_block"] = d["tradeBlock"] or None
         status, payload = self.rest.request(
             "PATCH", "accounts", params={"id": f"eq.{acct.account_id}"},
