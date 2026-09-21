@@ -256,6 +256,21 @@ class LoginStateTest(FsCase):
     def test_missing_volume_is_silent(self):
         self.assertIsNone(b.login_state("/nonexistent"))
 
+    def test_no_outcome_yet_is_waiting_with_the_last_network_line(self):
+        self.write_log("0\t1\t09:00:00.000\tTerminal\tMetaTrader 5 x64 build 6182 started",
+                       "0\t1\t09:00:05.000\tNetwork\t'123': connecting to 10.0.0.1:443",
+                       "0\t1\t09:00:25.000\tNetwork\t'123': no connection to 10.0.0.1:443")
+        self.assertEqual(b.login_state(str(self.vol)), ("waiting", "'123': no connection to 10.0.0.1:443"))
+
+    def test_a_sign_in_yesterday_still_counts_today(self):
+        d = self.vol.joinpath(*b.LOGIN_LOGS)
+        d.mkdir(parents=True, exist_ok=True)
+        old = d / "20260917.log"
+        old.write_bytes("0\t1\t23:59:10.000\tNetwork\t'123': authorized on Broker-Live".encode("utf-16-le"))
+        os.utime(old, (NOW - 600, NOW - 600))
+        (d / "20260918.log").write_bytes("0\t1\t00:00:01.000\tTerminal\tnew day".encode("utf-16-le"))
+        self.assertEqual(b.login_state(str(self.vol)), ("ok", "Broker-Live"))
+
 
 # ================================================================ Supabase
 class FakeRest:
@@ -307,6 +322,13 @@ class RelayTest(unittest.TestCase):
         (_, _, _, snap), = self.rest.of("POST", "account_snapshots")
         self.assertEqual(snap, {"user_id": USER, "account_id": ACC, "equity": 10012.35, "balance": 10000,
                                 "recorded_at": "2025-09-17T10:46:40Z"})
+
+    def test_trade_block_is_stored_and_cleared(self):
+        self.assertIsNone(self.apply("sync", {"equity": 1, "tradeBlock": "ALGO_TRADING_OFF"}))
+        self.assertEqual(self.rest.of("PATCH", "accounts")[0][3],
+                         {"current_equity": 1, "ea_trade_block": "ALGO_TRADING_OFF"})
+        self.assertIsNone(self.apply("account", {"equity": 1, "tradeBlock": ""}))
+        self.assertEqual(self.rest.of("PATCH", "accounts")[1][3], {"current_equity": 1, "ea_trade_block": None})
 
     def test_report_without_balance_or_telemetry(self):
         self.assertIsNone(self.apply("account", {"equity": 5}))

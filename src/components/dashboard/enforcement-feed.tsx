@@ -4,7 +4,7 @@ import { useState } from "react";
 import { format } from "date-fns";
 import { motion } from "motion/react";
 import type { FeedEvent } from "@/lib/enforcement-feed";
-import { explainViolation, VIOLATION_LABELS } from "@/lib/violation-explainers";
+import { closeRefused, explainViolation, VIOLATION_LABELS } from "@/lib/violation-explainers";
 import { formatSignedCurrency } from "@/lib/format";
 import { cn } from "@/lib/utils";
 
@@ -84,7 +84,11 @@ export function EnforcementFeed({ events }: { events: FeedEvent[] }) {
               key={event.id}
               time={time}
               tone="violation"
-              title={explainViolation(event)}
+              title={
+                closeRefused(event)
+                  ? `${explainViolation(event)} — NOT CLOSED: the broker refused (${closeRefused(event)})`
+                  : explainViolation(event)
+              }
               amount={VIOLATION_LABELS[event.type]}
               flash={isNew}
             />

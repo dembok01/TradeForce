@@ -4,6 +4,8 @@ import { eaHealth, desktopHealth, fmtAge, ageMs, type Health } from "@/lib/ops-h
 import { AutoRefresh } from "@/components/dashboard/auto-refresh";
 import { Dot, Tile, Panel, Table } from "@/components/admin/ui";
 import { UserActions } from "@/components/admin/user-actions";
+import { supportIssues } from "@/lib/support-issues";
+import { tradeBlockHelp } from "@/lib/ea-trade-block";
 
 export const dynamic = "force-dynamic";
 
@@ -23,6 +25,9 @@ export default async function AdminUsersPage() {
     (s) => s.connection === "cloud" && eaHealth(s.lastSeenAt, "running") === "ok"
   );
   const stalled = signups.filter((s) => s.connection === "none");
+  const needHelp = signups
+    .map((s) => ({ s, issues: supportIssues(s) }))
+    .filter((x) => x.issues.length > 0);
 
   return (
     <div className="space-y-6">
@@ -44,6 +49,35 @@ export default async function AdminUsersPage() {
         <Tile label="Protected right now" value={String(protectedNow.length)}
               tone={protectedNow.length > 0 ? "ok" : "warn"} hint="cloud terminal reporting" />
       </div>
+
+      {needHelp.length > 0 ? (
+        <Panel title="Needs help now" note="connected, but something is stopping enforcement - worst first">
+          <Table cols={["User", "Problem", "What to tell them"]}>
+            {needHelp.flatMap(({ s, issues }) =>
+              issues.map((i, n) => (
+                <tr key={`${s.userId}-${n}`}>
+                  <td className="px-4 py-2 align-top">
+                    {n === 0 ? (
+                      <>
+                        <div className="font-medium">{s.email}</div>
+                        {s.mt5Login ? (
+                          <div className="text-xs text-muted-foreground">
+                            {s.mt5Login} · {s.mt5Server}
+                          </div>
+                        ) : null}
+                      </>
+                    ) : null}
+                  </td>
+                  <td className="px-4 py-2 align-top">
+                    <Dot h={i.level} /> {i.problem}
+                  </td>
+                  <td className="px-4 py-2 align-top text-muted-foreground">{i.tellThem}</td>
+                </tr>
+              ))
+            )}
+          </Table>
+        </Panel>
+      ) : null}
 
       {stalled.length > 0 ? (
         <Panel title="Signed up but never connected" note="the people to chase during a trial">
@@ -99,7 +133,16 @@ export default async function AdminUsersPage() {
                       ? "own PC"
                       : "not connected"}
                   {s.cloudDetail ? (
-                    <div className="text-xs text-red-500">{s.cloudDetail}</div>
+                    <div
+                      className={`text-xs ${s.cloudStatus === "login_failed" || s.cloudStatus === "error" ? "text-red-500" : "text-muted-foreground"}`}
+                    >
+                      {s.cloudDetail}
+                    </div>
+                  ) : null}
+                  {s.eaTradeBlock ? (
+                    <div className="text-xs text-red-500">
+                      Can&apos;t trade: {tradeBlockHelp(s.eaTradeBlock)?.title}
+                    </div>
                   ) : null}
                 </td>
                 <td className="px-4 py-2 tabular-nums text-muted-foreground">

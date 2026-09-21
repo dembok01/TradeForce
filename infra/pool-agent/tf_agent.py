@@ -18,6 +18,7 @@ import subprocess
 import sys
 import threading
 import time
+from datetime import datetime, timezone
 from pathlib import Path
 
 import requests
@@ -39,7 +40,7 @@ POLL = int(os.environ.get("TF_POLL", "15"))
 # Which hosted EAs use the file bridge: "off", "all", or account ids, comma-separated.
 BRIDGE = os.environ.get("TF_BRIDGE", "off")
 
-AGENT_VERSION = "1.3.3"
+AGENT_VERSION = "1.3.4"
 TELEMETRY_EVERY = int(os.environ.get("TF_TELEMETRY_EVERY", "4"))  # passes; 4 x 15s = 60s
 
 REST = f"{SUPABASE}/rest/v1/mt5_instances"
@@ -251,6 +252,20 @@ def host_stats() -> dict:
 # failure for a self-serve user, and MT5 is the only thing that knows.
 _login_reported = {}
 
+# A good sign-in shows in the journal within 1-2 minutes of the container
+# starting. Past this with no answer at all, the address is almost certainly
+# wrong or unreachable - and MT5 just keeps retrying without ever saying so.
+LOGIN_PATIENCE = 8 * 60
+
+
+def uptime_seconds(name: str) -> float | None:
+    out = sh("docker", "inspect", "-f", "{{.State.StartedAt}}", name)
+    try:
+        started = datetime.strptime(out[:19], "%Y-%m-%dT%H:%M:%S").replace(tzinfo=timezone.utc)
+    except ValueError:
+        return None
+    return (datetime.now(timezone.utc) - started).total_seconds()
+
 
 def check_logins():
     for name in containers():
@@ -258,7 +273,25 @@ def check_logins():
             continue
         acc = name[3:]
         state = tf_bridge.login_state(os.path.join(DATA, acc))
-        if state is None or _login_reported.get(acc) == state[0]:
+        if state is None or state[0] == "waiting":
+            # Only a container that has never been heard to sign in, and only in
+            # its first day: login_state reads two days of journal, so an older
+            # healthy terminal can simply have no sign-in line left to find.
+            if acc in _login_reported:
+                continue
+            up = uptime_seconds(name)
+            if up is None or not LOGIN_PATIENCE < up < 86_400:
+                continue
+            _login_reported[acc] = "silent"
+            said = state[1] if state and state[1] else ""
+            print(f"no answer from the broker for {acc} after {int(up)}s: {said or 'journal silent'}", flush=True)
+            report(acc, status="login_failed",
+                   status_detail="Your broker's server has not answered for 8 minutes"
+                                 + (f" (MetaTrader says: {said[:160]})" if said else "")
+                                 + ". The server address is probably wrong - pick your broker from the "
+                                   "list, or check the address with your broker.")
+            continue
+        if _login_reported.get(acc) == state[0]:
             continue
         _login_reported[acc] = state[0]
         if state[0] == "failed":

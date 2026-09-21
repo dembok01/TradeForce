@@ -7,6 +7,7 @@ import { ChevronDown } from "lucide-react";
 import type { Violation } from "@/lib/data/violations";
 import {
   VIOLATION_LABELS,
+  closeRefused,
   explainViolation,
   violationAction,
   violationFigures,
@@ -49,6 +50,11 @@ export function ViolationsTable({ violations }: { violations: Violation[] }) {
               >
                 <LedgerCell>
                   <Badge variant="destructive">{VIOLATION_LABELS[v.type]}</Badge>
+                  {closeRefused(v) && (
+                    <Badge variant="warning" className="ml-2" title={closeRefused(v) ?? undefined}>
+                      Not closed
+                    </Badge>
+                  )}
                 </LedgerCell>
                 <LedgerCell mono className="whitespace-nowrap text-muted-foreground">
                   {format(new Date(v.occurred_at), "MMM d, yyyy HH:mm")}

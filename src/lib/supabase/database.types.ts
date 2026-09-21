@@ -53,6 +53,7 @@ export interface Database {
           broker: string | null;
           starting_balance: number | null;
           current_equity: number | null;
+          ea_trade_block: string | null;
           is_primary: boolean;
           created_at: string;
           updated_at: string;

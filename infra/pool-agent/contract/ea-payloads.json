@@ -256,6 +256,59 @@
       "body": {}
     },
     {
+      "name": "sync: v1.27 reports why the EA cannot trade",
+      "kind": "sync",
+      "valid": true,
+      "body": {
+        "equity": 6000,
+        "balance": 6000,
+        "eaVersion": "1.27",
+        "tradeBlock": "ALGO_TRADING_OFF",
+        "knownConfigVersion": 4
+      },
+      "expect": {
+        "tradeBlock": "ALGO_TRADING_OFF"
+      }
+    },
+    {
+      "name": "account: an empty tradeBlock means the EA can trade again",
+      "kind": "account",
+      "valid": true,
+      "body": {
+        "equity": 6000,
+        "tradeBlock": ""
+      },
+      "expect": {
+        "tradeBlock": ""
+      }
+    },
+    {
+      "name": "account: tradeBlock longer than 32 characters is rejected",
+      "kind": "account",
+      "valid": false,
+      "body": {
+        "equity": 1,
+        "tradeBlock": "XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX"
+      }
+    },
+    {
+      "name": "violations: v1.27 records a close the broker refused",
+      "kind": "violations",
+      "valid": true,
+      "body": {
+        "type": "OUTSIDE_SESSION",
+        "eventId": "SESS-123",
+        "occurredAt": "2026-09-21T16:56:57Z",
+        "details": {
+          "symbol": "AUDCAD",
+          "volume": 0.5,
+          "closed": false,
+          "closeError": "Autotrading disabled by server (10026)",
+          "tradeBlock": "BROKER_BLOCKS_EA"
+        }
+      }
+    },
+    {
       "name": "trades: what EA v1.26 sends (symbol and id normalised)",
       "kind": "trades",
       "valid": true,

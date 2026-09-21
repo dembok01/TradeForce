@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { explainViolation, violationAction, violationFigures } from "./violation-explainers";
+import { closeRefused, explainViolation, violationAction, violationFigures } from "./violation-explainers";
 import type { ViolationLike } from "./violation-explainers";
 
 describe("explainViolation", () => {
@@ -141,5 +141,27 @@ describe("violationFigures", () => {
     });
     expect(figures).toContainEqual({ label: "Auto-fixed", value: "Yes" });
     expect(figures).toContainEqual({ label: "Symbol", value: "XAUUSD" });
+  });
+});
+
+describe("refused closes (EA v1.27+)", () => {
+  const refused: ViolationLike = {
+    type: "OUTSIDE_SESSION",
+    details: { symbol: "AUDCAD", closed: false, closeError: "Autotrading disabled by server (10026)", tradeBlock: "BROKER_BLOCKS_EA" },
+  };
+
+  it("never reads as enforced when the broker refused the close", () => {
+    expect(closeRefused(refused)).toBe("Autotrading disabled by server (10026)");
+    const action = violationAction(refused);
+    expect(action).toContain("broker refused: Autotrading disabled by server (10026)");
+    expect(action).toContain("doesn't allow Expert Advisors");
+    expect(action).not.toContain("closed the position the moment it filled");
+  });
+
+  it("older EAs that never recorded the outcome still read as closed", () => {
+    const legacy: ViolationLike = { type: "OUTSIDE_SESSION", details: { symbol: "AUDCAD" } };
+    expect(closeRefused(legacy)).toBeNull();
+    expect(violationAction(legacy)).toContain("closed the position");
+    expect(closeRefused({ type: "OUTSIDE_SESSION", details: { closed: true } })).toBeNull();
   });
 });

@@ -247,18 +247,33 @@ export type Signup = {
   serverHost: string | null;
   activeKeys: number;
   lastSeenAt: string | null;
+  /** When the current hosted terminal was asked for (started, or first requested). */
+  cloudSince: string | null;
+  eaTradeBlock: string | null;
+  refusedCloses24h: number;
 };
 
 export async function getSignups(): Promise<Signup[]> {
   const supabase = createServiceClient();
-  const [{ data: profiles }, { data: accounts }, { data: rules }, { data: keys }, { data: instances }] =
-    await Promise.all([
-      supabase.from("profiles").select("id, email, full_name, prop_firm, created_at, onboarded_at"),
-      supabase.from("accounts").select("id, user_id, broker, current_equity, is_primary"),
-      supabase.from("trading_rules").select("account_id, is_active, daily_loss_limit, max_trades_per_day"),
-      supabase.from("api_keys").select("user_id, account_id, last_used_at, revoked_at"),
-      supabase.from("mt5_instances").select("*"),
-    ]);
+  const since24h = new Date(Date.now() - 24 * 3600_000).toISOString();
+  const [
+    { data: profiles },
+    { data: accounts },
+    { data: rules },
+    { data: keys },
+    { data: instances },
+    { data: refused },
+  ] = await Promise.all([
+    supabase.from("profiles").select("id, email, full_name, prop_firm, created_at, onboarded_at"),
+    supabase.from("accounts").select("id, user_id, broker, current_equity, is_primary, ea_trade_block"),
+    supabase.from("trading_rules").select("account_id, is_active, daily_loss_limit, max_trades_per_day"),
+    supabase.from("api_keys").select("user_id, account_id, last_used_at, revoked_at"),
+    supabase.from("mt5_instances").select("*"),
+    // EA v1.27+ records closes the broker refused; older rows have no flag.
+    supabase.from("violations").select("account_id").eq("details->>closed", "false").gte("occurred_at", since24h),
+  ]);
+  const refusedByAccount = new Map<string, number>();
+  for (const r of refused ?? []) refusedByAccount.set(r.account_id, (refusedByAccount.get(r.account_id) ?? 0) + 1);
 
   const acctByUser = new Map<string, (typeof accounts extends (infer T)[] | null ? T : never)>();
   for (const a of accounts ?? []) {
@@ -300,6 +315,15 @@ export async function getSignups(): Promise<Signup[]> {
         serverHost: inst?.server_host ?? null,
         activeKeys: mine.length,
         lastSeenAt,
+        // Waiting rows have no container, so nothing bumps updated_at after the
+        // request or the claim; started_at is left over from the previous one.
+        cloudSince: !inst
+          ? null
+          : inst.status === "pending" || inst.status === "provisioning"
+            ? inst.updated_at
+            : (inst.started_at ?? inst.created_at),
+        eaTradeBlock: account?.ea_trade_block ?? null,
+        refusedCloses24h: account ? (refusedByAccount.get(account.id) ?? 0) : 0,
       } satisfies Signup;
     })
     .sort((a, b) => b.createdAt.localeCompare(a.createdAt));

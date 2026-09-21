@@ -1,4 +1,5 @@
 import { formatCurrency } from "@/lib/format";
+import { tradeBlockHelp } from "@/lib/ea-trade-block";
 import type { Json, ViolationType } from "@/lib/supabase/database.types";
 
 // The one moment a trader needs an explanation is the moment a trade was
@@ -125,8 +126,27 @@ export function explainViolation(v: ViolationLike): string {
 }
 
 /** What the EA physically did about it (the incident view's second line). */
+/**
+ * The broker's reason when it refused the EA's close (v1.27+), else null.
+ * Older EAs never recorded the outcome, so their rows read as closed.
+ */
+export function closeRefused(v: ViolationLike): string | null {
+  const d = asRecord(v.details);
+  return d.closed === false ? (str(d, "closeError") ?? "refused by the broker") : null;
+}
+
 export function violationAction(v: ViolationLike): string {
   const d = asRecord(v.details);
+  const refused = closeRefused(v);
+  if (refused) {
+    const help = tradeBlockHelp(str(d, "tradeBlock"));
+    const what = v.type === "DAILY_LOSS_BREACH" ? "your open positions" : "the position";
+    return (
+      `The EA tried to close ${what} but the broker refused: ${refused}.` +
+      (help ? ` ${help.title} — ${help.fix}` : "") +
+      " It keeps retrying every 10 seconds; check MetaTrader in case anything is still open."
+    );
+  }
   if (flag(d, "blockedPendingOrder"))
     return "The EA deleted the pending order before it reached the market — this prevention cost nothing.";
   if (flag(d, "autoFixed"))

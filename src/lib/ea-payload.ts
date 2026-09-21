@@ -40,6 +40,9 @@ export const eaReportSchema = z.object({
   fromCache: z.boolean().optional(),
   backoffSeconds: z.number().int().min(0).max(86_400).optional(),
   eaVersion: z.string().max(16).optional(),
+  // v1.27+: why the EA cannot trade right now ("" = it can). A plain string, not
+  // an enum, so a code added in a later EA never fails the whole report.
+  tradeBlock: z.string().max(32).optional(),
 });
 
 /** /api/ea/sync additionally carries the config version the EA already holds. */
@@ -145,6 +148,7 @@ export async function recordAccountReport(
       .update({
         current_equity: d.equity,
         ...(d.balance !== undefined && d.balance !== null ? { starting_balance: d.balance } : {}),
+        ...(d.tradeBlock !== undefined ? { ea_trade_block: d.tradeBlock || null } : {}),
       })
       .eq("id", auth.accountId),
     supabase.from("account_snapshots").insert({

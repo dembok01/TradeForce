@@ -18,6 +18,8 @@ export type DashboardOverview = {
   tradesRemainingToday: number | null;
   violationsAllTime: number;
   eaLastSeenAt: string | null;
+  /** Why the EA can't trade right now (EA v1.27+), null when it can. */
+  eaTradeBlock: string | null;
   status: AccountStatus;
 };
 
@@ -55,6 +57,7 @@ export async function getDashboardOverview(): Promise<DashboardOverview> {
       maxTradesPerDay !== null ? Math.max(0, maxTradesPerDay - todayTradeCount) : null,
     violationsAllTime,
     eaLastSeenAt,
+    eaTradeBlock: account.ea_trade_block ?? null,
     status: deriveStatus({
       hasRules: Boolean(rules),
       dailyLossLimit,

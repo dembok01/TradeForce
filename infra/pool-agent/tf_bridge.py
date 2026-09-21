@@ -267,6 +267,7 @@ def _report(body, *, sync: bool) -> dict:
     _put(out, "fromCache", _boolean(d, "fromCache"))
     _put(out, "backoffSeconds", _number(d, "backoffSeconds", lo=0, hi=86_400, integer=True))
     _put(out, "eaVersion", _string(d, "eaVersion", max_len=16))
+    _put(out, "tradeBlock", _string(d, "tradeBlock", max_len=32))
     if sync:
         _put(out, "knownConfigVersion",
              _number(d, "knownConfigVersion", lo=-1, hi=2_147_483_647, integer=True))
@@ -601,36 +602,45 @@ LOGIN_LOGS = (".wine", "drive_c", "Program Files", "MetaTrader 5", "logs")
 
 
 def login_state(volume: str) -> tuple[str, str] | None:
-    """('ok'|'failed', detail) from the newest MT5 journal, or None if it says nothing yet."""
+    """What MT5's journal says about signing in to the broker.
+
+    ('ok', server name) or ('failed', reason) for the latest outcome; ('waiting',
+    last network line) while it has neither; None if there is no journal yet.
+    Reads the newest two days, so a sign-in just before midnight still counts.
+    """
     d = os.path.join(volume, *LOGIN_LOGS)
     try:
-        newest = max((os.path.join(d, n) for n in os.listdir(d) if n.endswith(".log")),
-                     key=os.path.getmtime, default=None)
+        logs = sorted((os.path.join(d, n) for n in os.listdir(d) if n.endswith(".log")),
+                      key=os.path.getmtime)[-2:]
     except OSError:
         return None
-    if newest is None:
+    if not logs:
         return None
-    try:
-        with open(newest, "rb") as f:
-            f.seek(0, os.SEEK_END)
-            f.seek(max(f.tell() - 200_000, 0))  # the tail is enough; these grow all day
-            text = f.read().decode("utf-16-le", "ignore")
-    except OSError:
-        return None
-    result = None
-    for line in text.splitlines():
-        low = line.lower()
-        if "authorized on" in low:
-            # "'111484503': authorized on ICMarketsSC-Demo through Access Point EU 0"
-            # The server NAME is the one thing only the broker can tell us, and it
-            # is how we learn which name lives at the address the trader picked.
-            name = line.split("authorized on", 1)[1].split(" through")[0].strip()
-            result = ("ok", name)
-        elif "authorization" in low and "failed" in low:
-            # "...: authorization on Broker-Server failed (Invalid account)"
-            reason = line.split("failed", 1)[1].strip(" ()\t") or "rejected by the broker"
-            result = ("failed", reason)
-    return result
+    result, network = None, ""
+    for path in logs:
+        try:
+            with open(path, "rb") as f:
+                f.seek(0, os.SEEK_END)
+                f.seek(max(f.tell() - 200_000, 0))  # the tail is enough; these grow all day
+                text = f.read().decode("utf-16-le", "ignore")
+        except OSError:
+            continue
+        for line in text.splitlines():
+            low = line.lower()
+            fields = line.split("\t")
+            if len(fields) >= 5 and fields[3] == "Network":
+                network = fields[4].strip()
+            if "authorized on" in low:
+                # "'111484503': authorized on ICMarketsSC-Demo through Access Point EU 0"
+                # The server NAME is the one thing only the broker can tell us, and it
+                # is how we learn which name lives at the address the trader picked.
+                name = line.split("authorized on", 1)[1].split(" through")[0].strip()
+                result = ("ok", name)
+            elif "authorization" in low and "failed" in low:
+                # "...: authorization on Broker-Server failed (Invalid account)"
+                reason = line.split("failed", 1)[1].strip(" ()\t") or "rejected by the broker"
+                result = ("failed", reason)
+    return result or ("waiting", network)
 
 
 # =========================================================== Supabase
@@ -754,6 +764,8 @@ class Relay:
         patch = {"current_equity": d["equity"]}
         if d.get("balance") is not None:
             patch["starting_balance"] = d["balance"]
+        if "tradeBlock" in d:  # v1.27+; "" means the EA can trade again
+            patch["ea_trade_block"] = d["tradeBlock"] or None
         status, payload = self.rest.request(
             "PATCH", "accounts", params={"id": f"eq.{acct.account_id}"},
             body=patch, prefer="return=minimal",

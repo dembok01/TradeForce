@@ -3,10 +3,12 @@ import { formatDistanceToNowStrict } from "date-fns";
 import { getSetupStatus } from "@/lib/data/setup";
 import { getEaConnection } from "@/lib/data/api-keys";
 import { getCloudEa } from "@/lib/data/cloud-ea";
+import { getAccountContext } from "@/lib/data/context";
 import { eaSeenWithin, EA_CONNECTED_WINDOW_MS } from "@/lib/ea-connection";
 import { PageHeader } from "@/components/dashboard/page-header";
 import { SetupChecklistPanel } from "@/components/dashboard/setup-checklist";
 import { CloudEaCard } from "@/components/dashboard/cloud-ea-card";
+import { TradeBlockAlert } from "@/components/dashboard/trade-block-alert";
 import { Card, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Reveal } from "@/components/motion/reveal";
@@ -15,10 +17,11 @@ import { AutoRefresh } from "@/components/dashboard/auto-refresh";
 const SITE_URL = process.env.NEXT_PUBLIC_SITE_URL ?? "https://trade-force-rouge.vercel.app";
 
 export default async function EaSetupPage() {
-  const [{ checklist }, { lastSeenAt }, cloudEa] = await Promise.all([
+  const [{ checklist }, { lastSeenAt }, cloudEa, { account }] = await Promise.all([
     getSetupStatus(),
     getEaConnection(),
     getCloudEa(),
+    getAccountContext(),
   ]);
   const connected = eaSeenWithin(lastSeenAt, EA_CONNECTED_WINDOW_MS);
 
@@ -46,6 +49,12 @@ export default async function EaSetupPage() {
           )
         }
       />
+
+      {connected && account.ea_trade_block && (
+        <Reveal y={8} className="mb-4">
+          <TradeBlockAlert code={account.ea_trade_block} />
+        </Reveal>
+      )}
 
       <Reveal>
         <CloudEaCard initial={cloudEa} />
