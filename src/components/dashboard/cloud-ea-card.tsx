@@ -2,10 +2,11 @@
 
 import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
-import { ShieldCheck, Loader2 } from "lucide-react";
+import { ShieldCheck, Loader2, TriangleAlert } from "lucide-react";
 import { toast } from "sonner";
 import { enableCloudEaAction, disableCloudEaAction, requestBrokerAction } from "@/lib/actions/cloud-ea";
 import { MT5_BROKER_NAMES, serversForBroker, brokerLabel } from "@/lib/mt5-brokers";
+import { looksLikePropFirm } from "@/lib/prop-firms";
 import type { CloudEa } from "@/lib/data/cloud-ea";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -59,7 +60,27 @@ const STATUS: Record<
   stopped: { label: "Stopped", variant: "secondary", blurb: "Cloud protection is paused." },
 };
 
-export function CloudEaCard({ initial }: { initial: CloudEa }) {
+/** Terminals start one at a time; a fresh one takes about this long. */
+const MINUTES_PER_START = 4;
+
+// What "Starting…" means right now. Terminals start one at a time, so a burst
+// of signups is a queue - say so, or people keep pressing Connect, which only
+// sends them to the back of it.
+function startingBlurb(c: CloudEa): string | null {
+  if (c.status !== "starting") return null;
+  const noRetry = " You'll be protected automatically - there's no need to press Connect again.";
+  if (c.serversFull)
+    return "All our trading servers are full right now. You're in the queue and will be connected as soon as a place frees up - our team has been alerted." + noRetry;
+  if ((c.queueAhead ?? 0) > 0) {
+    const place = (c.queueAhead ?? 0) + 1;
+    return `Lots of traders are connecting right now. You're number ${place} in the queue - about ${place * MINUTES_PER_START} minutes.` + noRetry;
+  }
+  if ((c.waitedMinutes ?? 0) >= 10)
+    return "This is taking longer than usual. We've been alerted and are on it." + noRetry;
+  return null;
+}
+
+export function CloudEaCard({ initial, propFirm }: { initial: CloudEa; propFirm?: string | null }) {
   const router = useRouter();
   const [login, setLogin] = useState(initial.login ?? "");
   const [password, setPassword] = useState("");
@@ -69,6 +90,7 @@ export function CloudEaCard({ initial }: { initial: CloudEa }) {
   const [customServer, setCustomServer] = useState("");
   const [requestServerName, setRequestServerName] = useState("");
   const [requested, setRequested] = useState(false);
+  const [propConfirmed, setPropConfirmed] = useState(false);
   const [pending, startTransition] = useTransition();
 
   // A broker the trader types is only useful once it maps to one of that
@@ -76,6 +98,9 @@ export function CloudEaCard({ initial }: { initial: CloudEa }) {
   const servers = serversForBroker(broker);
   const known = servers.length > 0;
   const effectiveServer = manual ? customServer.trim() : serverAddress;
+  // Onboarding asks for the trader's prop firm, so a funded trader is warned even
+  // when their account sits at an ordinary-looking broker address.
+  const propRisk = looksLikePropFirm(broker, effectiveServer, requestServerName, propFirm);
 
   function pickBroker(value: string) {
     setBroker(value);
@@ -110,7 +135,7 @@ export function CloudEaCard({ initial }: { initial: CloudEa }) {
         return;
       }
       setPassword("");
-      toast.success("Setting up your cloud terminal — this takes about a minute.");
+      toast.success("Setting up your cloud terminal — this usually takes a few minutes.");
       router.refresh();
     });
   }
@@ -161,7 +186,7 @@ export function CloudEaCard({ initial }: { initial: CloudEa }) {
                 />
               )}
               <div className="text-sm">
-                <p>{s.blurb}</p>
+                <p>{startingBlurb(initial) ?? s.blurb}</p>
                 <p className="mt-1 text-muted-foreground">
                   Account {initial.login} · {initial.server ? brokerLabel(initial.server) : ""}
                 </p>
@@ -301,13 +326,12 @@ export function CloudEaCard({ initial }: { initial: CloudEa }) {
                   <p className="font-medium text-foreground">Where to find this</p>
                   <ol className="mt-1 list-decimal space-y-1 pl-4">
                     <li>
-                      Open MetaTrader 5 on a computer and sign in to this account. The bottom-right
-                      corner of the window shows the address it is connected to, like{" "}
-                      <code>78.140.180.20:443</code>.
+                      Ask your broker&apos;s support for “the MT5 server address and port” for your
+                      account — they answer this every day.
                     </li>
                     <li>
-                      Or ask your broker&apos;s support for “the MT5 server address and port” — they
-                      answer this every day.
+                      Or go back and press <strong>Ask us to add this broker</strong> — we&apos;ll
+                      find it for you, usually the same day.
                     </li>
                   </ol>
                   <p className="mt-2">
@@ -326,13 +350,41 @@ export function CloudEaCard({ initial }: { initial: CloudEa }) {
               </div>
             ) : null}
 
+            {propRisk ? (
+              <div className="rounded-lg border border-amber-500/40 bg-amber-500/10 p-3 text-sm">
+                <p className="flex items-center gap-2 font-medium">
+                  <TriangleAlert className="size-4 shrink-0 text-amber-600" aria-hidden />
+                  Prop-firm account? Check your firm&apos;s rules before connecting.
+                </p>
+                <p className="mt-1 text-muted-foreground">
+                  Many prop firms don&apos;t allow Expert Advisors, hosted or shared servers (VPS),
+                  or someone else signing in to your account — on challenge and funded accounts
+                  alike. FundedNext, for example, bans all of these on larger accounts and on free
+                  trials. Breaking your firm&apos;s rules can cost you the account, so if you&apos;re
+                  not sure, ask your firm first or use an ordinary broker account.
+                </p>
+                <label className="mt-2 flex items-start gap-2">
+                  <input
+                    type="checkbox"
+                    className="mt-0.5"
+                    checked={propConfirmed}
+                    onChange={(e) => setPropConfirmed(e.target.checked)}
+                  />
+                  <span>I&apos;ve checked: my firm allows an EA and a hosted terminal on this account.</span>
+                </label>
+              </div>
+            ) : null}
+
             <p className="text-xs text-muted-foreground">
               Your password is encrypted before it is stored and is only ever used to sign this
               terminal in to your broker. Use your <strong>trading</strong> password — never your
               investor or website password. We can never withdraw funds.
             </p>
 
-            <Button onClick={handleEnable} disabled={pending || !login || !password || !effectiveServer}>
+            <Button
+              onClick={handleEnable}
+              disabled={pending || !login || !password || !effectiveServer || (propRisk && !propConfirmed)}
+            >
               {pending ? "Connecting…" : "Connect my account"}
             </Button>
           </div>

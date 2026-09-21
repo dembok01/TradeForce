@@ -328,3 +328,49 @@ export async function getSignups(): Promise<Signup[]> {
     })
     .sort((a, b) => b.createdAt.localeCompare(a.createdAt));
 }
+
+export type InboxItem = {
+  id: string;
+  kind: "broker" | "message";
+  name: string;
+  email: string;
+  message: string;
+  /** Broker requests only: what the trader typed. */
+  broker: string | null;
+  serverName: string | null;
+  createdAt: string;
+  handledAt: string | null;
+};
+
+// requestBrokerAction() writes these as ordinary contact messages; the name
+// prefix is what tells them apart.
+const BROKER_PREFIX = "Broker request";
+
+export async function getInbox(): Promise<InboxItem[]> {
+  const { data, error } = await createServiceClient()
+    .from("contact_messages")
+    .select("id, name, email, message, created_at, handled_at")
+    .order("created_at", { ascending: false })
+    .limit(300);
+  if (error) {
+    log.warn("inbox read failed", { detail: error.message });
+    return [];
+  }
+  return (data ?? []).map((m) => {
+    const isBroker = m.name.startsWith(BROKER_PREFIX);
+    const field = (label: string) =>
+      m.message.match(new RegExp(`^${label}: (.*)$`, "m"))?.[1]?.trim() ?? null;
+    const serverName = isBroker ? field("Server name") : null;
+    return {
+      id: m.id,
+      kind: isBroker ? "broker" : "message",
+      name: m.name,
+      email: m.email,
+      message: m.message,
+      broker: isBroker ? field("Broker") : null,
+      serverName: serverName && serverName !== "(not given)" ? serverName : null,
+      createdAt: m.created_at,
+      handledAt: m.handled_at,
+    } satisfies InboxItem;
+  });
+}

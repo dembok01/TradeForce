@@ -113,3 +113,21 @@ export async function adminDeleteUserAction(userId: string): Promise<AdminAction
   revalidatePath("/admin");
   return { ok: true };
 }
+
+/** Inbox: mark a message dealt with (or reopen it), so support doesn't double-answer. */
+export async function adminSetHandledAction(id: string, handled: boolean): Promise<AdminActionResult> {
+  const g = await guard();
+  if ("error" in g) return g;
+
+  const { error } = await createServiceClient()
+    .from("contact_messages")
+    .update({ handled_at: handled ? new Date().toISOString() : null })
+    .eq("id", id);
+  if (error) {
+    log.error("admin inbox update failed", { detail: error.message, id });
+    return { error: "Could not update the message." };
+  }
+  revalidatePath("/admin/inbox");
+  revalidatePath("/admin");
+  return { ok: true };
+}

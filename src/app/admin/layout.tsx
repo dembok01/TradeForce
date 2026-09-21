@@ -9,6 +9,7 @@ export const dynamic = "force-dynamic";
 const NAV = [
   ["/admin", "Overview"],
   ["/admin/users", "Users"],
+  ["/admin/inbox", "Inbox"],
   ["/admin/instances", "EAs"],
   ["/admin/servers", "Servers"],
   ["/admin/outages", "Outages"],

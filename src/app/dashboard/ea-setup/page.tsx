@@ -4,6 +4,7 @@ import { getSetupStatus } from "@/lib/data/setup";
 import { getEaConnection } from "@/lib/data/api-keys";
 import { getCloudEa } from "@/lib/data/cloud-ea";
 import { getAccountContext } from "@/lib/data/context";
+import { getProfile } from "@/lib/data/profile";
 import { eaSeenWithin, EA_CONNECTED_WINDOW_MS } from "@/lib/ea-connection";
 import { PageHeader } from "@/components/dashboard/page-header";
 import { SetupChecklistPanel } from "@/components/dashboard/setup-checklist";
@@ -17,11 +18,12 @@ import { AutoRefresh } from "@/components/dashboard/auto-refresh";
 const SITE_URL = process.env.NEXT_PUBLIC_SITE_URL ?? "https://trade-force-rouge.vercel.app";
 
 export default async function EaSetupPage() {
-  const [{ checklist }, { lastSeenAt }, cloudEa, { account }] = await Promise.all([
+  const [{ checklist }, { lastSeenAt }, cloudEa, { account }, profile] = await Promise.all([
     getSetupStatus(),
     getEaConnection(),
     getCloudEa(),
     getAccountContext(),
+    getProfile(),
   ]);
   const connected = eaSeenWithin(lastSeenAt, EA_CONNECTED_WINDOW_MS);
 
@@ -57,7 +59,7 @@ export default async function EaSetupPage() {
       )}
 
       <Reveal>
-        <CloudEaCard initial={cloudEa} />
+        <CloudEaCard initial={cloudEa} propFirm={profile?.prop_firm} />
       </Reveal>
 
       <Reveal delay={0.1}>

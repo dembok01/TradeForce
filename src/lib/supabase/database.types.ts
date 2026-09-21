@@ -281,6 +281,7 @@ export interface Database {
           email: string;
           message: string;
           created_at: string;
+          handled_at: string | null;
         };
         Insert: Partial<Database["public"]["Tables"]["contact_messages"]["Row"]> & {
           name: string;

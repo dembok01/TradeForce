@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { getPoolServers, getOpsEas, getSignups } from "@/lib/data/admin";
+import { getPoolServers, getOpsEas, getSignups, getInbox } from "@/lib/data/admin";
 import { supportIssues } from "@/lib/support-issues";
 import {
   eaHealth, serverHealth, fmtAge, ageMs,
@@ -11,7 +11,13 @@ import { Dot, Tile, Panel, Table } from "@/components/admin/ui";
 export const dynamic = "force-dynamic";
 
 export default async function AdminPage() {
-  const [servers, eas, signups] = await Promise.all([getPoolServers(), getOpsEas(), getSignups()]);
+  const [servers, eas, signups, inbox] = await Promise.all([
+    getPoolServers(),
+    getOpsEas(),
+    getSignups(),
+    getInbox(),
+  ]);
+  const inboxOpen = inbox.filter((m) => !m.handledAt);
   const notConnected = signups.filter((s) => s.connection === "none");
   const needHelp = signups.filter((s) => supportIssues(s).some((i) => i.level === "down"));
 
@@ -93,6 +99,9 @@ export default async function AdminPage() {
         <Tile label="Need help now" value={String(needHelp.length)}
               tone={needHelp.length ? "down" : "ok"}
               hint="connected but not enforced" href="/admin/users" />
+        <Tile label="Inbox" value={String(inboxOpen.length)}
+              tone={inboxOpen.length ? "warn" : "ok"}
+              hint="messages + broker requests waiting" href="/admin/inbox" />
       </div>
 
       <Panel title="Alerts">
