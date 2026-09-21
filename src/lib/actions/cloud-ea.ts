@@ -101,6 +101,16 @@ export async function enableCloudEaAction(
       return { error: "Couldn't set up cloud protection. Please try again." };
     }
 
+    // Each Connect mints a key; the pool rebuilds the terminal with this one, so
+    // earlier cloud keys would otherwise stay valid with nothing using them.
+    await supabase
+      .from("api_keys")
+      .update({ revoked_at: new Date().toISOString() })
+      .eq("account_id", account.id)
+      .eq("label", "Cloud EA")
+      .neq("id", key.id)
+      .is("revoked_at", null);
+
     revalidatePath("/dashboard/ea-setup");
     return { error: null };
   } catch (err) {

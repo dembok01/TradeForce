@@ -39,7 +39,7 @@ POLL = int(os.environ.get("TF_POLL", "15"))
 # Which hosted EAs use the file bridge: "off", "all", or account ids, comma-separated.
 BRIDGE = os.environ.get("TF_BRIDGE", "off")
 
-AGENT_VERSION = "1.3.2"
+AGENT_VERSION = "1.3.3"
 TELEMETRY_EVERY = int(os.environ.get("TF_TELEMETRY_EVERY", "4"))  # passes; 4 x 15s = 60s
 
 REST = f"{SUPABASE}/rest/v1/mt5_instances"
@@ -108,6 +108,18 @@ def write_config(row: dict, api_key: str) -> str:
         f.write(f"ServerUrl={SITE_URL}\nApiKey={api_key}\nCloudMode=true\n{bridge}")
     os.chmod(st, 0o600)
     return d
+
+
+def running_key(account_id: str) -> str | None:
+    """The EA key the existing container was started with, read back from its tf.set."""
+    try:
+        with open(os.path.join(DATA, account_id, "tf.set")) as f:
+            for line in f:
+                if line.startswith("ApiKey="):
+                    return line[len("ApiKey="):].strip()
+    except OSError:
+        pass
+    return None
 
 
 def start(row: dict):
@@ -312,6 +324,16 @@ def reconcile():
 
         want = row["desired_state"]
         try:
+            # Every press of "Connect" mints a new EA key, usually alongside a
+            # corrected password. A container started with the old key still has
+            # the old password too: rebuild it, or the trader waits on
+            # "Connecting" for ever while MT5 retries the rejected login.
+            old = running_key(acc) if want == "running" and name in have else None
+            if old and old != unseal(row["ea_key_cipher"]):
+                remove(acc)
+                have.discard(name)
+                _login_reported.pop(acc, None)
+                print(f"new details for {name}, rebuilding", flush=True)
             if want == "running" and name not in have:
                 report(acc, status="provisioning")
                 start(row)
