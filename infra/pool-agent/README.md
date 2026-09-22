@@ -61,3 +61,28 @@ Per account (automatic when `roll` fails, manual otherwise): restore
 
 An EA left in bridge mode with no agent serving it keeps enforcing its
 last-known rules and keeps its reports on disk until an agent relays them.
+
+## Brokers connected by server name (Exness)
+
+MT5 accepts `Server=` as an address (`host:port`, works for any broker) or as a
+server **name**, which works only if the terminal's `Config/servers.dat` already
+knows it. Exness publishes no addresses and runs dozens of servers, so its
+servers are connected by name, from a `servers.dat` seeded once:
+
+1. Provision a throwaway volume from `tf-mt5:current` and start it (no login).
+2. Tunnel its web desktop: `ssh -N -L 3000:<container-ip>:3000 root@<pool>`,
+   open http://localhost:3000.
+3. In MT5: File → Open an Account → search the broker → select it → Next →
+   "Connect with an existing trade account" → open the Server list → Cancel.
+   (Automating this with xdotool does not work: the wizard ignores synthetic
+   input and captures show stale frames.)
+4. Copy `Config/servers.dat` to `/root/docker-mt5/servers.dat`, rebuild the
+   image; `provision.sh` copies it into every new volume. It decrypts in any
+   volume made from the same baked prefix.
+5. Verify by name with a fake login - `authorization on <Name> failed (Invalid
+   account)` means MT5 resolved and reached it; a name it doesn't know just
+   times out. Run checks one or a few at a time: several terminals unpacking at
+   once time out and read as false negatives.
+
+Seeded 22 Sep 2026 (Exness): servers.dat md5 336cebf3…, image
+`tf-mt5:v127-exness`. Rollback: `docker tag tf-mt5:v127 tf-mt5:current`.

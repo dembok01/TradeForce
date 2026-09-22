@@ -31,7 +31,7 @@ describe("mt5 server address validation", () => {
   it("accepts listed brokers and any valid custom address", () => {
     expect(isAcceptableServer(MT5_SERVERS[0].address)).toBe(true);
     expect(isAcceptableServer("some.broker.ae:443")).toBe(true);
-    expect(isAcceptableServer("Exness-Real12")).toBe(false);
+    expect(isAcceptableServer("Exness-Real12")).toBe(false); // not a real Exness server name
   });
 
   it("labels a known broker, echoes an unknown address", () => {
@@ -53,9 +53,12 @@ describe("broker picker", () => {
     expect(serversForBroker("")).toEqual([]);
   });
 
-  it("every catalogued address is one MT5 would accept", () => {
+  it("every catalogued server is an address - except Exness, which goes by name", () => {
+    // A name only connects if the image's servers.dat knows it; Exness is the
+    // one broker seeded that way. Anyone else listed by name would never connect.
     for (const s of MT5_SERVERS) {
-      expect(isValidServerAddress(s.address), `${s.broker} ${s.label}`).toBe(true);
+      if (s.broker === "Exness") expect(isValidServerAddress(s.address)).toBe(false);
+      else expect(isValidServerAddress(s.address), `${s.broker} ${s.label}`).toBe(true);
     }
   });
 
@@ -80,5 +83,25 @@ describe("Alpari (trial broker)", () => {
     expect(brokerOf("x.broker.com:443")).toBeNull();
     expect(brokerOf(null)).toBeNull();
     expect(BROKER_HELP.Alpari).toContain("Alpari-MT5-Demo");
+  });
+});
+
+describe("Exness (trial broker, connected by server name)", () => {
+  it("lists its servers by the names traders see in the Personal Area", () => {
+    const names = serversForBroker("Exness").map((s) => s.address);
+    expect(names).toContain("Exness-MT5Real");
+    expect(names).toContain("Exness-MT5Real8");
+    expect(names).toContain("Exness-MT5Trial8");
+    expect(names).not.toContain("Exness-MT5Real13"); // did not answer on 22 Sep
+    expect(names).toHaveLength(37 + 15);
+    expect(names.every((n) => isAcceptableServer(n))).toBe(true);
+  });
+
+  it("accepts an unlisted Exness server name, but nothing that merely looks like one", () => {
+    expect(isAcceptableServer("Exness-MT5Real45")).toBe(true);
+    expect(isAcceptableServer("ExnessKE-MT5Real4")).toBe(true);
+    expect(isAcceptableServer("Exness-MT5Real8; rm -rf /")).toBe(false);
+    expect(isAcceptableServer("Exness-MT4Real8")).toBe(false);
+    expect(brokerOf("Exness-MT5Real45")).toBe("Exness");
   });
 });

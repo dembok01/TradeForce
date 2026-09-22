@@ -122,6 +122,9 @@ export function CloudEaCard({ initial, propFirm }: { initial: CloudEa; propFirm?
   const servers = isOther ? [] : serversForBroker(broker);
   const effectiveServer = isOther ? customServer.trim() : serverAddress;
   const brokerName = isOther ? otherBroker.trim() : broker;
+  // Exness servers go by name (see mt5-brokers.ts), so its "not listed" path
+  // asks for the exact server name rather than an address.
+  const otherIsExness = isOther && /exness/i.test(otherBroker);
   // Onboarding asks for the trader's prop firm, so a funded trader is warned even
   // when their account sits at an ordinary-looking broker address.
   const propRisk = looksLikePropFirm(brokerName, effectiveServer, requestServerName, propFirm);
@@ -313,10 +316,10 @@ export function CloudEaCard({ initial, propFirm }: { initial: CloudEa; propFirm?
                   />
                 </div>
                 <div className="space-y-1.5">
-                  <Label htmlFor="mt5-custom">Server address</Label>
+                  <Label htmlFor="mt5-custom">{otherIsExness ? "Exness server name" : "Server address"}</Label>
                   <Input
                     id="mt5-custom"
-                    placeholder="live.yourbroker.com:443"
+                    placeholder={otherIsExness ? "e.g. Exness-MT5Real45" : "live.yourbroker.com:443"}
                     autoComplete="off"
                     autoCapitalize="none"
                     autoCorrect="off"
@@ -326,10 +329,16 @@ export function CloudEaCard({ initial, propFirm }: { initial: CloudEa; propFirm?
                     onChange={(e) => setCustomServer(e.target.value)}
                   />
                   <p className="text-xs text-muted-foreground">
-                    Ask your broker&apos;s support for “the MT5 server address and port” for your
-                    account — they answer this every day. It is the address, not the server name:{" "}
-                    <code>ICMarketsSC-Demo</code> is a name, <code>mt5-demo.icmarkets.com:443</code>{" "}
-                    is an address.
+                    {otherIsExness ? (
+                      BROKER_HELP.Exness
+                    ) : (
+                      <>
+                        Ask your broker&apos;s support for “the MT5 server address and port” for your
+                        account — they answer this every day. It is the address, not the server name:{" "}
+                        <code>ICMarketsSC-Demo</code> is a name, <code>mt5-demo.icmarkets.com:443</code>{" "}
+                        is an address.
+                      </>
+                    )}
                   </p>
                 </div>
                 <div className="space-y-1.5 border-t pt-3">

@@ -36,10 +36,41 @@
 export const BROKER_HELP: Record<string, string> = {
   Alpari:
     "Demo accounts are on Alpari-MT5-Demo and real accounts on Alpari-MT5. It's in Alpari's account email, and in MetaTrader under File → Login to Trade Account.",
+  Exness:
+    "Exness gives every account its own server. Open the Exness Personal Area → My accounts: the server is on the account card, e.g. Exness-MT5Real8 or Exness-MT5Trial8. Pick exactly that one.",
 };
+
+/**
+ * Exness runs dozens of MT5 servers and publishes no addresses, so these are
+ * connected by NAME. That works only because the image's Config/servers.dat
+ * was seeded by a one-off "Open an Account -> Exness" search (see
+ * infra/pool-agent/README.md); a name MT5 doesn't know never connects at all.
+ * Verified by signing in to each with a fake login: "authorization on
+ * Exness-MT5Trial failed (Invalid account)" means MT5 found the server.
+ */
+const EXNESS_NAME_RE = /^Exness[A-Za-z]{0,4}-MT5(Real|Trial)\d{0,3}$/;
+
+// Numbers after "Exness-MT5Real" / "Exness-MT5Trial" that answered on 22 Sep 2026
+// (1 = no number). Anything else still connects: the "not in this list" path
+// accepts any Exness server name.
+const EXNESS_REAL = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 36, 38, 39, 40];
+const EXNESS_TRIAL = [1, 2, 3, 4, 5, 6, 8, 9, 10, 11, 12, 14, 15, 16, 17];
+
+function exnessServers(): Mt5Server[] {
+  const n = (i: number) => (i === 1 ? "" : String(i));
+  return [
+    ...EXNESS_REAL.map((i): Mt5Server => ({
+      broker: "Exness", label: `Exness-MT5Real${n(i)}`, address: `Exness-MT5Real${n(i)}`, kind: "live",
+    })),
+    ...EXNESS_TRIAL.map((i): Mt5Server => ({
+      broker: "Exness", label: `Exness-MT5Trial${n(i)} (demo)`, address: `Exness-MT5Trial${n(i)}`, kind: "demo",
+    })),
+  ];
+}
 
 /** The broker behind a stored server address, if it's one we list. */
 export function brokerOf(address: string | null | undefined): string | null {
+  if (address && EXNESS_NAME_RE.test(address)) return "Exness";
   return MT5_SERVERS.find((s) => s.address === address)?.broker ?? null;
 }
 
@@ -87,6 +118,7 @@ export const MT5_SERVERS: Mt5Server[] = [
   { broker: "Pepperstone", label: "Live 2", address: "mt5-live2.pepperstone.com:443", kind: "live" },
   { broker: "Swissquote", label: "Main server", address: "mt5.swissquote.com:443", kind: "live" },
   { broker: "Weltrade", label: "Demo", address: "mt5.demo.weltrade.com:443", kind: "demo" },
+  ...exnessServers(),
 ];
 
 /** Broker names for the picker, de-duplicated and alphabetical. */
@@ -117,7 +149,7 @@ export function isValidServerAddress(v: string): boolean {
  */
 export function isAcceptableServer(v: string): boolean {
   const s = v.trim();
-  return MT5_SERVERS.some((b) => b.address === s) || isValidServerAddress(s);
+  return MT5_SERVERS.some((b) => b.address === s) || isValidServerAddress(s) || EXNESS_NAME_RE.test(s);
 }
 
 export function brokerLabel(address: string): string {

@@ -40,7 +40,7 @@ POLL = int(os.environ.get("TF_POLL", "15"))
 # Which hosted EAs use the file bridge: "off", "all", or account ids, comma-separated.
 BRIDGE = os.environ.get("TF_BRIDGE", "off")
 
-AGENT_VERSION = "1.3.4"
+AGENT_VERSION = "1.3.5"
 TELEMETRY_EVERY = int(os.environ.get("TF_TELEMETRY_EVERY", "4"))  # passes; 4 x 15s = 60s
 
 REST = f"{SUPABASE}/rest/v1/mt5_instances"
@@ -288,8 +288,9 @@ def check_logins():
             report(acc, status="login_failed",
                    status_detail="Your broker's server has not answered for 8 minutes"
                                  + (f" (MetaTrader says: {said[:160]})" if said else "")
-                                 + ". The server address is probably wrong - pick your broker from the "
-                                   "list, or check the address with your broker.")
+                                 + ". The server is probably wrong - pick your broker and the exact server "
+                                   "your account is on (it's in your broker's account email or client "
+                                   "area), then connect again.")
             continue
         if _login_reported.get(acc) == state[0]:
             continue
@@ -298,7 +299,8 @@ def check_logins():
             print(f"login rejected for {acc}: {state[1]}", flush=True)
             report(acc, status="login_failed",
                    status_detail=f"Your broker refused the sign-in ({state[1]}). "
-                                 "Check the account number, password and server address.")
+                                 "Check the account number, the trading password (not the investor "
+                                 "one) and that you picked the server your account is on.")
         else:
             # The server name confirms to the trader that they picked the right
             # one, and teaches us which name answers at that address.
