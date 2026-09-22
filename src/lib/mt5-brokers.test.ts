@@ -93,7 +93,7 @@ describe("Exness (trial broker, connected by server name)", () => {
     expect(names).toContain("Exness-MT5Real8");
     expect(names).toContain("Exness-MT5Trial8");
     expect(names).not.toContain("Exness-MT5Real13"); // did not answer on 22 Sep
-    expect(names).toHaveLength(37 + 15);
+    expect(names).toHaveLength(37 + 16);
     expect(names.every((n) => isAcceptableServer(n))).toBe(true);
   });
 

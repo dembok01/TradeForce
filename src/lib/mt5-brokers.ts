@@ -54,7 +54,7 @@ const EXNESS_NAME_RE = /^Exness[A-Za-z]{0,4}-MT5(Real|Trial)\d{0,3}$/;
 // (1 = no number). Anything else still connects: the "not in this list" path
 // accepts any Exness server name.
 const EXNESS_REAL = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35, 36, 38, 39, 40];
-const EXNESS_TRIAL = [1, 2, 3, 4, 5, 6, 8, 9, 10, 11, 12, 14, 15, 16, 17];
+const EXNESS_TRIAL = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 14, 15, 16, 17];
 
 function exnessServers(): Mt5Server[] {
   const n = (i: number) => (i === 1 ? "" : String(i));
