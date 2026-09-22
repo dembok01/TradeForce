@@ -25,11 +25,12 @@ CRED_KEY = base64.b64decode(os.environ["MT5_CRED_KEY"])
 DATA = os.environ.get("TF_DATA", "/srv/tf")
 H = {"apikey": KEY, "Authorization": f"Bearer {KEY}", "Content-Type": "application/json"}
 
-# The demo account the capacity clones use; a real trial user supplies their own.
-DEMO = {}
-for line in open("/root/cap/tplA/.wine/drive_c/tf.ini"):
-    k, _, v = line.strip().partition("=")
-    DEMO[k] = v
+# The MetaQuotes demo account the capacity and proof runs use; a real trial
+# user supplies their own. Its password lives only on the pool server.
+_line = next(l for l in open("/root/runtest.sh") if "Login=10012085487" in l)
+DEMO = {"Login": "10012085487", "Server": "MetaQuotes-Demo",
+        "Password": _line.split("Password=", 1)[1].split("\\n", 1)[0]}
+EA_VERSION = "1.28"
 
 
 def api(method, path, body=None, headers=None, base="/rest/v1/"):
@@ -118,6 +119,22 @@ def watch(acc_id, want, minutes):
     return instance(acc_id)
 
 
+def connection_log(acc_id, want_kind, minutes):
+    """The trader's connection log, once `want_kind` has been logged (or on timeout)."""
+    steps = []
+    for _ in range(minutes * 6):
+        _, steps = api("GET", f"connection_events?account_id=eq.{acc_id}&select=at,source,kind,level,message,detail&order=at.asc")
+        if isinstance(steps, list) and any(s["kind"] == want_kind for s in steps):
+            break
+        time.sleep(10)
+    steps = steps if isinstance(steps, list) else []
+    for st in steps:
+        log(f"  log: {st['at'][11:19]} {st['source']:5} {st['level']:5} {st['kind']:16} {st['message']}")
+        for line in ((st.get("detail") or {}).get("journal") or [])[-3:]:
+            log(f"         | {line}")
+    return [st["kind"] for st in steps]
+
+
 def cleanup(uid, acc_id):
     api("PATCH", f"mt5_instances?account_id=eq.{acc_id}", {"desired_state": "removed"})
     for _ in range(30):
@@ -154,8 +171,11 @@ def run_good():
         # A relayed equity report IS the proof: it can only have arrived as a
         # file the agent picked up, which means the EA ran in bridge mode. The
         # journal is written minutes late, so it can't be part of the verdict.
-        ok = bool(snaps) and row.get("ea_version") == "1.26"
-    log(f"RESULT good-credentials: {'PASS' if ok else 'FAIL'}")
+        ok = bool(snaps) and row.get("ea_version") == EA_VERSION
+    kinds = connection_log(acc_id, "protected", 5)
+    logged = all(k in kinds for k in ("claimed", "terminal_started", "signed_in", "protected"))
+    log(f"RESULT good-credentials: {'PASS' if ok else 'FAIL'} | connection log: {'PASS' if logged else 'FAIL'}")
+    ok = ok and logged
     cleanup(uid, acc_id)
     return ok
 
@@ -165,7 +185,11 @@ def run_bad():
     uid, acc_id = signup(False)
     row = watch(acc_id, "login_failed", 15)
     ok = row.get("status") == "login_failed"
-    log(f"RESULT wrong-password: {'PASS' if ok else 'FAIL'} - {row.get('status')}: {row.get('status_detail')}")
+    kinds = connection_log(acc_id, "login_refused", 3)
+    logged = "login_refused" in kinds
+    log(f"RESULT wrong-password: {'PASS' if ok else 'FAIL'} - {row.get('status')}: {row.get('status_detail')}"
+        f" | connection log: {'PASS' if logged else 'FAIL'}")
+    ok = ok and logged
     cleanup(uid, acc_id)
     return ok
 
