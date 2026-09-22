@@ -86,3 +86,22 @@ servers are connected by name, from a `servers.dat` seeded once:
 
 Seeded 22 Sep 2026 (Exness): servers.dat md5 336cebf3…, image
 `tf-mt5:v127-exness`. Rollback: `docker tag tf-mt5:v127 tf-mt5:current`.
+
+## The EA chart: TFCHART, not EURUSD
+
+`[StartUp] Symbol=` must name a symbol the account can sync, or MT5 loads the
+EA, waits five minutes and removes it ("initializing of TradeForce ... failed
+with code 0 (symbol synchronization timeout)"). Brokers name EURUSD however
+they like - Alpari's MT5 demo server has no plain EURUSD, Exness Standard uses
+EURUSDm - so since agent 1.3.6 / image v128 every hosted chart opens on
+**TFCHART**, a custom symbol that lives in the terminal:
+
+- made once by `ea/TFChartSetup.mq5` (run as a `[StartUp] Script=` in a demo
+  terminal; it calls TerminalClose so MT5 saves the definition),
+- shipped as `/opt/tf/tfchart.tgz` = `Bases/symbols.custom.dat` +
+  `Bases/Custom/history/TFCHART/`, unpacked by `provision.sh`.
+
+EA v1.28 keeps one real broker symbol quoting on such a chart (EURUSD-like if
+the broker has one) so `TimeCurrent()` - and the server-clock offset every day
+boundary uses - keeps moving. Do not roll the image back below v128 while the
+agent writes `Symbol=TFCHART`.

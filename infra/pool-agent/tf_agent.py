@@ -40,7 +40,7 @@ POLL = int(os.environ.get("TF_POLL", "15"))
 # Which hosted EAs use the file bridge: "off", "all", or account ids, comma-separated.
 BRIDGE = os.environ.get("TF_BRIDGE", "off")
 
-AGENT_VERSION = "1.3.5"
+AGENT_VERSION = "1.3.6"
 TELEMETRY_EVERY = int(os.environ.get("TF_TELEMETRY_EVERY", "4"))  # passes; 4 x 15s = 60s
 
 REST = f"{SUPABASE}/rest/v1/mt5_instances"
@@ -95,7 +95,10 @@ def write_config(row: dict, api_key: str) -> str:
             f"Server={row['mt5_server']}\n"
             "CertInstall=1\nNewsEnable=0\n\n"
             "[Experts]\nAllowLiveTrading=1\nAllowDllImport=0\nEnabled=1\nAccount=0\nProfile=0\n\n"
-            "[StartUp]\nSymbol=EURUSD\nPeriod=M1\n"
+            # TFCHART is a custom symbol baked into the image (provision.sh):
+            # it exists whatever the broker names EURUSD, and a chart symbol
+            # that never syncs means the EA never starts. Needs tf-mt5 >= v128.
+            "[StartUp]\nSymbol=TFCHART\nPeriod=M1\n"
             "Expert=TradeForce\nExpertParameters=tf.set\n"
         )
     os.chmod(ini, 0o600)
