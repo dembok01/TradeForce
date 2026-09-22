@@ -2,10 +2,16 @@
 
 import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
-import { ShieldCheck, Loader2, TriangleAlert } from "lucide-react";
+import { ShieldCheck, Loader2, TriangleAlert, ChevronDown } from "lucide-react";
 import { toast } from "sonner";
 import { enableCloudEaAction, disableCloudEaAction, requestBrokerAction } from "@/lib/actions/cloud-ea";
-import { MT5_BROKER_NAMES, serversForBroker, brokerLabel } from "@/lib/mt5-brokers";
+import {
+  MT5_BROKER_NAMES,
+  BROKER_HELP,
+  serversForBroker,
+  brokerLabel,
+  brokerOf,
+} from "@/lib/mt5-brokers";
 import { looksLikePropFirm } from "@/lib/prop-firms";
 import type { CloudEa } from "@/lib/data/cloud-ea";
 import { Button } from "@/components/ui/button";
@@ -19,13 +25,27 @@ import {
   CardDescription,
   CardContent,
 } from "@/components/ui/card";
-import {
-  Select,
-  SelectTrigger,
-  SelectValue,
-  SelectContent,
-  SelectItem,
-} from "@/components/ui/select";
+
+/** "Other broker…" in the broker list. */
+const OTHER = "__other";
+
+// A native <select>: the phone's own picker. The broker field used to be a text
+// box with a <datalist>, which iOS Safari and many Android browsers never show
+// as a dropdown - traders on mobile saw an empty box and nothing to pick.
+function NativeSelect(props: React.ComponentProps<"select">) {
+  return (
+    <div className="relative">
+      <select
+        {...props}
+        className="h-10 w-full appearance-none rounded-md border border-input bg-background/40 px-3 pr-9 text-base shadow-sm outline-none focus:border-ring focus:ring-2 focus:ring-ring/40 sm:h-9 sm:text-sm"
+      />
+      <ChevronDown
+        className="pointer-events-none absolute right-3 top-1/2 size-4 -translate-y-1/2 opacity-60"
+        aria-hidden
+      />
+    </div>
+  );
+}
 
 const STATUS: Record<
   CloudEa["status"],
@@ -84,35 +104,44 @@ export function CloudEaCard({ initial, propFirm }: { initial: CloudEa; propFirm?
   const router = useRouter();
   const [login, setLogin] = useState(initial.login ?? "");
   const [password, setPassword] = useState("");
-  const [broker, setBroker] = useState("");
-  const [serverAddress, setServerAddress] = useState("");
-  const [manual, setManual] = useState(false);
-  const [customServer, setCustomServer] = useState("");
+  // After a refused sign-in, start from what they sent: usually only the
+  // password (or the demo/live server) was wrong.
+  const previousBroker = brokerOf(initial.server);
+  const [broker, setBroker] = useState(
+    previousBroker ?? (initial.server ? OTHER : "")
+  );
+  const [serverAddress, setServerAddress] = useState(previousBroker ? (initial.server ?? "") : "");
+  const [otherBroker, setOtherBroker] = useState("");
+  const [customServer, setCustomServer] = useState(previousBroker ? "" : (initial.server ?? ""));
   const [requestServerName, setRequestServerName] = useState("");
   const [requested, setRequested] = useState(false);
   const [propConfirmed, setPropConfirmed] = useState(false);
   const [pending, startTransition] = useTransition();
 
-  // A broker the trader types is only useful once it maps to one of that
-  // broker's servers: demo and live are different addresses.
-  const servers = serversForBroker(broker);
-  const known = servers.length > 0;
-  const effectiveServer = manual ? customServer.trim() : serverAddress;
+  const isOther = broker === OTHER;
+  const servers = isOther ? [] : serversForBroker(broker);
+  const effectiveServer = isOther ? customServer.trim() : serverAddress;
+  const brokerName = isOther ? otherBroker.trim() : broker;
   // Onboarding asks for the trader's prop firm, so a funded trader is warned even
   // when their account sits at an ordinary-looking broker address.
-  const propRisk = looksLikePropFirm(broker, effectiveServer, requestServerName, propFirm);
+  const propRisk = looksLikePropFirm(brokerName, effectiveServer, requestServerName, propFirm);
 
   function pickBroker(value: string) {
     setBroker(value);
-    setManual(false);
     setRequested(false);
-    const found = serversForBroker(value);
+    const found = value === OTHER ? [] : serversForBroker(value);
     setServerAddress(found.length === 1 ? found[0].address : "");
+  }
+
+  // "My server isn't in this list": same broker, their own address.
+  function useOwnServer() {
+    setOtherBroker(broker);
+    pickBroker(OTHER);
   }
 
   function handleRequestBroker() {
     startTransition(async () => {
-      const result = await requestBrokerAction({ broker, serverName: requestServerName });
+      const result = await requestBrokerAction({ broker: brokerName, serverName: requestServerName });
       if (result.error) {
         toast.error(result.error);
         return;
@@ -205,27 +234,139 @@ export function CloudEaCard({ initial, propFirm }: { initial: CloudEa; propFirm?
             {initial.status === "login_failed" ? (
               <div className="rounded-lg border border-destructive/40 bg-destructive/5 p-3 text-sm">
                 <p className="font-medium">{s.blurb}</p>
-                <p className="mt-1 text-muted-foreground">
-                  Use the <strong>trading</strong> password for account {initial.login}, not your
-                  broker website login. Check the server too, then try again.
-                </p>
+                {initial.detail ? <p className="mt-1">{initial.detail}</p> : null}
+                <ul className="mt-2 list-disc space-y-1 pl-4 text-muted-foreground">
+                  <li>
+                    Use the <strong>trading</strong> (master) password for account {initial.login}
+                    — not the investor password or your broker website login.
+                  </li>
+                  <li>
+                    Check the server:{" "}
+                    {previousBroker && BROKER_HELP[previousBroker]
+                      ? BROKER_HELP[previousBroker]
+                      : "demo and real accounts are on different servers, and the account only exists on its own one."}
+                  </li>
+                </ul>
               </div>
             ) : null}
 
-            <div className="grid gap-3 sm:grid-cols-3">
+            <div className="space-y-1.5">
+              <Label htmlFor="mt5-broker">Broker</Label>
+              <NativeSelect id="mt5-broker" value={broker} onChange={(e) => pickBroker(e.target.value)}>
+                <option value="" disabled>
+                  Choose your broker
+                </option>
+                {MT5_BROKER_NAMES.map((name) => (
+                  <option key={name} value={name}>
+                    {name}
+                  </option>
+                ))}
+                <option value={OTHER}>Other broker…</option>
+              </NativeSelect>
+            </div>
+
+            {servers.length > 0 ? (
+              <div className="space-y-1.5">
+                <Label htmlFor="mt5-server">Server</Label>
+                <NativeSelect
+                  id="mt5-server"
+                  value={serverAddress}
+                  onChange={(e) => setServerAddress(e.target.value)}
+                >
+                  {servers.length > 1 ? (
+                    <option value="" disabled>
+                      Choose the server your account is on
+                    </option>
+                  ) : null}
+                  {servers.map((sv) => (
+                    <option key={sv.address} value={sv.address}>
+                      {sv.label}
+                    </option>
+                  ))}
+                </NativeSelect>
+                {BROKER_HELP[broker] ? (
+                  <p className="text-xs text-muted-foreground">{BROKER_HELP[broker]}</p>
+                ) : null}
+                <button
+                  type="button"
+                  className="text-xs text-muted-foreground underline underline-offset-2"
+                  onClick={useOwnServer}
+                >
+                  My server isn&apos;t in this list
+                </button>
+              </div>
+            ) : null}
+
+            {isOther ? (
+              <div className="space-y-3 rounded-lg border p-3">
+                <div className="space-y-1.5">
+                  <Label htmlFor="mt5-other-broker">Broker name</Label>
+                  <Input
+                    id="mt5-other-broker"
+                    autoComplete="off"
+                    placeholder="e.g. XM, FBS, Tickmill"
+                    value={otherBroker}
+                    onChange={(e) => {
+                      setOtherBroker(e.target.value);
+                      setRequested(false);
+                    }}
+                  />
+                </div>
+                <div className="space-y-1.5">
+                  <Label htmlFor="mt5-custom">Server address</Label>
+                  <Input
+                    id="mt5-custom"
+                    placeholder="live.yourbroker.com:443"
+                    autoComplete="off"
+                    autoCapitalize="none"
+                    autoCorrect="off"
+                    spellCheck={false}
+                    inputMode="url"
+                    value={customServer}
+                    onChange={(e) => setCustomServer(e.target.value)}
+                  />
+                  <p className="text-xs text-muted-foreground">
+                    Ask your broker&apos;s support for “the MT5 server address and port” for your
+                    account — they answer this every day. It is the address, not the server name:{" "}
+                    <code>ICMarketsSC-Demo</code> is a name, <code>mt5-demo.icmarkets.com:443</code>{" "}
+                    is an address.
+                  </p>
+                </div>
+                <div className="space-y-1.5 border-t pt-3">
+                  <p className="text-sm">No address? We&apos;ll find it and add your broker, usually the same day.</p>
+                  <Input
+                    id="mt5-server-name"
+                    autoComplete="off"
+                    placeholder="Your server name, if you know it (e.g. XMGlobal-MT5 2)"
+                    value={requestServerName}
+                    onChange={(e) => setRequestServerName(e.target.value)}
+                  />
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={handleRequestBroker}
+                    disabled={pending || requested || !brokerName}
+                  >
+                    {requested ? "Request sent" : `Ask us to add ${brokerName || "my broker"}`}
+                  </Button>
+                </div>
+              </div>
+            ) : null}
+
+            <div className="grid gap-3 sm:grid-cols-2">
               <div className="space-y-1.5">
                 <Label htmlFor="mt5-login">MT5 account number</Label>
                 <Input
                   id="mt5-login"
                   inputMode="numeric"
                   autoComplete="off"
-                  placeholder="10012085487"
+                  placeholder="e.g. 53168878"
                   value={login}
-                  onChange={(e) => setLogin(e.target.value)}
+                  onChange={(e) => setLogin(e.target.value.replace(/\s/g, ""))}
                 />
               </div>
               <div className="space-y-1.5">
-                <Label htmlFor="mt5-password">MT5 password</Label>
+                <Label htmlFor="mt5-password">MT5 trading password</Label>
                 <Input
                   id="mt5-password"
                   type="password"
@@ -234,121 +375,7 @@ export function CloudEaCard({ initial, propFirm }: { initial: CloudEa; propFirm?
                   onChange={(e) => setPassword(e.target.value)}
                 />
               </div>
-              <div className="space-y-1.5">
-                <Label htmlFor="mt5-server">Broker</Label>
-                <Input
-                  id="mt5-server"
-                  list="mt5-broker-names"
-                  autoComplete="off"
-                  placeholder="Start typing…"
-                  value={broker}
-                  onChange={(e) => pickBroker(e.target.value)}
-                />
-                <datalist id="mt5-broker-names">
-                  {MT5_BROKER_NAMES.map((name) => (
-                    <option key={name} value={name} />
-                  ))}
-                </datalist>
-              </div>
             </div>
-
-            {known && !manual ? (
-              <div className="space-y-1.5">
-                <Label htmlFor="mt5-account-type">Which account?</Label>
-                <Select value={serverAddress} onValueChange={setServerAddress}>
-                  <SelectTrigger id="mt5-account-type">
-                    <SelectValue placeholder="Choose demo or live" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {servers.map((b) => (
-                      <SelectItem key={b.address} value={b.address}>
-                        {b.label}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-                <button
-                  type="button"
-                  className="text-xs text-muted-foreground underline underline-offset-2"
-                  onClick={() => setManual(true)}
-                >
-                  My account is on a different server
-                </button>
-              </div>
-            ) : null}
-
-            {!known && broker.trim() && !manual ? (
-              <div className="space-y-3 rounded-lg border p-3">
-                <p className="text-sm">
-                  We don&apos;t have <strong>{broker.trim()}</strong> on file yet. Two ways forward:
-                </p>
-                <div className="space-y-1.5">
-                  <Label htmlFor="mt5-server-name">Your server name (optional)</Label>
-                  <Input
-                    id="mt5-server-name"
-                    autoComplete="off"
-                    placeholder="e.g. ICMarketsSC-Demo"
-                    value={requestServerName}
-                    onChange={(e) => setRequestServerName(e.target.value)}
-                  />
-                  <p className="text-xs text-muted-foreground">
-                    It&apos;s in your broker&apos;s welcome email, and in MetaTrader under the account
-                    name.
-                  </p>
-                </div>
-                <div className="flex flex-wrap gap-2">
-                  <Button variant="outline" size="sm" onClick={handleRequestBroker} disabled={pending || requested}>
-                    {requested ? "Request sent" : "Ask us to add this broker"}
-                  </Button>
-                  <Button variant="ghost" size="sm" onClick={() => setManual(true)}>
-                    I have my server address
-                  </Button>
-                </div>
-                {requested ? (
-                  <p className="text-xs text-muted-foreground">
-                    We usually add a broker the same day and email you — no need to do anything else.
-                  </p>
-                ) : null}
-              </div>
-            ) : null}
-
-            {manual ? (
-              <div className="space-y-1.5">
-                <Label htmlFor="mt5-custom">Broker server address</Label>
-                <Input
-                  id="mt5-custom"
-                  placeholder="live.yourbroker.com:443"
-                  autoComplete="off"
-                  value={customServer}
-                  onChange={(e) => setCustomServer(e.target.value)}
-                />
-                <div className="rounded-lg border p-3 text-xs text-muted-foreground">
-                  <p className="font-medium text-foreground">Where to find this</p>
-                  <ol className="mt-1 list-decimal space-y-1 pl-4">
-                    <li>
-                      Ask your broker&apos;s support for “the MT5 server address and port” for your
-                      account — they answer this every day.
-                    </li>
-                    <li>
-                      Or go back and press <strong>Ask us to add this broker</strong> — we&apos;ll
-                      find it for you, usually the same day.
-                    </li>
-                  </ol>
-                  <p className="mt-2">
-                    It is the address, not the server name: <code>ICMarketsSC-Demo</code> is a name,{" "}
-                    <code>mt5-demo.icmarkets.com:443</code> is an address. Ports are usually{" "}
-                    <code>443</code> or <code>1950</code>.
-                  </p>
-                  <button
-                    type="button"
-                    className="mt-2 underline underline-offset-2"
-                    onClick={() => setManual(false)}
-                  >
-                    Back to the broker list
-                  </button>
-                </div>
-              </div>
-            ) : null}
 
             {propRisk ? (
               <div className="rounded-lg border border-amber-500/40 bg-amber-500/10 p-3 text-sm">

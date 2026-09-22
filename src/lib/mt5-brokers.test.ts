@@ -6,6 +6,8 @@ import {
   serversForBroker,
   MT5_SERVERS,
   MT5_BROKER_NAMES,
+  BROKER_HELP,
+  brokerOf,
 } from "./mt5-brokers";
 
 describe("mt5 server address validation", () => {
@@ -60,5 +62,23 @@ describe("broker picker", () => {
   it("never lists the same address twice", () => {
     const addresses = MT5_SERVERS.map((s) => s.address);
     expect(addresses).toEqual([...new Set(addresses)]);
+  });
+});
+
+describe("Alpari (trial broker)", () => {
+  it("uses Alpari's published access points, one per server", () => {
+    const alpari = serversForBroker("Alpari");
+    expect(alpari.map((s) => s.address)).toEqual(["dc1.mt5demo.alpari.com:443", "dc1.mt5.alpari.com:443"]);
+    expect(alpari.map((s) => s.kind)).toEqual(["demo", "live"]);
+    // Labels carry the server name the trader sees in MetaTrader and their email.
+    expect(alpari[0].label).toContain("Alpari-MT5-Demo");
+    expect(alpari[1].label).toContain("Alpari-MT5");
+  });
+
+  it("maps a stored address back to its broker, for the refused-login help", () => {
+    expect(brokerOf("dc1.mt5demo.alpari.com:443")).toBe("Alpari");
+    expect(brokerOf("x.broker.com:443")).toBeNull();
+    expect(brokerOf(null)).toBeNull();
+    expect(BROKER_HELP.Alpari).toContain("Alpari-MT5-Demo");
   });
 });

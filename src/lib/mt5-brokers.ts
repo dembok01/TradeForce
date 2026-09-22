@@ -28,6 +28,21 @@
  * If a trader's account lives on a server we don't list, their login is
  * rejected and the dashboard says so - they can then enter their own address.
  */
+/**
+ * Where a trader finds which of their broker's servers the account is on -
+ * shown under the server picker and again when a sign-in is refused, because
+ * "wrong server" is the most common reason for "Invalid account".
+ */
+export const BROKER_HELP: Record<string, string> = {
+  Alpari:
+    "Demo accounts are on Alpari-MT5-Demo and real accounts on Alpari-MT5. It's in Alpari's account email, and in MetaTrader under File → Login to Trade Account.",
+};
+
+/** The broker behind a stored server address, if it's one we list. */
+export function brokerOf(address: string | null | undefined): string | null {
+  return MT5_SERVERS.find((s) => s.address === address)?.broker ?? null;
+}
+
 export type Mt5Server = {
   /** Broker as a trader would name it. */
   broker: string;
@@ -43,8 +58,12 @@ export const MT5_SERVERS: Mt5Server[] = [
   // these answers as a trading server. "Main server" means the broker publishes
   // one address for both demo and live, or we have not confirmed which it is.
   { broker: "Admirals", label: "Main server", address: "mt5.admiralmarkets.com:443", kind: "live" },
-  { broker: "Alpari", label: "Demo", address: "mt5-demo.alpari.com:443", kind: "demo" },
-  { broker: "Alpari", label: "Main server", address: "mt5.alpari.com:443", kind: "live" },
+  // Alpari publishes its access points per server (alpari.com, "Common MetaTrader
+  // login issues", read 22 Sep 2026). The earlier mt5-demo.alpari.com is a
+  // round-robin name whose IPs overlap the live server's, and a real demo
+  // account was refused through it three times on 21 Sep.
+  { broker: "Alpari", label: "Alpari-MT5-Demo (demo accounts)", address: "dc1.mt5demo.alpari.com:443", kind: "demo" },
+  { broker: "Alpari", label: "Alpari-MT5 (real accounts)", address: "dc1.mt5.alpari.com:443", kind: "live" },
   { broker: "Alpha Capital", label: "Main server", address: "mt5.alphacapitalgroup.uk:443", kind: "live" },
   { broker: "Blueberry Markets", label: "Demo", address: "mt5.demo.blueberrymarkets.com:443", kind: "demo" },
   { broker: "Blueberry Markets", label: "Live", address: "mt5.live.blueberrymarkets.com:443", kind: "live" },
