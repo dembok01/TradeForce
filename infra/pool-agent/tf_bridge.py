@@ -602,13 +602,10 @@ def housekeep(dirs: BridgeDirs, now: float) -> None:
 LOGIN_LOGS = (".wine", "drive_c", "Program Files", "MetaTrader 5", "logs")
 
 
-def login_state(volume: str) -> tuple[str, str] | None:
-    """What MT5's journal says about signing in to the broker.
-
-    ('ok', server name) or ('failed', reason) for the latest outcome; ('waiting',
-    last network line) while it has neither; None if there is no journal yet.
-    Reads the newest two days, so a sign-in just before midnight still counts.
-    """
+def journal(volume: str) -> list[tuple[str, str, str]] | None:
+    """(time, source, message) from MT5's own journal, newest two days, oldest
+    first; None if there is no journal yet. A sign-in just before midnight is
+    only in yesterday's file, so one day is not enough."""
     d = os.path.join(volume, *LOGIN_LOGS)
     try:
         logs = sorted((os.path.join(d, n) for n in os.listdir(d) if n.endswith(".log")),
@@ -617,7 +614,7 @@ def login_state(volume: str) -> tuple[str, str] | None:
         return None
     if not logs:
         return None
-    result, network = None, ""
+    out = []
     for path in logs:
         try:
             with open(path, "rb") as f:
@@ -627,21 +624,84 @@ def login_state(volume: str) -> tuple[str, str] | None:
         except OSError:
             continue
         for line in text.splitlines():
-            low = line.lower()
             fields = line.split("\t")
-            if len(fields) >= 5 and fields[3] == "Network":
-                network = fields[4].strip()
-            if "authorized on" in low:
-                # "'111484503': authorized on ICMarketsSC-Demo through Access Point EU 0"
-                # The server NAME is the one thing only the broker can tell us, and it
-                # is how we learn which name lives at the address the trader picked.
-                name = line.split("authorized on", 1)[1].split(" through")[0].strip()
-                result = ("ok", name)
-            elif "authorization" in low and "failed" in low:
-                # "...: authorization on Broker-Server failed (Invalid account)"
-                reason = line.split("failed", 1)[1].strip(" ()\t") or "rejected by the broker"
-                result = ("failed", reason)
+            if len(fields) >= 5:
+                out.append((fields[2].strip(), fields[3].strip(), fields[4].strip()))
+    return out
+
+
+def login_state(volume: str) -> tuple[str, str] | None:
+    """What MT5's journal says about signing in to the broker.
+
+    ('ok', server name) or ('failed', reason) for the latest outcome; ('waiting',
+    last network line) while it has neither; None if there is no journal yet.
+    """
+    lines = journal(volume)
+    if lines is None:
+        return None
+    result, network = None, ""
+    for _, source, msg in lines:
+        low = msg.lower()
+        if source == "Network":
+            network = msg
+        if "authorized on" in low:
+            # "'111484503': authorized on ICMarketsSC-Demo through Access Point EU 0"
+            # The server NAME is the one thing only the broker can tell us, and it
+            # is how we learn which name lives at the address the trader picked.
+            name = msg.split("authorized on", 1)[1].split(" through")[0].strip()
+            result = ("ok", name)
+        elif "authorization" in low and "failed" in low:
+            # "...: authorization on Broker-Server failed (Invalid account)"
+            reason = msg.split("failed", 1)[1].strip(" ()\t") or "rejected by the broker"
+            result = ("failed", reason)
     return result or ("waiting", network)
+
+
+def ea_start(volume: str) -> tuple[str, str] | None:
+    """Whether MT5 managed to start the TradeForce EA on its chart.
+
+    ('loaded', chart) once MT5 has loaded it; ('failed', MT5's reason) if its
+    initialisation failed - "symbol synchronization timeout" when the chart
+    symbol does not exist at this broker, which is how a signed-in terminal ends
+    up protecting nothing; ('removed', '') if it was taken off the chart; None
+    if the journal says nothing about it yet.
+    """
+    state = None
+    for _, _, msg in journal(volume) or []:
+        if "TradeForce" not in msg:
+            continue
+        if msg.startswith("expert TradeForce") and "loaded successfully" in msg:
+            # "expert TradeForce (TFCHART,M1) loaded successfully"
+            state = ("loaded", msg.split("(", 1)[-1].split(",", 1)[0])
+        elif msg.startswith("initializing of TradeForce") and "failed" in msg:
+            # "initializing of TradeForce (EURUSD,M1) failed with code 0 (symbol synchronization timeout)"
+            tail = msg.split("failed", 1)[1]
+            state = ("failed", tail[tail.rfind("(") + 1:].rstrip(")").strip() if "(" in tail else tail.strip())
+        elif msg.startswith("expert TradeForce") and msg.endswith("removed"):
+            if not state or state[0] != "failed":
+                state = ("removed", "")
+    return state
+
+
+def trading_mode(volume: str) -> tuple[bool, str] | None:
+    """(can trade, MT5's words) from the last 'trading has been ...' line after a
+    sign-in. The investor (read-only) password signs in fine and then reads
+    'trading has been disabled', which nothing else would show until the EA
+    tried to close a trade."""
+    result = None
+    for _, _, msg in journal(volume) or []:
+        if "trading has been" in msg:
+            text = msg.split(": ", 1)[-1] if msg.startswith("'") else msg
+            result = ("trading has been enabled" in msg, text)
+    return result
+
+
+def evidence(volume: str, n: int = 8) -> list[str]:
+    """The last few journal lines that explain a connection: network, sign-in,
+    EA loading. Stored with a failure so support sees why without SSH."""
+    keep = ("Network", "Experts", "Terminal", "MQL5")
+    lines = [f"{t} {src}: {msg}" for t, src, msg in (journal(volume) or []) if src in keep]
+    return [line[:240] for line in lines[-n:]]
 
 
 # =========================================================== Supabase

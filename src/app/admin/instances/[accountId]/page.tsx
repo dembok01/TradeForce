@@ -1,6 +1,6 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
-import { getEaDetail } from "@/lib/data/admin";
+import { getConnectionLog, getEaDetail } from "@/lib/data/admin";
 import { eaHealth, serverHealth, fmtAge } from "@/lib/ops-health";
 import { AutoRefresh } from "@/components/dashboard/auto-refresh";
 import { Dot, Tile, Panel, Table, Facts, Cmd } from "@/components/admin/ui";
@@ -66,7 +66,7 @@ function Equity({ points }: { points: { equity: number; recorded_at: string }[] 
 
 export default async function EaDetailPage({ params }: { params: Promise<{ accountId: string }> }) {
   const { accountId } = await params;
-  const d = await getEaDetail(accountId);
+  const [d, connection] = await Promise.all([getEaDetail(accountId), getConnectionLog(accountId)]);
   if (!d) notFound();
 
   const { now, ea, profile, account, rules, server, uptime7d, outages, violations, trades, events, snapshots } = d;
@@ -206,6 +206,38 @@ export default async function EaDetailPage({ params }: { params: Promise<{ accou
           </Table>
         </Panel>
       </div>
+
+      <Panel title="Connection log" note="every step, newest first - evidence is MetaTrader's own journal">
+        <Table cols={["When", "From", "Step", "Evidence"]} empty="Nothing logged yet (logging started 22 Sep).">
+          {connection.map((c) => {
+            const det = (c.detail ?? {}) as { journal?: string[]; error?: string; reason?: string; mt5?: string };
+            const lines = det.journal ?? (det.error ? [det.error] : []);
+            return (
+              <tr key={c.id}>
+                <td className="whitespace-nowrap px-4 py-2 align-top">{new Date(c.at).toLocaleString()}</td>
+                <td className="px-4 py-2 align-top text-muted-foreground">{c.source}</td>
+                <td className="max-w-md px-4 py-2 align-top">
+                  <Dot h={c.level === "error" ? "down" : c.level === "warn" ? "warn" : "ok"} /> {c.message}
+                  <div className="text-xs text-muted-foreground">
+                    {c.kind}
+                    {c.handled_at ? ` · handled ${fmtAge(c.handled_at)}` : ""}
+                  </div>
+                </td>
+                <td className="max-w-lg px-4 py-2 align-top">
+                  {lines.length ? (
+                    <details>
+                      <summary className="cursor-pointer text-xs text-muted-foreground">
+                        {lines.length} line{lines.length > 1 ? "s" : ""}
+                      </summary>
+                      <pre className="mt-1 whitespace-pre-wrap break-all text-[11px] leading-snug">{lines.join("\n")}</pre>
+                    </details>
+                  ) : null}
+                </td>
+              </tr>
+            );
+          })}
+        </Table>
+      </Panel>
 
       <Panel title="Recent trades">
         <Table cols={["Closed", "Symbol", "P/L"]} empty="No closed trades.">

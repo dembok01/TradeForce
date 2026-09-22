@@ -13,7 +13,9 @@ import {
   brokerOf,
 } from "@/lib/mt5-brokers";
 import { looksLikePropFirm } from "@/lib/prop-firms";
-import type { CloudEa } from "@/lib/data/cloud-ea";
+import type { CloudEa, ConnectionStep } from "@/lib/data/cloud-ea";
+import { signInHelp } from "@/lib/connection-help";
+import { formatDistanceToNowStrict } from "date-fns";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -79,6 +81,34 @@ const STATUS: Record<
   },
   stopped: { label: "Stopped", variant: "secondary", blurb: "Cloud protection is paused." },
 };
+
+// Every step of this trader's connection, newest first: what the website did,
+// what the terminal did, and - when something failed - what to do about it.
+// Open by default when the latest step is a problem.
+function ConnectionLog({ steps }: { steps: ConnectionStep[] }) {
+  if (steps.length === 0) return null;
+  const dot = { info: "bg-emerald-500", warn: "bg-amber-500", error: "bg-destructive" } as const;
+  return (
+    <details className="rounded-lg border" open={steps[0].level !== "info"}>
+      <summary className="cursor-pointer px-3 py-2 text-sm font-medium">What&apos;s happened so far</summary>
+      <ol className="space-y-2 border-t px-3 py-2.5 text-sm">
+        {steps.map((st, i) => (
+          <li key={i} className="flex gap-2">
+            <span className={`mt-1.5 size-2 shrink-0 rounded-full ${dot[st.level]}`} aria-hidden />
+            <span className="flex-1">{st.message}</span>
+            <time
+              dateTime={st.at}
+              suppressHydrationWarning
+              className="shrink-0 text-xs text-muted-foreground"
+            >
+              {formatDistanceToNowStrict(new Date(st.at), { addSuffix: true })}
+            </time>
+          </li>
+        ))}
+      </ol>
+    </details>
+  );
+}
 
 /** Terminals start one at a time; a fresh one takes about this long. */
 const MINUTES_PER_START = 4;
@@ -228,6 +258,8 @@ export function CloudEaCard({ initial, propFirm }: { initial: CloudEa; propFirm?
               </div>
             </div>
 
+            <ConnectionLog steps={initial.log} />
+
             <Button variant="outline" onClick={handleDisable} disabled={pending}>
               {pending ? "Working…" : "Turn off cloud protection"}
             </Button>
@@ -238,6 +270,9 @@ export function CloudEaCard({ initial, propFirm }: { initial: CloudEa; propFirm?
               <div className="rounded-lg border border-destructive/40 bg-destructive/5 p-3 text-sm">
                 <p className="font-medium">{s.blurb}</p>
                 {initial.detail ? <p className="mt-1">{initial.detail}</p> : null}
+                {signInHelp(initial.detail) ? (
+                  <p className="mt-2 font-medium">{signInHelp(initial.detail)}</p>
+                ) : null}
                 <ul className="mt-2 list-disc space-y-1 pl-4 text-muted-foreground">
                   <li>
                     Use the <strong>trading</strong> (master) password for account {initial.login}
@@ -416,6 +451,8 @@ export function CloudEaCard({ initial, propFirm }: { initial: CloudEa; propFirm?
               terminal in to your broker. Use your <strong>trading</strong> password — never your
               investor or website password. We can never withdraw funds.
             </p>
+
+            {initial.status === "login_failed" ? <ConnectionLog steps={initial.log} /> : null}
 
             <Button
               onClick={handleEnable}

@@ -5,6 +5,7 @@ import { isAdmin } from "@/lib/admin";
 import { getAuthedUser } from "@/lib/data/auth";
 import { createServiceClient } from "@/lib/supabase/service";
 import { log } from "@/lib/log";
+import { logConnection } from "@/lib/connection-log";
 
 export type AdminActionResult = { ok?: true; pending?: string; error?: string };
 
@@ -19,14 +20,18 @@ export async function adminDisableCloudEaAction(accountId: string): Promise<Admi
   const g = await guard();
   if ("error" in g) return g;
 
-  const { error } = await createServiceClient()
+  const supabase = createServiceClient();
+  const { data: inst, error } = await supabase
     .from("mt5_instances")
     .update({ desired_state: "removed", updated_at: new Date().toISOString() })
-    .eq("account_id", accountId);
+    .eq("account_id", accountId)
+    .select("user_id")
+    .maybeSingle();
   if (error) {
     log.error("admin disable cloud ea failed", { detail: error.message, accountId });
     return { error: "Could not stop the cloud terminal." };
   }
+  if (inst) await logConnection(accountId, inst.user_id, "stopped_by_support", "info", "Support turned off your cloud terminal.");
   log.warn("admin stopped a cloud terminal", { detail: `admin=${g.adminId} account=${accountId}` });
   revalidatePath("/admin/users");
   revalidatePath("/admin/instances");
@@ -126,6 +131,26 @@ export async function adminSetHandledAction(id: string, handled: boolean): Promi
   if (error) {
     log.error("admin inbox update failed", { detail: error.message, id });
     return { error: "Could not update the message." };
+  }
+  revalidatePath("/admin/inbox");
+  revalidatePath("/admin");
+  return { ok: true };
+}
+
+/** Inbox: support has dealt with this account's connection problem. */
+export async function adminHandleConnectionAction(accountId: string): Promise<AdminActionResult> {
+  const g = await guard();
+  if ("error" in g) return g;
+
+  const { error } = await createServiceClient()
+    .from("connection_events")
+    .update({ handled_at: new Date().toISOString() })
+    .eq("account_id", accountId)
+    .neq("level", "info")
+    .is("handled_at", null);
+  if (error) {
+    log.error("admin connection handle failed", { detail: error.message, accountId });
+    return { error: "Could not update the connection log." };
   }
   revalidatePath("/admin/inbox");
   revalidatePath("/admin");

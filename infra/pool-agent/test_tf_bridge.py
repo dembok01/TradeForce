@@ -262,6 +262,39 @@ class LoginStateTest(FsCase):
                        "0\t1\t09:00:25.000\tNetwork\t'123': no connection to 10.0.0.1:443")
         self.assertEqual(b.login_state(str(self.vol)), ("waiting", "'123': no connection to 10.0.0.1:443"))
 
+    # Kiran's Alpari terminal, 22 Sep: signed in, then the EA never started.
+    KIRAN = (
+        "0\t1\t06:48:01.132\tNetwork\t'53168878': authorized on Alpari-MT5-Demo",
+        "0\t1\t06:48:04.075\tNetwork\t'53168878': trading has been enabled, demo account - hedging mode",
+        "0\t1\t06:48:50.209\tExperts\texpert TradeForce (EURUSD,M1) loaded successfully",
+        "0\t1\t06:53:58.295\tExperts\tinitializing of TradeForce (EURUSD,M1) failed with code 0 (symbol synchronization timeout)",
+        "0\t1\t06:53:58.303\tExperts\texpert TradeForce (EURUSD,M1) removed",
+    )
+
+    def test_an_ea_that_failed_to_start_says_why(self):
+        self.write_log(*self.KIRAN)
+        self.assertEqual(b.login_state(str(self.vol)), ("ok", "Alpari-MT5-Demo"))
+        self.assertEqual(b.ea_start(str(self.vol)), ("failed", "symbol synchronization timeout"))
+        self.assertEqual(b.trading_mode(str(self.vol)), (True, "trading has been enabled, demo account - hedging mode"))
+        ev = b.evidence(str(self.vol), n=2)
+        self.assertEqual(len(ev), 2)
+        self.assertIn("failed with code 0 (symbol synchronization timeout)", ev[0])
+
+    def test_a_restart_that_loads_the_ea_clears_the_failure(self):
+        self.write_log(*self.KIRAN, "0\t1\t07:40:00.000\tExperts\texpert TradeForce (TFCHART,M1) loaded successfully")
+        self.assertEqual(b.ea_start(str(self.vol)), ("loaded", "TFCHART"))
+
+    def test_an_investor_login_is_read_only(self):
+        self.write_log("0\t1\t09:00:00.000\tNetwork\t'123': authorized on Broker-Live",
+                       "0\t1\t09:00:01.000\tNetwork\t'123': trading has been disabled - investor mode")
+        self.assertEqual(b.trading_mode(str(self.vol)), (False, "trading has been disabled - investor mode"))
+        self.assertIsNone(b.ea_start(str(self.vol)))
+
+    def test_no_journal_means_no_answers(self):
+        self.assertIsNone(b.ea_start("/nonexistent"))
+        self.assertIsNone(b.trading_mode("/nonexistent"))
+        self.assertEqual(b.evidence("/nonexistent"), [])
+
     def test_a_sign_in_yesterday_still_counts_today(self):
         d = self.vol.joinpath(*b.LOGIN_LOGS)
         d.mkdir(parents=True, exist_ok=True)

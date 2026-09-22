@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { getPoolServers, getOpsEas, getSignups, getInbox } from "@/lib/data/admin";
+import { getPoolServers, getOpsEas, getSignups, getInbox, getConnectionProblems } from "@/lib/data/admin";
 import { supportIssues } from "@/lib/support-issues";
 import {
   eaHealth, serverHealth, fmtAge, ageMs,
@@ -11,11 +11,12 @@ import { Dot, Tile, Panel, Table } from "@/components/admin/ui";
 export const dynamic = "force-dynamic";
 
 export default async function AdminPage() {
-  const [servers, eas, signups, inbox] = await Promise.all([
+  const [servers, eas, signups, inbox, problems] = await Promise.all([
     getPoolServers(),
     getOpsEas(),
     getSignups(),
     getInbox(),
+    getConnectionProblems(),
   ]);
   const inboxOpen = inbox.filter((m) => !m.handledAt);
   const notConnected = signups.filter((s) => s.connection === "none");
@@ -99,6 +100,9 @@ export default async function AdminPage() {
         <Tile label="Need help now" value={String(needHelp.length)}
               tone={needHelp.length ? "down" : "ok"}
               hint="connected but not enforced" href="/admin/users" />
+        <Tile label="Can't connect" value={String(problems.length)}
+              tone={problems.some((p) => p.level === "error") ? "down" : problems.length ? "warn" : "ok"}
+              hint="connection problems, last 72h" href="/admin/inbox" />
         <Tile label="Inbox" value={String(inboxOpen.length)}
               tone={inboxOpen.length ? "warn" : "ok"}
               hint="messages + broker requests waiting" href="/admin/inbox" />

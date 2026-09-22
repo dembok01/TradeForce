@@ -8,7 +8,8 @@ import { getAuthedUser } from "@/lib/data/auth";
 import { createServiceClient } from "@/lib/supabase/service";
 import { API_KEY_PREFIX, hashApiKey } from "@/lib/ea-auth";
 import { sealSecret } from "@/lib/mt5-crypto";
-import { isAcceptableServer } from "@/lib/mt5-brokers";
+import { isAcceptableServer, brokerLabel } from "@/lib/mt5-brokers";
+import { logConnection } from "@/lib/connection-log";
 import { toActionErrorMessage } from "@/lib/action-error";
 import { log } from "@/lib/log";
 
@@ -111,6 +112,9 @@ export async function enableCloudEaAction(
       .neq("id", key.id)
       .is("revoked_at", null);
 
+    await logConnection(account.id, userId, "submitted", "info",
+      `You asked us to connect account ${login} on ${brokerLabel(server)}.`, { server });
+
     revalidatePath("/dashboard/ea-setup");
     return { error: null };
   } catch (err) {
@@ -123,7 +127,7 @@ export async function disableCloudEaAction(): Promise<{ error: string | null }> 
   try {
     const ctx = await getAuthedActionContext();
     if (!ctx.ok) return { error: ctx.error };
-    const { account } = ctx;
+    const { account, userId } = ctx;
 
     const { error } = await createServiceClient()
       .from("mt5_instances")
@@ -134,6 +138,7 @@ export async function disableCloudEaAction(): Promise<{ error: string | null }> 
       log.error("cloud ea disable failed", { detail: error.message, accountId: account.id });
       return { error: "Couldn't turn off cloud protection. Please try again." };
     }
+    await logConnection(account.id, userId, "turned_off", "info", "You turned off cloud protection.");
 
     revalidatePath("/dashboard/ea-setup");
     return { error: null };

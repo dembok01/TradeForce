@@ -25,7 +25,25 @@ export type CloudEa = {
   waitedMinutes?: number;
   queueAhead?: number;
   serversFull?: boolean;
+  /** The trader's own connection log, newest first (connection_events). */
+  log: ConnectionStep[];
 };
+
+export type ConnectionStep = { at: string; level: "info" | "warn" | "error"; message: string };
+
+/** What happened, step by step - shown so nobody has to guess why it isn't connecting. */
+async function recentSteps(
+  supabase: Awaited<ReturnType<typeof getAccountContext>>["supabase"],
+  accountId: string,
+): Promise<ConnectionStep[]> {
+  const { data, error } = await supabase
+    .from("connection_events")
+    .select("at, level, message")
+    .eq("account_id", accountId)
+    .order("at", { ascending: false })
+    .limit(10);
+  return error ? [] : (data ?? []);
+}
 
 /**
  * Where a waiting request stands. Needs the service role: other traders' rows
@@ -75,11 +93,13 @@ export const getCloudEa = cache(async (): Promise<CloudEa> => {
     .maybeSingle();
 
   if (error) throw new Error(error.message);
+  const log = await recentSteps(supabase, account.id);
   if (!data || data.desired_state === "removed") {
-    return { enabled: false, status: "off", detail: null, login: null, server: null, since: null };
+    return { enabled: false, status: "off", detail: null, login: null, server: null, since: null, log };
   }
 
   const base = {
+    log,
     enabled: true,
     detail: data.status_detail,
     login: data.mt5_login,

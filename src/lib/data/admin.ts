@@ -1,6 +1,7 @@
 import "server-only";
 import { createServiceClient } from "@/lib/supabase/service";
 import { log } from "@/lib/log";
+import { openProblems } from "@/lib/connection-problems";
 
 /**
  * Ops queries. Read with the service role deliberately: the console must span
@@ -373,4 +374,67 @@ export async function getInbox(): Promise<InboxItem[]> {
       handledAt: m.handled_at,
     } satisfies InboxItem;
   });
+}
+
+export type ConnectionProblem = {
+  accountId: string;
+  userId: string;
+  email: string;
+  mt5Login: string | null;
+  mt5Server: string | null;
+  status: string | null;
+  kind: string;
+  level: "warn" | "error";
+  message: string;
+  journal: string[];
+  reason: string | null;
+  at: string;
+  attempts: number;
+};
+
+/**
+ * Accounts whose connection is failing and nobody has dealt with yet: the
+ * latest unhandled warn/error step per account from connection_events, unless
+ * a later step shows protection working again. Newest problems first.
+ */
+export async function getConnectionProblems(hours = 72): Promise<ConnectionProblem[]> {
+  const supabase = createServiceClient();
+  const since = new Date(Date.now() - hours * 3600_000).toISOString();
+  const [{ data: steps, error }, { data: profiles }, { data: instances }] = await Promise.all([
+    supabase
+      .from("connection_events")
+      .select("account_id, user_id, at, kind, level, message, detail, handled_at")
+      .gte("at", since)
+      .order("at", { ascending: false })
+      .limit(2000),
+    supabase.from("profiles").select("id, email"),
+    supabase.from("mt5_instances").select("account_id, mt5_login, mt5_server, status"),
+  ]);
+  if (error) {
+    log.warn("connection problems read failed", { detail: error.message });
+    return [];
+  }
+  const email = new Map((profiles ?? []).map((p) => [p.id, p.email]));
+  const inst = new Map((instances ?? []).map((i) => [i.account_id, i]));
+  return openProblems(steps ?? []).map((p) => {
+    const i = inst.get(p.accountId);
+    return {
+      ...p,
+      email: email.get(p.userId) ?? p.userId,
+      mt5Login: i?.mt5_login ?? null,
+      mt5Server: i?.mt5_server ?? null,
+      status: i?.status ?? null,
+    };
+  });
+}
+
+/** Every step for one account, newest first, with the evidence. */
+export async function getConnectionLog(accountId: string, limit = 60) {
+  const { data } = await createServiceClient()
+    .from("connection_events")
+    .select("id, at, source, kind, level, message, detail, handled_at")
+    .eq("account_id", accountId)
+    .order("at", { ascending: false })
+    .limit(limit);
+  return data ?? [];
 }

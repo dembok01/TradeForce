@@ -274,6 +274,30 @@ export interface Database {
         Update: Partial<Database["public"]["Tables"]["ea_events"]["Row"]>;
         Relationships: [];
       };
+      connection_events: {
+        Row: {
+          id: number;
+          account_id: string;
+          user_id: string;
+          at: string;
+          source: "web" | "agent" | "ea";
+          kind: string;
+          level: "info" | "warn" | "error";
+          message: string;
+          detail: Json | null;
+          handled_at: string | null;
+        };
+        Insert: Omit<Partial<Database["public"]["Tables"]["connection_events"]["Row"]>, "id"> & {
+          account_id: string;
+          user_id: string;
+          source: "web" | "agent" | "ea";
+          kind: string;
+          level: "info" | "warn" | "error";
+          message: string;
+        };
+        Update: Partial<Database["public"]["Tables"]["connection_events"]["Row"]>;
+        Relationships: [];
+      };
       contact_messages: {
         Row: {
           id: string;
