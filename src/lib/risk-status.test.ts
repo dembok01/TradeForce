@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { deriveStatus } from "@/lib/risk-status";
+import { deriveStatus, deriveDayLock } from "@/lib/risk-status";
 
 const base = {
   hasRules: true as boolean,
@@ -38,5 +38,33 @@ describe("deriveStatus", () => {
 
   it("ignores profit when computing the loss ratio", () => {
     expect(deriveStatus({ ...base, dailyLossLimit: 500, todayPnl: 2000 })).toBe("safe");
+  });
+});
+
+describe("deriveDayLock", () => {
+  const midnight = "2026-09-25T00:00:00.000Z";
+  const base = { rulesActive: true, lossBreachAt: null, todayTradeCount: 0, maxTradesPerDay: 3, nextMidnight: midnight };
+
+  it("a daily-loss breach locks the rest of the day", () => {
+    expect(deriveDayLock({ ...base, lossBreachAt: "2026-09-24T05:08:37Z" })).toEqual({
+      reason: "daily_loss", since: "2026-09-24T05:08:37Z", endsAt: midnight,
+    });
+  });
+
+  it("using every trade of the day locks it too, with no single moment", () => {
+    expect(deriveDayLock({ ...base, todayTradeCount: 3 })).toEqual({ reason: "trade_cap", since: null, endsAt: midnight });
+    expect(deriveDayLock({ ...base, todayTradeCount: 2 })).toBeNull();
+  });
+
+  it("the loss breach wins when both are true", () => {
+    expect(deriveDayLock({ ...base, lossBreachAt: "x", todayTradeCount: 9 })?.reason).toBe("daily_loss");
+  });
+
+  it("paused rules are not enforced, so nothing is locked", () => {
+    expect(deriveDayLock({ ...base, rulesActive: false, lossBreachAt: "x", todayTradeCount: 9 })).toBeNull();
+  });
+
+  it("no cap set means no cap lock", () => {
+    expect(deriveDayLock({ ...base, maxTradesPerDay: null, todayTradeCount: 99 })).toBeNull();
   });
 });

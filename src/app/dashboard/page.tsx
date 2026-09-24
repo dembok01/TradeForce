@@ -19,6 +19,7 @@ import { DisciplineGauge } from "@/components/dashboard/discipline-gauge";
 import { DisciplineBreakdown } from "@/components/dashboard/discipline-breakdown";
 import { CharterCallout } from "@/components/dashboard/charter-callout";
 import { TradeBlockAlert } from "@/components/dashboard/trade-block-alert";
+import { DayLockBanner } from "@/components/dashboard/day-lock-banner";
 import { TodayStrip, type SessionWindow } from "@/components/dashboard/today-strip";
 import { EnforcementFeed } from "@/components/dashboard/enforcement-feed";
 import { EquitySparkline } from "@/components/dashboard/equity-sparkline";
@@ -76,6 +77,12 @@ export default async function DashboardHomePage() {
         description={`Good ${daypart}${firstName ? `, ${firstName}` : ""} — here's where your ${firmLabel} stands right now.`}
         action={<StatusBadge status={overview.status} />}
       />
+
+      {overview.lock && (
+        <Reveal y={8} className="mb-8">
+          <DayLockBanner lock={overview.lock} timezone={timezone} />
+        </Reveal>
+      )}
 
       {/* Only while the EA is reporting: a stale code from a terminal that has
           since gone away would be wrong, and "not connected" covers that case. */}

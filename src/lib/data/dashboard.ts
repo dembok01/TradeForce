@@ -1,8 +1,9 @@
 import "server-only";
 import { getAccountContext } from "@/lib/data/context";
 import { countExact, getEaLastSeenAt, getTodayTradeStats } from "@/lib/data/_shared";
-import { getAccountRules } from "@/lib/data/rules";
-import { deriveStatus, type AccountStatus } from "@/lib/risk-status";
+import { getAccountRules, getRequestTimezone } from "@/lib/data/rules";
+import { deriveStatus, deriveDayLock, type AccountStatus, type DayLock } from "@/lib/risk-status";
+import { zonedStartOfDay, zonedNextMidnight } from "@/lib/time-boundaries";
 
 export type { AccountStatus };
 
@@ -20,13 +21,16 @@ export type DashboardOverview = {
   eaLastSeenAt: string | null;
   /** Why the EA can't trade right now (EA v1.27+), null when it can. */
   eaTradeBlock: string | null;
+  /** Set when the EA has stopped the trader for the rest of their day. */
+  lock: DayLock | null;
   status: AccountStatus;
 };
 
 export async function getDashboardOverview(): Promise<DashboardOverview> {
   const { supabase, account } = await getAccountContext();
 
-  const [rules, todayStats, violationsAllTime, eaLastSeenAt] = await Promise.all([
+  const timezone = await getRequestTimezone();
+  const [rules, todayStats, violationsAllTime, eaLastSeenAt, { data: breach }] = await Promise.all([
     getAccountRules(),
     getTodayTradeStats(supabase, account),
     countExact(() =>
@@ -36,6 +40,17 @@ export async function getDashboardOverview(): Promise<DashboardOverview> {
         .eq("account_id", account.id)
     ),
     getEaLastSeenAt(supabase, account.id),
+    // The EA's own word that the day is over: it closed everything and now
+    // closes anything new until the trader's midnight.
+    supabase
+      .from("violations")
+      .select("occurred_at")
+      .eq("account_id", account.id)
+      .eq("type", "DAILY_LOSS_BREACH")
+      .gte("occurred_at", zonedStartOfDay(timezone).toISOString())
+      .order("occurred_at", { ascending: true })
+      .limit(1)
+      .maybeSingle(),
   ]);
 
   const { todayPnl, todayTradeCount } = todayStats;
@@ -58,6 +73,13 @@ export async function getDashboardOverview(): Promise<DashboardOverview> {
     violationsAllTime,
     eaLastSeenAt,
     eaTradeBlock: account.ea_trade_block ?? null,
+    lock: deriveDayLock({
+      rulesActive: Boolean(rules?.is_active),
+      lossBreachAt: breach?.occurred_at ?? null,
+      todayTradeCount,
+      maxTradesPerDay,
+      nextMidnight: zonedNextMidnight(timezone).toISOString(),
+    }),
     status: deriveStatus({
       hasRules: Boolean(rules),
       dailyLossLimit,

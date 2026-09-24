@@ -21,3 +21,32 @@ export function deriveStatus(params: {
   if (lossRatio >= 0.7 || tradeRatio >= 0.8) return "warning";
   return "safe";
 }
+
+/**
+ * The day is locked when the EA has stopped the trader for the rest of it:
+ * after a daily-loss breach (it closed everything and closes anything new), or
+ * once the daily trade cap is used up. Both last until the trader's own
+ * midnight. Paused rules are not enforced at all, so nothing is locked.
+ */
+export type DayLock = {
+  reason: "daily_loss" | "trade_cap";
+  /** When the breach happened; null for a cap, which has no single moment. */
+  since: string | null;
+  /** The trader's next midnight, when trading opens again. */
+  endsAt: string;
+};
+
+export function deriveDayLock(params: {
+  rulesActive: boolean;
+  lossBreachAt: string | null;
+  todayTradeCount: number;
+  maxTradesPerDay: number | null;
+  nextMidnight: string;
+}): DayLock | null {
+  const { rulesActive, lossBreachAt, todayTradeCount, maxTradesPerDay, nextMidnight } = params;
+  if (!rulesActive) return null;
+  if (lossBreachAt) return { reason: "daily_loss", since: lossBreachAt, endsAt: nextMidnight };
+  if (maxTradesPerDay && maxTradesPerDay > 0 && todayTradeCount >= maxTradesPerDay)
+    return { reason: "trade_cap", since: null, endsAt: nextMidnight };
+  return null;
+}

@@ -1,4 +1,4 @@
-import { startOfDay, startOfWeek, startOfMonth, format } from "date-fns";
+import { startOfDay, startOfWeek, startOfMonth, addDays, format } from "date-fns";
 import { fromZonedTime, toZonedTime } from "date-fns-tz";
 
 // "Today" must roll over at the trader's midnight, not the server's. Every
@@ -41,6 +41,11 @@ export function zonedStartOfWeek(timeZone: string, now = new Date()): Date {
 /** UTC instant of the zone's most recent first-of-month midnight. */
 export function zonedStartOfMonth(timeZone: string, now = new Date()): Date {
   return zonedBoundary(timeZone, now, startOfMonth);
+}
+
+/** UTC instant of the zone's next midnight - when a locked trading day lifts. */
+export function zonedNextMidnight(timeZone: string, now = new Date()): Date {
+  return zonedBoundary(timeZone, now, (wall) => startOfDay(addDays(wall, 1)));
 }
 
 /** The zone's current calendar date as "yyyy-MM-dd" (discipline_scores.score_date key). */
