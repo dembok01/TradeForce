@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { openProblems, type Step } from "./connection-problems";
+import { openProblems, stillOpen, type Step } from "./connection-problems";
 
 const step = (account: string, at: string, kind: string, level: string, extra: Partial<Step> = {}): Step => ({
   account_id: account, user_id: `u-${account}`, at, kind, level, message: kind, detail: null, handled_at: null, ...extra,
@@ -30,5 +30,13 @@ describe("openProblems", () => {
 
   it("handled problems stay handled", () => {
     expect(openProblems([step("a", "10:05", "no_answer", "error", { handled_at: "10:06" })])).toEqual([]);
+  });
+});
+
+describe("stillOpen", () => {
+  it("clears a trader whose terminal is reporting again, even with no recovery step logged", () => {
+    const problems = openProblems([step("a", "10:05", "ea_failed", "error"), step("b", "10:05", "no_answer", "error")]);
+    expect(stillOpen(problems, new Set(["a"])).map((p) => p.accountId)).toEqual(["b"]);
+    expect(stillOpen(problems, new Set()).map((p) => p.accountId)).toEqual(["a", "b"]);
   });
 });

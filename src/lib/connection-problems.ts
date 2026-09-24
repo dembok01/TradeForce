@@ -25,6 +25,15 @@ export type Problem = {
   attempts: number;
 };
 
+/**
+ * Drop problems for accounts whose protection is working right now. The log
+ * alone isn't enough: a recovery that happened while the agent was restarting
+ * is learned silently, and the trader would sit in the inbox for ever.
+ */
+export function stillOpen(problems: Problem[], protectedNow: Set<string>): Problem[] {
+  return problems.filter((p) => !protectedNow.has(p.accountId));
+}
+
 export function openProblems(newestFirst: Step[]): Problem[] {
   const recovered = new Set<string>();
   const out = new Map<string, Problem>();

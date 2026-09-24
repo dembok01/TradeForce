@@ -1,7 +1,7 @@
 import "server-only";
 import { createServiceClient } from "@/lib/supabase/service";
 import { log } from "@/lib/log";
-import { openProblems } from "@/lib/connection-problems";
+import { openProblems, stillOpen } from "@/lib/connection-problems";
 
 /**
  * Ops queries. Read with the service role deliberately: the console must span
@@ -408,7 +408,7 @@ export async function getConnectionProblems(hours = 72): Promise<ConnectionProbl
       .order("at", { ascending: false })
       .limit(2000),
     supabase.from("profiles").select("id, email"),
-    supabase.from("mt5_instances").select("account_id, mt5_login, mt5_server, status"),
+    supabase.from("mt5_instances").select("account_id, mt5_login, mt5_server, status, ea_reported_at"),
   ]);
   if (error) {
     log.warn("connection problems read failed", { detail: error.message });
@@ -416,7 +416,14 @@ export async function getConnectionProblems(hours = 72): Promise<ConnectionProbl
   }
   const email = new Map((profiles ?? []).map((p) => [p.id, p.email]));
   const inst = new Map((instances ?? []).map((i) => [i.account_id, i]));
-  return openProblems(steps ?? []).map((p) => {
+  // Reporting within the EA's cadence = protected now, whatever the log says.
+  const fresh = Date.now() - 5 * 60_000;
+  const protectedNow = new Set(
+    (instances ?? [])
+      .filter((i) => i.status === "running" && i.ea_reported_at && Date.parse(i.ea_reported_at) > fresh)
+      .map((i) => i.account_id),
+  );
+  return stillOpen(openProblems(steps ?? []), protectedNow).map((p) => {
     const i = inst.get(p.accountId);
     return {
       ...p,
