@@ -40,7 +40,7 @@ POLL = int(os.environ.get("TF_POLL", "15"))
 # Which hosted EAs use the file bridge: "off", "all", or account ids, comma-separated.
 BRIDGE = os.environ.get("TF_BRIDGE", "off")
 
-AGENT_VERSION = "1.4.0"
+AGENT_VERSION = "1.4.1"
 TELEMETRY_EVERY = int(os.environ.get("TF_TELEMETRY_EVERY", "4"))  # passes; 4 x 15s = 60s
 
 REST = f"{SUPABASE}/rest/v1/mt5_instances"
@@ -261,6 +261,9 @@ _owners = {}   # account_id -> user_id, from the last reconcile pass
 _rows = {}     # account_id -> mt5_instances row, from the last reconcile pass
 _said = {}     # (account_id, topic) -> the state last logged for it
 _quiet = True  # first check after a restart only learns current states
+_missing = {}  # account_id -> consecutive checks with no MetaTrader process
+_restarted = {}  # account_id -> when the agent last restarted that container
+RESTART_COOLDOWN = 15 * 60
 
 
 def event(acc: str, kind: str, level: str, message: str, detail: dict | None = None):
@@ -324,8 +327,20 @@ LOGIN_PATIENCE = 8 * 60
 # The EA reports every ~60s through the bridge; past this it has gone quiet.
 QUIET_AFTER = 5 * 60
 
+DAY_LOCKED = ("Locked for the day after your daily loss limit. Your rules are still enforced; "
+              "trading opens again after your local midnight.")
+
 READ_ONLY = ("Signed in, but this login can't trade - it looks like the investor (read-only) "
              "password. Connect again with your main trading password.")
+
+
+def mt5_running(name: str) -> bool | None:
+    """Is MetaTrader itself alive inside the container? None if we can't tell."""
+    out = sh("docker", "exec", name, "sh", "-c", "ps -eo args | grep -c '[t]erminal64'")
+    try:
+        return int(out.strip()) > 0
+    except ValueError:
+        return None
 
 
 def uptime_seconds(name: str) -> float | None:
@@ -407,6 +422,15 @@ def check_one(acc: str, name: str):
         return
 
     ea = tf_bridge.ea_start(vol)
+    if ea and ea[0] == "locked":
+        # The EA closed MT5 itself after a daily-loss breach (desktop
+        # behaviour). Hosted terminals stopped doing this in EA v1.29 - it left
+        # the trader free to trade on with nothing watching - but a terminal
+        # that did it before the update must not read as a failure.
+        report(acc, status="running", status_detail=DAY_LOCKED)
+        if changed(acc, "ea", "locked"):
+            event(acc, "day_locked", "info", DAY_LOCKED)
+        return
     if ea and ea[0] in ("failed", "removed"):
         why = ea[1] or "removed from its chart"
         report(acc, status="error",
@@ -436,6 +460,24 @@ def check_one(acc: str, name: str):
     elif _said.get((acc, "protection")) == "active" and changed(acc, "protection", "quiet"):
         event(acc, "quiet", "warn", "Your terminal stopped reporting. It usually recovers by itself "
               "within a few minutes; we're watching it.", evidence(acc))
+
+    # MetaTrader itself gone - it crashed, or an old EA closed it. Nothing else
+    # brings it back: the container stays up without it, so the trader would be
+    # unprotected until they noticed. Restart on the second miss in a row, so a
+    # terminal merely restarting into an update is left alone.
+    if reporting or mt5_running(name) is not False:
+        _missing[acc] = 0
+        return
+    _missing[acc] = _missing.get(acc, 0) + 1
+    if _missing[acc] < 2 or time.monotonic() - _restarted.get(acc, 0) < RESTART_COOLDOWN:
+        return  # one miss can be MT5 restarting into an update; give it a minute
+    _missing[acc] = 0
+    _restarted[acc] = time.monotonic()
+    print(f"MetaTrader not running in {name} - restarting", flush=True)
+    sh("docker", "restart", "-t", "30", name)
+    event(acc, "terminal_restarted", "warn",
+          "Your terminal had stopped and we restarted it. Protection resumes in a few minutes.",
+          evidence(acc))
 
 
 def report_telemetry():

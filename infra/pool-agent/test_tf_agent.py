@@ -45,16 +45,20 @@ class CheckOneTest(unittest.TestCase):
         self.logs = Path(self.tmp, ACC, *a.tf_bridge.LOGIN_LOGS)
         self.logs.mkdir(parents=True)
         self.reports, self.events = [], []
-        self.saved = (a.DATA, a.report, a.event, a.uptime_seconds)
+        self.restarts = []
+        self.saved = (a.DATA, a.report, a.event, a.uptime_seconds, a.mt5_running, a.sh)
         a.DATA = self.tmp
         a.report = lambda acc, **f: self.reports.append(f)
         a.event = lambda acc, kind, level, message, detail=None: self.events.append((kind, level, message, detail))
         a.uptime_seconds = lambda name: 3600
+        a.mt5_running = lambda name: True
+        a.sh = lambda *args: self.restarts.append(args) or ""
         a._said.clear(); a._login_reported.clear(); a._rows.clear()
+        a._missing.clear(); a._restarted.clear()
         a._quiet = False
 
     def tearDown(self):
-        a.DATA, a.report, a.event, a.uptime_seconds = self.saved
+        a.DATA, a.report, a.event, a.uptime_seconds, a.mt5_running, a.sh = self.saved
         shutil.rmtree(self.tmp)
 
     def journal(self, *lines):
@@ -134,3 +138,42 @@ class CheckOneTest(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+@unittest.skipIf(a is None, "agent dependencies not installed")
+class LockAndWatchdogTest(CheckOneTest):
+    LOCKED = [
+        "0\t1\t05:09:15.134\tExperts\tTradeForce (TFCHART,M1) calls TerminalClose(0) function",
+        "0\t1\t05:09:17.369\tExperts\texpert TradeForce (TFCHART,M1) removed",
+    ]
+
+    def test_a_terminal_the_ea_closed_after_a_loss_is_locked_not_broken(self):
+        self.journal(*SIGNED_IN[:2], *self.LOCKED)
+        a.check_one(ACC, NAME)
+        self.assertEqual(self.kinds(), ["signed_in", "day_locked"])
+        self.assertEqual(self.reports[-1]["status"], "running")
+        self.assertIn("Locked for the day", self.reports[-1]["status_detail"])
+
+    def test_a_dead_metatrader_is_restarted_on_the_second_miss(self):
+        self.journal(*SIGNED_IN)
+        a.mt5_running = lambda name: False
+        a.check_one(ACC, NAME)  # first miss: leave it alone
+        self.assertEqual(self.restarts, [])
+        a.check_one(ACC, NAME)  # second miss in a row: restart
+        self.assertEqual(self.restarts, [("docker", "restart", "-t", "30", NAME)])
+        self.assertEqual(self.kinds()[-1], "terminal_restarted")
+
+    def test_a_reporting_terminal_is_never_restarted(self):
+        self.journal(*SIGNED_IN)
+        a.mt5_running = lambda name: False  # process check can be wrong; reports cannot
+        a._rows[ACC] = {"ea_reported_at": datetime.now(timezone.utc).isoformat(), "status": "running"}
+        a.check_one(ACC, NAME)
+        a.check_one(ACC, NAME)
+        self.assertEqual(self.restarts, [])
+
+    def test_the_cooldown_stops_a_restart_loop(self):
+        self.journal(*SIGNED_IN)
+        a.mt5_running = lambda name: False
+        for _ in range(6):
+            a.check_one(ACC, NAME)
+        self.assertEqual(len(self.restarts), 1)

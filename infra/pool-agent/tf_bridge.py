@@ -663,10 +663,13 @@ def ea_start(volume: str) -> tuple[str, str] | None:
     ('loaded', chart) once MT5 has loaded it; ('failed', MT5's reason) if its
     initialisation failed - "symbol synchronization timeout" when the chart
     symbol does not exist at this broker, which is how a signed-in terminal ends
-    up protecting nothing; ('removed', '') if it was taken off the chart; None
-    if the journal says nothing about it yet.
+    up protecting nothing; ('locked', '') when the EA closed MT5 itself after a
+    daily-loss breach (desktop behaviour: a hosted EA has not done this since
+    v1.29); ('removed', '') if it was taken off the chart; None if the journal
+    says nothing about it yet.
     """
     state = None
+    closing = False
     for _, _, msg in journal(volume) or []:
         if "TradeForce" not in msg:
             continue
@@ -677,9 +680,15 @@ def ea_start(volume: str) -> tuple[str, str] | None:
             # "initializing of TradeForce (EURUSD,M1) failed with code 0 (symbol synchronization timeout)"
             tail = msg.split("failed", 1)[1]
             state = ("failed", tail[tail.rfind("(") + 1:].rstrip(")").strip() if "(" in tail else tail.strip())
+        elif "TradeForce" in msg and "TerminalClose" in msg:
+            closing = True  # "TradeForce (TFCHART,M1) calls TerminalClose(0) function"
         elif msg.startswith("expert TradeForce") and msg.endswith("removed"):
-            if not state or state[0] != "failed":
+            if closing:
+                state = ("locked", "")  # a deliberate shutdown, not a failure
+            elif not state or state[0] != "failed":
                 state = ("removed", "")
+        if msg.startswith("expert TradeForce") and "loaded successfully" in msg:
+            closing = False
     return state
 
 

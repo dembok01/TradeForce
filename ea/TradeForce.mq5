@@ -77,6 +77,7 @@ string   g_blockCandidate    = "";    // a change must hold 10s before it is ann
 datetime g_blockCandidateAt  = 0;
 datetime g_closeAllNextAt    = 0;     // daily-loss close-all retry gate
 bool     g_notFlatWarned     = false; // lockdown held open: said once per breach
+bool     g_cloudLockPrinted  = false; // hosted lock explained once
 
 // The 1s timer would otherwise rescan deal history every second; these memos
 // make ComputeBlocked()/TodayLoss() cheap. A new deal invalidates both.
@@ -88,7 +89,7 @@ datetime g_realizedTodayCacheAt = 0;
 
 // Failed POSTs are retried on later timer ticks (lost on EA restart - the
 // server is the durable record, this just smooths transient network drops).
-#define EA_VERSION  "1.28"
+#define EA_VERSION  "1.29"
 #define PENDING_MAX 64
 string g_pendingPath[PENDING_MAX];
 string g_pendingBody[PENDING_MAX];
@@ -1157,6 +1158,20 @@ void ProcessVetoes() {
 // trade a dead terminal prevents is the revenge trade.
 void ArmLossLockdown(const int graceSeconds) {
   if (!HardLockOnLossBreach) return;
+  // A hosted terminal IS the enforcement. Closing it would free the trader to
+  // trade on from their phone with nothing watching - at the exact moment the
+  // lock matters most - and nothing would reopen it. So the locked day is
+  // enforced by staying open: ComputeBlocked() keeps the day blocked and
+  // EnforceOnOpen closes anything that still gets through. (24 Sep: a trial
+  // account sat unprotected for three hours after its terminal closed itself.)
+  if (CloudMode) {
+    if (!g_cloudLockPrinted) {
+      g_cloudLockPrinted = true;
+      Print("TradeForce: daily loss limit hit - locked until local midnight. "
+            "The hosted terminal stays open and keeps enforcing.");
+    }
+    return;
+  }
   if (g_lossLockDeadline > 0) return; // already counting down
   // GMT, not TimeCurrent(): a grace countdown is real seconds for the trader,
   // and must keep running even if the market goes quiet mid-countdown.
@@ -1219,6 +1234,9 @@ void CheckDailyLoss(const bool startup = false) {
   }
   if (firstBreachToday) {
     g_lossBreachDayId = today;
+    // Desktop does this in the lockdown just before closing MT5; a hosted
+    // terminal never closes, so clear GTC pendings here instead.
+    if (CloudMode) DeleteAllPendingOrders();
     CJAVal d;
     d["lossToday"] = loss;
     d["limit"]     = g_cfg.dailyLossLimit;

@@ -284,6 +284,24 @@ class LoginStateTest(FsCase):
         self.write_log(*self.KIRAN, "0\t1\t07:40:00.000\tExperts\texpert TradeForce (TFCHART,M1) loaded successfully")
         self.assertEqual(b.ea_start(str(self.vol)), ("loaded", "TFCHART"))
 
+    def test_a_terminal_the_ea_closed_itself_is_locked_not_failed(self):
+        # 24 Sep: a trial account's terminal closed itself after a daily-loss
+        # breach, and "removed" alone read as a failure.
+        self.write_log(
+            "0\t1\t05:09:15.134\tExperts\tTradeForce (TFCHART,M1) calls TerminalClose(0) function",
+            "0\t1\t05:09:17.369\tExperts\texpert TradeForce (TFCHART,M1) removed",
+            "0\t1\t05:09:20.240\tTerminal\texit with code 0",
+        )
+        self.assertEqual(b.ea_start(str(self.vol)), ("locked", ""))
+
+    def test_a_restart_after_a_lock_reads_as_loaded_again(self):
+        self.write_log(
+            "0\t1\t05:09:15.134\tExperts\tTradeForce (TFCHART,M1) calls TerminalClose(0) function",
+            "0\t1\t05:09:17.369\tExperts\texpert TradeForce (TFCHART,M1) removed",
+            "0\t1\t08:52:33.000\tExperts\texpert TradeForce (TFCHART,M1) loaded successfully",
+        )
+        self.assertEqual(b.ea_start(str(self.vol)), ("loaded", "TFCHART"))
+
     def test_an_investor_login_is_read_only(self):
         self.write_log("0\t1\t09:00:00.000\tNetwork\t'123': authorized on Broker-Live",
                        "0\t1\t09:00:01.000\tNetwork\t'123': trading has been disabled - investor mode")
