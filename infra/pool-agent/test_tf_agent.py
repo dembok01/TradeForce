@@ -177,3 +177,22 @@ class LockAndWatchdogTest(CheckOneTest):
         for _ in range(6):
             a.check_one(ACC, NAME)
         self.assertEqual(len(self.restarts), 1)
+
+
+@unittest.skipIf(a is None, "agent dependencies not installed")
+class CanClaimTest(unittest.TestCase):
+    """A box runs out of scheduling headroom before it runs out of cores: a
+    terminal is ~0.5 of a core, nearly all of it kernel time in wineserver."""
+
+    def test_room_by_count_and_by_load(self):
+        self.assertTrue(a.can_claim(running=5, capacity=10, load1=4.0, cores=12))
+        self.assertFalse(a.can_claim(running=10, capacity=10, load1=1.0, cores=12))  # full
+        self.assertFalse(a.can_claim(running=5, capacity=10, load1=10.3, cores=12))  # too busy
+        self.assertTrue(a.can_claim(running=5, capacity=10, load1=10.2, cores=12))   # exactly at the ceiling
+
+    def test_the_ceiling_scales_with_the_box(self):
+        self.assertTrue(a.can_claim(running=1, capacity=20, load1=3.3, cores=4))
+        self.assertFalse(a.can_claim(running=1, capacity=20, load1=3.5, cores=4))
+
+    def test_a_stricter_ceiling_can_be_configured(self):
+        self.assertFalse(a.can_claim(running=1, capacity=10, load1=7.0, cores=12, ceiling=0.5))

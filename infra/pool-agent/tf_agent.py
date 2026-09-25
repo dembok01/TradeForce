@@ -34,13 +34,21 @@ CRED_KEY = base64.b64decode(os.environ["MT5_CRED_KEY"])
 IMAGE = os.environ.get("TF_IMAGE", "tf-mt5:current")
 SITE_URL = os.environ.get("TF_SITE_URL", "https://trade-force-rouge.vercel.app")
 CAPACITY = int(os.environ.get("TF_CAPACITY", "8"))
+# A terminal costs ~0.5 of a core in real trading hours, and almost all of it is
+# kernel time in Wine's wineserver, not MT5 computing: the box runs out of
+# scheduling headroom before it runs out of cores, and the first symptom is EAs
+# missing their 1s timer - silent, late enforcement. Measured 25 Sep: 9
+# terminals = 4.7 cores mean, bursting to 7.6. So CAPACITY is not the only
+# brake: a claim also waits when the 1-minute load is already past this share of
+# the cores, whatever the count says.
+LOAD_CEILING = float(os.environ.get("TF_LOAD_CEILING", "0.85"))
 HOST = os.environ.get("TF_HOST", socket.gethostname())
 DATA = os.environ.get("TF_DATA", "/srv/tf")
 POLL = int(os.environ.get("TF_POLL", "15"))
 # Which hosted EAs use the file bridge: "off", "all", or account ids, comma-separated.
 BRIDGE = os.environ.get("TF_BRIDGE", "off")
 
-AGENT_VERSION = "1.4.1"
+AGENT_VERSION = "1.5.0"
 TELEMETRY_EVERY = int(os.environ.get("TF_TELEMETRY_EVERY", "4"))  # passes; 4 x 15s = 60s
 
 REST = f"{SUPABASE}/rest/v1/mt5_instances"
@@ -334,6 +342,11 @@ READ_ONLY = ("Signed in, but this login can't trade - it looks like the investor
              "password. Connect again with your main trading password.")
 
 
+def can_claim(running: int, capacity: int, load1: float, cores: int, ceiling: float = LOAD_CEILING) -> bool:
+    """Room for one more terminal on this box? Count AND load must allow it."""
+    return running < capacity and load1 <= ceiling * max(cores, 1)
+
+
 def mt5_running(name: str) -> bool | None:
     """Is MetaTrader itself alive inside the container? None if we can't tell."""
     out = sh("docker", "exec", name, "sh", "-c", "ps -eo args | grep -c '[t]erminal64'")
@@ -528,11 +541,18 @@ def reconcile():
         if row["server_host"] is None:
             if row["desired_state"] != "running":
                 continue
-            if len(mine) >= CAPACITY:
+            load1 = os.getloadavg()[0]
+            cores = os.cpu_count() or 1
+            if not can_claim(len(mine), CAPACITY, load1, cores):
                 if changed(acc, "setup", "queued", action=True):
+                    full = len(mine) >= CAPACITY
+                    print(f"not claiming {acc}: "
+                          + (f"at capacity {len(mine)}/{CAPACITY}" if full else f"load {load1:.1f} over ceiling"),
+                          flush=True)
                     event(acc, "queued", "warn", "All our servers are busy right now. You're in the queue "
                           "and will be connected automatically as soon as a place frees up.",
-                          {"capacity": CAPACITY, "host": HOST})
+                          {"capacity": CAPACITY, "running": len(mine), "load1": round(load1, 2),
+                           "cores": cores, "reason": "capacity" if full else "load", "host": HOST})
                 continue
             report(acc, server_host=HOST, status="provisioning")
             if changed(acc, "setup", "claimed", action=True):
