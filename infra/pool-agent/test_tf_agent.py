@@ -242,3 +242,26 @@ class StaleContainerTest(unittest.TestCase):
 
     def test_nothing_known_about_a_container_that_is_not_running(self):
         self.assertIsNone(a.stale_container(None, "k1", None, "tf-mt5:ntsync"))
+
+
+@unittest.skipIf(a is None, "agent dependencies not installed")
+class StarvationNoticeTest(unittest.TestCase):
+    """The claim gate cannot help traders who are already here, so a starved box
+    has to say so - a late EA still reports, just later."""
+
+    def setUp(self):
+        a._starved = False
+
+    def test_silent_while_there_is_room(self):
+        self.assertIsNone(a.note_starvation(0.0, 10, ceiling=2.0))
+
+    def test_warns_once_on_the_way_in(self):
+        first = a.note_starvation(9.0, 30, ceiling=2.0)
+        self.assertIn("cpu starved 9.0%", first)
+        self.assertIn("30 terminals", first)
+        self.assertIsNone(a.note_starvation(11.0, 30, ceiling=2.0))
+
+    def test_says_when_it_clears(self):
+        a.note_starvation(9.0, 30, ceiling=2.0)
+        self.assertIn("no longer starved", a.note_starvation(0.5, 30, ceiling=2.0))
+        self.assertIsNone(a.note_starvation(0.4, 30, ceiling=2.0))

@@ -456,6 +456,27 @@ def can_claim(running: int, capacity: int, stalled: float, ceiling: float = PRES
     return running < capacity and stalled <= ceiling
 
 
+_starved = False
+
+
+def note_starvation(stalled: float, running: int, ceiling: float = PRESSURE_CEILING) -> str | None:
+    """Say it out loud when the box cannot keep its terminals on a core.
+
+    The claim gate stops new traders arriving, but it cannot help the ones
+    already here: a starved box makes every EA run late, and nothing else would
+    ever mention it, because a late EA still reports - just later. Logged on the
+    way in and on the way out, not every pass.
+    """
+    global _starved
+    if (stalled > ceiling) == _starved:
+        return None
+    _starved = stalled > ceiling
+    if _starved:
+        return (f"WARNING: cpu starved {stalled:.1f}% over ceiling {ceiling} with {running} "
+                f"terminals - enforcement is probably running late for all of them")
+    return f"cpu no longer starved ({stalled:.1f}%) with {running} terminals"
+
+
 def mt5_running(name: str) -> bool | None:
     """Is MetaTrader itself alive inside the container? None if we can't tell."""
     out = sh("docker", "exec", name, "sh", "-c", "ps -eo args | grep -c '[t]erminal64'")
@@ -635,6 +656,9 @@ def reconcile():
     r.raise_for_status()
     rows = r.json()
     have = containers()
+    say = note_starvation(cpu_stalled_pct(), len(have))
+    if say:
+        print(say, flush=True)
     mine = [x for x in rows if x["server_host"] == HOST]
     for x in rows:
         _owners[x["account_id"]] = x["user_id"]
