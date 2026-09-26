@@ -1,0 +1,25 @@
+[Unit]
+# Hosted terminals share one MT5 prefix through overlayfs (see tf_prefixes.py).
+# Their containers restart themselves after a reboot, and docker takes a
+# recursive bind of the account directory - so if the overlay is not mounted
+# before docker starts, a terminal comes up on an empty prefix and tries to
+# reinstall MT5. Hence: one-shot, ordered before docker.
+Description=Mount shared MT5 prefixes for hosted terminals
+DefaultDependencies=no
+After=local-fs.target
+Before=docker.service tf-agent.service
+RequiresMountsFor=/srv/tf /srv/tf-base
+Conflicts=shutdown.target
+Before=shutdown.target
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+ExecStart=/usr/bin/python3 /opt/tradeforce/agent/tf_prefixes.py
+# Leave the mounts alone on stop: docker is torn down separately and unmounting
+# under a running terminal would be worse than leaving it attached.
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target

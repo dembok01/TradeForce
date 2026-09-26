@@ -24,9 +24,11 @@ from pathlib import Path
 import requests
 from cryptography.hazmat.primitives.ciphers.aead import AESGCM
 
-# Installed as a symlink in /usr/local/bin; tf_bridge.py sits next to the real file.
+# Installed as a symlink in /usr/local/bin; tf_bridge.py and tf_prefixes.py sit
+# next to the real file.
 sys.path.insert(0, os.path.dirname(os.path.realpath(__file__)))
 import tf_bridge  # noqa: E402
+import tf_prefixes  # noqa: E402
 
 SUPABASE = os.environ["SUPABASE_URL"].rstrip("/")
 SERVICE_KEY = os.environ["SUPABASE_SERVICE_ROLE_KEY"]
@@ -37,18 +39,24 @@ CAPACITY = int(os.environ.get("TF_CAPACITY", "8"))
 # A terminal costs ~0.5 of a core in real trading hours, and almost all of it is
 # kernel time in Wine's wineserver, not MT5 computing: the box runs out of
 # scheduling headroom before it runs out of cores, and the first symptom is EAs
-# missing their 1s timer - silent, late enforcement. Measured 25 Sep: 9
-# terminals = 4.7 cores mean, bursting to 7.6. So CAPACITY is not the only
-# brake: a claim also waits when the 1-minute load is already past this share of
-# the cores, whatever the count says.
-LOAD_CEILING = float(os.environ.get("TF_LOAD_CEILING", "0.85"))
+# missing their 1s timer - silent, late enforcement. So CAPACITY is not the only
+# brake; a claim also waits when the box is genuinely starved of CPU.
+#
+# That second brake reads pressure, not load average. Load counts every thread
+# waiting on another thread, and Wine manufactures thousands of those: measured
+# 25 Sep with ten healthy terminals, load was 14.5 while the box was 70% idle
+# and /proc/pressure/cpu reported full=0.00. A load ceiling would have queued
+# every new trader on an idle box. PSI "full" is the share of the last minute in
+# which every runnable task was waiting for a core - which is what no room
+# actually means.
+PRESSURE_CEILING = float(os.environ.get("TF_PRESSURE_CEILING", "2.0"))
 HOST = os.environ.get("TF_HOST", socket.gethostname())
 DATA = os.environ.get("TF_DATA", "/srv/tf")
 POLL = int(os.environ.get("TF_POLL", "15"))
 # Which hosted EAs use the file bridge: "off", "all", or account ids, comma-separated.
 BRIDGE = os.environ.get("TF_BRIDGE", "off")
 
-AGENT_VERSION = "1.5.0"
+AGENT_VERSION = "1.6.0"
 TELEMETRY_EVERY = int(os.environ.get("TF_TELEMETRY_EVERY", "4"))  # passes; 4 x 15s = 60s
 
 REST = f"{SUPABASE}/rest/v1/mt5_instances"
@@ -134,10 +142,85 @@ def running_key(account_id: str) -> str | None:
     return None
 
 
+def running_image(name: str) -> str | None:
+    """The image tag the existing container was actually started from."""
+    return sh("docker", "inspect", "-f", "{{.Config.Image}}", name) or None
+
+
+def stale_container(old_key: str | None, new_key: str,
+                    image_now: str | None, image_want: str) -> str | None:
+    """Why a running terminal has to be replaced, or None if it is current.
+
+    Two reasons. A new EA key means the trader pressed Connect again, usually
+    with a corrected password, and the old container still holds the old one. A
+    different image means this box has a newer build than the terminal is
+    running - which is how a Wine upgrade reaches traders at all, since nothing
+    else would ever recreate a container that is working.
+    """
+    if old_key and old_key != new_key:
+        return "new details"
+    if image_now and image_now != image_want:
+        return f"older build ({image_now})"
+    return None
+
+
+# Wine does Windows waits through this device when it can see one, as direct
+# ioctls, instead of a round trip to wineserver per wait. That round trip is
+# where a hosted terminal's CPU goes: 89% kernel time, and the contended lock is
+# wineserver's own epoll set. The device has to be handed to a container
+# explicitly, and a kernel older than 6.14 has none - so this is conditional and
+# such a box just keeps the old behaviour.
+NTSYNC_DEV = "/dev/ntsync"
+
+
+def ntsync_args(dev: str = NTSYNC_DEV) -> list[str]:
+    """--device for the sync driver, or nothing at all if the box has no driver."""
+    return ["--device", dev] if os.path.exists(dev) else []
+
+
+def ensure_base(image: str) -> str:
+    """Unpack this image's baked prefix once per box, for every terminal to share.
+
+    Provisioning used to unpack 2.9GB per trader, which is why it had to be done
+    one at a time. Almost all of it is identical between traders, so it is
+    unpacked once here and layered per account in tf_prefixes - which is both the
+    difference between 20 terminals fitting on this disk and not, and the reason
+    provisioning is now near-instant.
+    """
+    d = tf_prefixes.base_dir(image)
+    wine = os.path.join(d, ".wine")
+    if os.path.isdir(wine):
+        return wine
+    os.makedirs(d, exist_ok=True)
+    print(f"unpacking shared prefix for {image}", flush=True)
+    subprocess.run(
+        ["docker", "run", "--rm", "-v", f"{d}:/config",
+         "--entrypoint", "/opt/tf/provision.sh", image],
+        check=True, capture_output=True, text=True, timeout=1800,
+    )
+    # The baked prefix was built by whichever Wine the image shipped when it was
+    # baked. If this image carries a newer one, every terminal would update the
+    # prefix itself on first run and write the whole of C:\windows into its own
+    # layer - 2.6GB each, which defeats the sharing entirely. Do it once, here.
+    # Exit status is not meaningful for a headless wineboot; the files are.
+    for argv in (["/opt/wine-stable/bin/wineboot", "-u"], ["/opt/wine-stable/bin/wineserver", "-w"]):
+        subprocess.run(
+            ["docker", "run", "--rm", "-u", "911:911", "-e", "HOME=/config",
+             "-e", "WINEPREFIX=/config/.wine", "-e", "WINEDLLOVERRIDES=mscoree,mshtml=d",
+             "-v", f"{d}:/config", "--entrypoint", argv[0], image, *argv[1:]],
+            check=False, capture_output=True, text=True, timeout=900,
+        )
+    return wine
+
+
 def start(row: dict):
     """Provision then run. Provisioning is a separate one-shot container because
     the base image starts MT5 from its own init path and would race a hook."""
     name = "tf-" + row["account_id"]
+    # Before anything else, and before the container exists: docker takes a
+    # recursive bind of the account directory, so the prefix has to be mounted
+    # first or the terminal would never see it.
+    tf_prefixes.mount(row["account_id"], ensure_base(IMAGE))
     d = write_config(row, unseal(row["ea_key_cipher"]))
 
     subprocess.run(
@@ -149,6 +232,7 @@ def start(row: dict):
         ["docker", "run", "-d", "--name", name,
          "--restart", "unless-stopped",
          "--memory", "1g", "--cap-add", "SYS_PTRACE",
+         *ntsync_args(),
          # Wine's USB, game-controller and Bluetooth drivers poll for hardware a
          # container never has (~500-850 wake-ups/s). Registry Start=4 does not
          # stop them; a load override does.
@@ -162,6 +246,13 @@ def start(row: dict):
 
 def remove(account_id: str):
     sh("docker", "rm", "-f", "tf-" + account_id)
+    try:
+        tf_prefixes.unmount(account_id)
+    except OSError as e:
+        # Never rmtree through a live overlay. Leaving the data for the next
+        # pass is recoverable; deleting half of a mounted prefix is not.
+        print(f"prefix still busy for {account_id}: {e}", flush=True)
+        return
     shutil.rmtree(os.path.join(DATA, account_id), ignore_errors=True)
 
 
@@ -342,9 +433,27 @@ READ_ONLY = ("Signed in, but this login can't trade - it looks like the investor
              "password. Connect again with your main trading password.")
 
 
-def can_claim(running: int, capacity: int, load1: float, cores: int, ceiling: float = LOAD_CEILING) -> bool:
-    """Room for one more terminal on this box? Count AND load must allow it."""
-    return running < capacity and load1 <= ceiling * max(cores, 1)
+def cpu_stalled_pct(path: str = "/proc/pressure/cpu") -> float:
+    """Share of the last minute in which every runnable task waited for a core.
+
+    Returns 0.0 when the kernel exports no PSI, so a box without it is gated by
+    count alone rather than refusing all work.
+    """
+    try:
+        with open(path) as f:
+            for line in f:
+                if line.startswith("full"):
+                    for field in line.split():
+                        if field.startswith("avg60="):
+                            return float(field[len("avg60="):])
+    except (OSError, ValueError):
+        pass
+    return 0.0
+
+
+def can_claim(running: int, capacity: int, stalled: float, ceiling: float = PRESSURE_CEILING) -> bool:
+    """Room for one more terminal on this box? Count AND pressure must allow it."""
+    return running < capacity and stalled <= ceiling
 
 
 def mt5_running(name: str) -> bool | None:
@@ -541,18 +650,19 @@ def reconcile():
         if row["server_host"] is None:
             if row["desired_state"] != "running":
                 continue
-            load1 = os.getloadavg()[0]
-            cores = os.cpu_count() or 1
-            if not can_claim(len(mine), CAPACITY, load1, cores):
+            stalled = cpu_stalled_pct()
+            if not can_claim(len(mine), CAPACITY, stalled):
                 if changed(acc, "setup", "queued", action=True):
                     full = len(mine) >= CAPACITY
                     print(f"not claiming {acc}: "
-                          + (f"at capacity {len(mine)}/{CAPACITY}" if full else f"load {load1:.1f} over ceiling"),
+                          + (f"at capacity {len(mine)}/{CAPACITY}" if full
+                             else f"cpu starved {stalled:.1f}% over ceiling {PRESSURE_CEILING}"),
                           flush=True)
                     event(acc, "queued", "warn", "All our servers are busy right now. You're in the queue "
                           "and will be connected automatically as soon as a place frees up.",
-                          {"capacity": CAPACITY, "running": len(mine), "load1": round(load1, 2),
-                           "cores": cores, "reason": "capacity" if full else "load", "host": HOST})
+                          {"capacity": CAPACITY, "running": len(mine), "cpu_stalled_pct": stalled,
+                           "cores": os.cpu_count(), "reason": "capacity" if full else "pressure",
+                           "host": HOST})
                 continue
             report(acc, server_host=HOST, status="provisioning")
             if changed(acc, "setup", "claimed", action=True):
@@ -566,13 +676,19 @@ def reconcile():
             # corrected password. A container started with the old key still has
             # the old password too: rebuild it, or the trader waits on
             # "Connecting" for ever while MT5 retries the rejected login.
-            old = running_key(acc) if want == "running" and name in have else None
-            if old and old != unseal(row["ea_key_cipher"]):
+            live = want == "running" and name in have
+            why = stale_container(running_key(acc) if live else None,
+                                  unseal(row["ea_key_cipher"]),
+                                  running_image(name) if live else None, IMAGE)
+            if why:
                 remove(acc)
                 have.discard(name)
                 forget(acc)
-                print(f"new details for {name}, rebuilding", flush=True)
-                event(acc, "new_details", "info", "New details received - restarting your terminal with them.")
+                print(f"{why} for {name}, rebuilding", flush=True)
+                event(acc, "new_details", "info",
+                      "New details received - restarting your terminal with them."
+                      if why == "new details" else
+                      "Moving your terminal onto a faster build - back in a minute.")
             if want == "running" and name not in have:
                 report(acc, status="provisioning")
                 start(row)

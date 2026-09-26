@@ -181,18 +181,64 @@ class LockAndWatchdogTest(CheckOneTest):
 
 @unittest.skipIf(a is None, "agent dependencies not installed")
 class CanClaimTest(unittest.TestCase):
-    """A box runs out of scheduling headroom before it runs out of cores: a
-    terminal is ~0.5 of a core, nearly all of it kernel time in wineserver."""
+    """A box runs out of scheduling headroom before it runs out of cores, and
+    load average cannot see it: Wine's thread churn reads as load 14 on a box
+    that is 70% idle. Pressure can - it counts starvation, not waiting."""
 
-    def test_room_by_count_and_by_load(self):
-        self.assertTrue(a.can_claim(running=5, capacity=10, load1=4.0, cores=12))
-        self.assertFalse(a.can_claim(running=10, capacity=10, load1=1.0, cores=12))  # full
-        self.assertFalse(a.can_claim(running=5, capacity=10, load1=10.3, cores=12))  # too busy
-        self.assertTrue(a.can_claim(running=5, capacity=10, load1=10.2, cores=12))   # exactly at the ceiling
+    PSI = ("some avg10=25.61 avg60=23.14 avg300=22.00 total=65131150101\n"
+           "full avg10=0.00 avg60=1.25 avg300=0.40 total=0\n")
 
-    def test_the_ceiling_scales_with_the_box(self):
-        self.assertTrue(a.can_claim(running=1, capacity=20, load1=3.3, cores=4))
-        self.assertFalse(a.can_claim(running=1, capacity=20, load1=3.5, cores=4))
+    def test_room_by_count_and_by_starvation(self):
+        self.assertTrue(a.can_claim(running=5, capacity=16, stalled=0.0))
+        self.assertFalse(a.can_claim(running=16, capacity=16, stalled=0.0))  # full
+        self.assertFalse(a.can_claim(running=5, capacity=16, stalled=9.0))   # starved
+        self.assertTrue(a.can_claim(running=5, capacity=16, stalled=2.0))    # exactly at the ceiling
+
+    def test_a_busy_looking_box_that_is_not_starved_still_takes_work(self):
+        # 25 Sep, ten healthy terminals: load 14.53 of 12 cores, full=0.00. The
+        # load ceiling this replaced would have queued every one of them.
+        self.assertTrue(a.can_claim(running=10, capacity=16, stalled=0.0))
+
+    def test_starvation_is_read_from_the_full_line_not_the_some_line(self):
+        with tempfile.NamedTemporaryFile("w", suffix=".psi", delete=False) as f:
+            f.write(self.PSI)
+        self.addCleanup(os.unlink, f.name)
+        self.assertEqual(a.cpu_stalled_pct(f.name), 1.25)
+
+    def test_a_kernel_without_psi_leaves_count_as_the_only_brake(self):
+        self.assertEqual(a.cpu_stalled_pct("/nonexistent/pressure/cpu"), 0.0)
+        self.assertTrue(a.can_claim(running=5, capacity=16,
+                                    stalled=a.cpu_stalled_pct("/nonexistent/pressure/cpu")))
 
     def test_a_stricter_ceiling_can_be_configured(self):
-        self.assertFalse(a.can_claim(running=1, capacity=10, load1=7.0, cores=12, ceiling=0.5))
+        self.assertFalse(a.can_claim(running=1, capacity=16, stalled=1.0, ceiling=0.5))
+
+
+@unittest.skipIf(a is None, "agent dependencies not installed")
+class NtsyncArgsTest(unittest.TestCase):
+    """A terminal only gets the fast sync path if the device is handed in."""
+
+    def test_passed_through_when_the_box_has_the_driver(self):
+        self.assertEqual(a.ntsync_args(__file__), ["--device", __file__])
+
+    def test_absent_driver_is_not_an_error(self):
+        self.assertEqual(a.ntsync_args("/dev/no-such-ntsync"), [])
+
+
+@unittest.skipIf(a is None, "agent dependencies not installed")
+class StaleContainerTest(unittest.TestCase):
+    """What makes a working terminal worth replacing."""
+
+    def test_a_current_terminal_is_left_alone(self):
+        self.assertIsNone(a.stale_container("k1", "k1", "tf-mt5:current", "tf-mt5:current"))
+
+    def test_a_new_ea_key_means_new_details(self):
+        self.assertEqual(a.stale_container("k1", "k2", "tf-mt5:current", "tf-mt5:current"),
+                         "new details")
+
+    def test_an_older_image_is_rebuilt_so_upgrades_reach_traders(self):
+        why = a.stale_container("k1", "k1", "tf-mt5:current", "tf-mt5:ntsync")
+        self.assertEqual(why, "older build (tf-mt5:current)")
+
+    def test_nothing_known_about_a_container_that_is_not_running(self):
+        self.assertIsNone(a.stale_container(None, "k1", None, "tf-mt5:ntsync"))

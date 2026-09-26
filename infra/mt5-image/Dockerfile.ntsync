@@ -1,0 +1,18 @@
+FROM tf-mt5:current
+
+# Wine 11.0, built from official source WITH ntsync ("inproc sync"): Windows
+# waits become direct ioctls on /dev/ntsync instead of a writev/read round trip
+# to wineserver. That round trip is where a hosted terminal's CPU went - 89%
+# kernel time, and the top contended lock was wineserver's own epoll set.
+# WineHQ's packages (stable and staging alike) are built with it disabled.
+#
+# Installed alongside the packaged Wine and symlinked over it, so every launcher
+# path in the base image keeps working. Wine resolves its libdir from
+# /proc/self/exe, so the symlink is harmless.
+COPY wine-ntsync.tar /tmp/wine-ntsync.tar
+RUN set -eux; \
+    tar -C /opt -xf /tmp/wine-ntsync.tar; \
+    rm -f /tmp/wine-ntsync.tar; \
+    rm -rf /opt/wine-stable; \
+    ln -sfn /opt/wine-ntsync /opt/wine-stable; \
+    /opt/wine-stable/bin/wine --version
