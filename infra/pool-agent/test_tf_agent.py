@@ -185,25 +185,27 @@ class CanClaimTest(unittest.TestCase):
     load average cannot see it: Wine's thread churn reads as load 14 on a box
     that is 70% idle. Pressure can - it counts starvation, not waiting."""
 
+    # "full" stays 0.00 on this workload even at 40 terminals, so the gate has
+    # to read "some" - a test that accepted the full line would pass forever.
     PSI = ("some avg10=25.61 avg60=23.14 avg300=22.00 total=65131150101\n"
-           "full avg10=0.00 avg60=1.25 avg300=0.40 total=0\n")
+           "full avg10=0.00 avg60=0.00 avg300=0.00 total=0\n")
 
     def test_room_by_count_and_by_starvation(self):
-        self.assertTrue(a.can_claim(running=5, capacity=16, stalled=0.0))
-        self.assertFalse(a.can_claim(running=16, capacity=16, stalled=0.0))  # full
-        self.assertFalse(a.can_claim(running=5, capacity=16, stalled=9.0))   # starved
-        self.assertTrue(a.can_claim(running=5, capacity=16, stalled=2.0))    # exactly at the ceiling
+        self.assertTrue(a.can_claim(running=5, capacity=30, stalled=25.0))    # 40 terminals' worth
+        self.assertFalse(a.can_claim(running=30, capacity=30, stalled=0.0))   # full
+        self.assertFalse(a.can_claim(running=5, capacity=30, stalled=85.0))   # contended
+        self.assertTrue(a.can_claim(running=5, capacity=30, stalled=70.0))    # exactly at the ceiling
 
-    def test_a_busy_looking_box_that_is_not_starved_still_takes_work(self):
-        # 25 Sep, ten healthy terminals: load 14.53 of 12 cores, full=0.00. The
+    def test_a_busy_looking_box_that_is_not_contended_still_takes_work(self):
+        # Ten healthy terminals: load 14.53 of 12 cores, pressure under 10%. The
         # load ceiling this replaced would have queued every one of them.
-        self.assertTrue(a.can_claim(running=10, capacity=16, stalled=0.0))
+        self.assertTrue(a.can_claim(running=10, capacity=30, stalled=9.6))
 
-    def test_starvation_is_read_from_the_full_line_not_the_some_line(self):
+    def test_pressure_is_read_from_the_some_line_because_full_never_moves(self):
         with tempfile.NamedTemporaryFile("w", suffix=".psi", delete=False) as f:
             f.write(self.PSI)
         self.addCleanup(os.unlink, f.name)
-        self.assertEqual(a.cpu_stalled_pct(f.name), 1.25)
+        self.assertEqual(a.cpu_stalled_pct(f.name), 23.14)
 
     def test_a_kernel_without_psi_leaves_count_as_the_only_brake(self):
         self.assertEqual(a.cpu_stalled_pct("/nonexistent/pressure/cpu"), 0.0)
@@ -211,7 +213,7 @@ class CanClaimTest(unittest.TestCase):
                                     stalled=a.cpu_stalled_pct("/nonexistent/pressure/cpu")))
 
     def test_a_stricter_ceiling_can_be_configured(self):
-        self.assertFalse(a.can_claim(running=1, capacity=16, stalled=1.0, ceiling=0.5))
+        self.assertFalse(a.can_claim(running=1, capacity=30, stalled=20.0, ceiling=10.0))
 
 
 @unittest.skipIf(a is None, "agent dependencies not installed")
@@ -253,15 +255,15 @@ class StarvationNoticeTest(unittest.TestCase):
         a._starved = False
 
     def test_silent_while_there_is_room(self):
-        self.assertIsNone(a.note_starvation(0.0, 10, ceiling=2.0))
+        self.assertIsNone(a.note_starvation(25.0, 40, ceiling=70.0))
 
     def test_warns_once_on_the_way_in(self):
-        first = a.note_starvation(9.0, 30, ceiling=2.0)
-        self.assertIn("cpu starved 9.0%", first)
+        first = a.note_starvation(90.0, 30, ceiling=70.0)
+        self.assertIn("cpu starved 90.0%", first)
         self.assertIn("30 terminals", first)
-        self.assertIsNone(a.note_starvation(11.0, 30, ceiling=2.0))
+        self.assertIsNone(a.note_starvation(95.0, 30, ceiling=70.0))
 
     def test_says_when_it_clears(self):
-        a.note_starvation(9.0, 30, ceiling=2.0)
-        self.assertIn("no longer starved", a.note_starvation(0.5, 30, ceiling=2.0))
-        self.assertIsNone(a.note_starvation(0.4, 30, ceiling=2.0))
+        a.note_starvation(90.0, 30, ceiling=70.0)
+        self.assertIn("no longer starved", a.note_starvation(30.0, 30, ceiling=70.0))
+        self.assertIsNone(a.note_starvation(25.0, 30, ceiling=70.0))

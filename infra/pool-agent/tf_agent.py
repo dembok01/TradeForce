@@ -44,12 +44,15 @@ CAPACITY = int(os.environ.get("TF_CAPACITY", "8"))
 #
 # That second brake reads pressure, not load average. Load counts every thread
 # waiting on another thread, and Wine manufactures thousands of those: measured
-# 25 Sep with ten healthy terminals, load was 14.5 while the box was 70% idle
-# and /proc/pressure/cpu reported full=0.00. A load ceiling would have queued
-# every new trader on an idle box. PSI "full" is the share of the last minute in
-# which every runnable task was waiting for a core - which is what no room
-# actually means.
-PRESSURE_CEILING = float(os.environ.get("TF_PRESSURE_CEILING", "2.0"))
+# with ten healthy terminals, load was 14.5 while the box was 70% idle. PSI
+# instead counts only tasks that want a core and cannot have one.
+#
+# Of the two PSI lines it has to be "some". "full" - every runnable task stalled
+# at once - never happens here: measured 0.00 at 10, 20, 30 and 40 terminals,
+# and still 0.00 during a 30-terminal cold-start storm at load 57, so a gate on
+# it would never fire. "some" tracks the real thing: ~4-10% at 10 terminals,
+# ~18-25% at 40, 64-68% mid-storm. Hence a ceiling above the storm.
+PRESSURE_CEILING = float(os.environ.get("TF_PRESSURE_CEILING", "70"))
 HOST = os.environ.get("TF_HOST", socket.gethostname())
 DATA = os.environ.get("TF_DATA", "/srv/tf")
 POLL = int(os.environ.get("TF_POLL", "15"))
@@ -434,7 +437,7 @@ READ_ONLY = ("Signed in, but this login can't trade - it looks like the investor
 
 
 def cpu_stalled_pct(path: str = "/proc/pressure/cpu") -> float:
-    """Share of the last minute in which every runnable task waited for a core.
+    """Share of the last minute in which something waited for a core.
 
     Returns 0.0 when the kernel exports no PSI, so a box without it is gated by
     count alone rather than refusing all work.
@@ -442,7 +445,7 @@ def cpu_stalled_pct(path: str = "/proc/pressure/cpu") -> float:
     try:
         with open(path) as f:
             for line in f:
-                if line.startswith("full"):
+                if line.startswith("some"):
                     for field in line.split():
                         if field.startswith("avg60="):
                             return float(field[len("avg60="):])
