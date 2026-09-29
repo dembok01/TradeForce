@@ -49,12 +49,20 @@ export async function enableCloudEaAction(
       };
     }
 
+    const ctx = await getAuthedActionContext();
+    if (!ctx.ok) return { error: ctx.error };
+    const { supabase, userId, account } = ctx;
+
     // An address nobody answers on is the difference between a clear error now
     // and a trader sitting on "Connecting" all day: one trial account spent 19
     // hours on demo.icmarkets.com:443, a host that resolves perfectly and
     // refuses every connection. Only typed-in addresses are probed - every
     // address in the dropdown was verified reachable from the pool, and a
     // transient blip must never block a signup.
+    //
+    // Deliberately after sign-in: opening a socket to a caller's address is an
+    // SSRF primitive, so it is never reachable anonymously, and reachable()
+    // itself refuses anything that is not public unicast.
     if (isCustomAddress(server) && !(await reachable(server))) {
       return {
         error:
@@ -63,10 +71,6 @@ export async function enableCloudEaAction(
           "Their support can give you the exact one.",
       };
     }
-
-    const ctx = await getAuthedActionContext();
-    if (!ctx.ok) return { error: ctx.error };
-    const { supabase, userId, account } = ctx;
 
     // A dedicated key, so the user can keep (or revoke) their desktop EA key
     // independently and we can tell the two apart in the audit trail.
