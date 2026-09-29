@@ -267,3 +267,27 @@ class StarvationNoticeTest(unittest.TestCase):
         a.note_starvation(90.0, 30, ceiling=70.0)
         self.assertIn("no longer starved", a.note_starvation(30.0, 30, ceiling=70.0))
         self.assertIsNone(a.note_starvation(25.0, 30, ceiling=70.0))
+
+
+@unittest.skipIf(a is None, "agent dependencies not installed")
+class BuildDriftTest(unittest.TestCase):
+    """MetaTrader updates itself from the broker's server, so the build is the
+    broker's choice - measured on this box, MetaQuotes-Demo terminals took 6215
+    while Alpari's took 6230. It cannot be pinned, so it has to be visible."""
+
+    def test_a_terminal_on_the_shared_copy_is_quiet(self):
+        self.assertIsNone(a.build_drift(None, 121728584))
+
+    def test_an_identical_size_is_not_drift(self):
+        self.assertIsNone(a.build_drift(121728584, 121728584))
+
+    def test_a_broker_pushed_build_is_named_with_both_sizes(self):
+        got = a.build_drift(121825224, 121728584)
+        self.assertIn("121825224", got)
+        self.assertIn("121728584", got)
+
+    def test_a_missing_shared_copy_is_not_reported_as_drift(self):
+        self.assertIsNone(a.build_drift(121825224, None))
+
+    def test_own_build_is_none_until_the_account_writes_one(self):
+        self.assertIsNone(a.own_build("no-such-account", data=tempfile.mkdtemp()))

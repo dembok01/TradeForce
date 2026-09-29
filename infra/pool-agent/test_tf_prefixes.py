@@ -28,6 +28,17 @@ class PathsTest(unittest.TestCase):
         self.assertEqual(got["root"], "/srv/tf/acc1")
 
 
+class SharedLayoutTest(unittest.TestCase):
+    """The shared copy keeps the .wine element; an account's own layer replaces
+    it, so the two paths to the same file are NOT symmetrical. Getting that
+    wrong silently disabled MetaTrader build-drift reporting."""
+
+    def test_the_shared_prefix_lives_under_dot_wine(self):
+        self.assertEqual(p.paths("acc1", data="/srv/tf")["merged"], "/srv/tf/acc1/.wine")
+        self.assertEqual(p.paths("acc1", data="/srv/tf")["upper"], "/srv/tf/acc1/.wine-upper")
+        self.assertEqual(p.base_dir("tf-mt5:x", base="/srv/tf-base"), "/srv/tf-base/tf-mt5-x")
+
+
 class MountTest(unittest.TestCase):
     def setUp(self):
         self.data = tempfile.mkdtemp()

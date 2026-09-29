@@ -512,8 +512,55 @@ def check_connections():
     _quiet = False
 
 
+MT5_EXE = ("drive_c", "Program Files", "MetaTrader 5", "terminal64.exe")
+
+
+def own_build(account_id: str, data: str = None) -> int | None:
+    """Size of the MetaTrader binary this account has written for itself.
+
+    None while it is still running the shared copy untouched.
+    """
+    base = os.path.join(data or DATA, account_id, ".wine-upper", *MT5_EXE)
+    try:
+        return os.path.getsize(base)
+    except OSError:
+        return None
+
+
+def shared_build(image: str = None) -> int | None:
+    """Size of the binary in the shared copy. The account's own layer starts at
+    what the prefix calls .wine, so only the shared path carries that element."""
+    try:
+        return os.path.getsize(
+            os.path.join(tf_prefixes.base_dir(image or IMAGE), ".wine", *MT5_EXE))
+    except OSError:
+        return None
+
+
+def build_drift(own: int | None, shared: int | None) -> str | None:
+    """Has MetaTrader replaced itself under us?
+
+    It updates from the BROKER's server, not from MetaQuotes centrally, so the
+    build is the broker's choice and cannot be pinned: measured on this box,
+    five terminals on MetaQuotes-Demo took build 6215 while four on Alpari took
+    6230, and one that never connected stayed on the baked 6182. That is fine -
+    brokers can refuse an under-minimum build - but it must not be silent, since
+    a new build is new behaviour underneath every rule we enforce. It also costs
+    ~475MB of that account's own layer, which is the disk budget.
+    """
+    if own is None or shared is None or own == shared:
+        return None
+    return f"its own MetaTrader build ({own} bytes, shared copy is {shared})"
+
+
 def check_one(acc: str, name: str):
     vol = os.path.join(DATA, acc)
+    # Logged as an action, not an observation: the fleet's builds are worth
+    # restating in the journal after a restart, because support needs to know
+    # which build a trader is on and nothing else records it.
+    drift = build_drift(own_build(acc), shared_build())
+    if drift and changed(acc, "mt5_build", str(own_build(acc)), action=True):
+        print(f"{acc} is running {drift} - its broker updated it", flush=True)
     state = tf_bridge.login_state(vol)
 
     if state is None or state[0] == "waiting":
