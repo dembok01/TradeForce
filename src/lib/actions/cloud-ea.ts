@@ -9,6 +9,7 @@ import { createServiceClient } from "@/lib/supabase/service";
 import { API_KEY_PREFIX, hashApiKey } from "@/lib/ea-auth";
 import { sealSecret } from "@/lib/mt5-crypto";
 import { isAcceptableServer, brokerLabel } from "@/lib/mt5-brokers";
+import { isCustomAddress, reachable } from "@/lib/mt5-reachable";
 import { logConnection } from "@/lib/connection-log";
 import { toActionErrorMessage } from "@/lib/action-error";
 import { log } from "@/lib/log";
@@ -45,6 +46,21 @@ export async function enableCloudEaAction(
         error:
           "Enter your broker's server address as host:port (for example live.yourbroker.com:443) " +
           "-- the server name alone won't work. Your broker's support can tell you the address.",
+      };
+    }
+
+    // An address nobody answers on is the difference between a clear error now
+    // and a trader sitting on "Connecting" all day: one trial account spent 19
+    // hours on demo.icmarkets.com:443, a host that resolves perfectly and
+    // refuses every connection. Only typed-in addresses are probed - every
+    // address in the dropdown was verified reachable from the pool, and a
+    // transient blip must never block a signup.
+    if (isCustomAddress(server) && !(await reachable(server))) {
+      return {
+        error:
+          `Nothing answered at ${server}. That needs to be your broker's MetaTrader 5 access ` +
+          "point - usually something like mt5-demo.yourbroker.com:443, not their website address. " +
+          "Their support can give you the exact one.",
       };
     }
 
