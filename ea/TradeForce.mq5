@@ -89,7 +89,7 @@ datetime g_realizedTodayCacheAt = 0;
 
 // Failed POSTs are retried on later timer ticks (lost on EA restart - the
 // server is the durable record, this just smooths transient network drops).
-#define EA_VERSION  "1.29"
+#define EA_VERSION  "1.30"
 #define PENDING_MAX 64
 string g_pendingPath[PENDING_MAX];
 string g_pendingBody[PENDING_MAX];
@@ -338,10 +338,17 @@ int LocalDayId(const datetime gmtNow) {
 // stays correct across any outage.
 int g_serverGmtOffset = 0;
 
+// TimeTradeServer() is the server clock as the TERMINAL calculates it, so it
+// keeps advancing with no quotes at all. TimeCurrent() only moves when a tick
+// for a subscribed symbol arrives, which is why a hosted terminal used to keep
+// one broker symbol subscribed purely to keep this clock alive - and every
+// subscribed symbol costs tick processing, which under Wine means wineserver
+// round trips on every quote. A hosted chart now subscribes to nothing.
 void RefreshServerOffset() {
   static datetime lastTick = 0;
-  const datetime cur = TimeCurrent();
-  if (cur == lastTick) return; // no new tick - keep the last trustworthy offset
+  datetime cur = TimeTradeServer();
+  if (cur <= 0) cur = TimeCurrent(); // before the terminal has synced with the server
+  if (cur == lastTick) return;       // no movement - keep the last trustworthy offset
   lastTick = cur;
   const int offset = (int)(cur - TimeGMT());
   if (MathAbs(offset) <= 14 * 3600) // no real broker sits outside +/-14h of GMT
@@ -1608,43 +1615,19 @@ void UpdateComment() {
 // so a container restarted ten times was processing prices for eleven charts.
 // Symbols with open positions or orders cannot be hidden, which is what we want;
 // anything traded later is added back by EnsureSymbol().
-// Hosted EAs run on TFCHART, a custom symbol stored in the terminal itself: a
-// broker's own EURUSD may be called anything (Alpari's MT5 demo has none; Exness
-// Standard uses EURUSDm), and an EA whose chart symbol never syncs never starts.
-// But with only a custom symbol in Market Watch no broker quote would arrive,
-// TimeCurrent() would stop and RefreshServerOffset() would freeze the server-
-// clock offset every day boundary depends on. So one real symbol stays quoting,
-// EURUSD-like if the broker has one.
-string ClockSymbol() {
-  bool custom = false;
-  if (!SymbolExist(_Symbol, custom) || !custom) return _Symbol;
-  string pick = "";
-  for (int i = 0; i < SymbolsTotal(true); i++) {
-    const string sym = SymbolName(i, true);
-    if (SymbolInfoInteger(sym, SYMBOL_CUSTOM)) continue;
-    if (StringFind(sym, "EURUSD") == 0) return sym;
-    if (pick == "") pick = sym;
-  }
-  if (pick != "") return pick;
-  for (int i = 0; i < SymbolsTotal(false); i++) {
-    const string sym = SymbolName(i, false);
-    if (!SymbolInfoInteger(sym, SYMBOL_CUSTOM) && SymbolSelect(sym, true)) return sym;
-  }
-  return "";
-}
-
 void CloudTrim() {
   long me = ChartID(), ids[];
   for (long id = ChartFirst(); id >= 0; id = ChartNext(id))
     if (id != me) { int n = ArraySize(ids); ArrayResize(ids, n + 1); ids[n] = id; }
   for (int i = 0; i < ArraySize(ids); i++) ChartClose(ids[i]);
+  // Nothing but the EA's own chart stays subscribed. MT5 refuses to unselect a
+  // symbol that has a position or order, which is exactly the exception we want:
+  // anything being enforced keeps quoting, everything else stops costing ticks.
   int hidden = 0;
-  const string clock = ClockSymbol();
   for (int i = SymbolsTotal(true) - 1; i >= 0; i--) {
     string sym = SymbolName(i, true);
-    if (sym != _Symbol && sym != clock && SymbolSelect(sym, false)) hidden++;
+    if (sym != _Symbol && SymbolSelect(sym, false)) hidden++;
   }
-  if (clock != _Symbol) Print("TradeForce: chart ", _Symbol, ", broker clock from ", clock, ".");
   if (ArraySize(ids) > 0 || hidden > 0)
     PrintFormat("TradeForce: cloud mode - closed %d extra chart(s), hid %d symbol(s).", ArraySize(ids), hidden);
 }
