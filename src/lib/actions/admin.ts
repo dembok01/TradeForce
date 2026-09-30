@@ -310,6 +310,8 @@ export async function adminProbeBrokerAction(address: string): Promise<AdminActi
  * Nothing is added to the picker here. This produces evidence for an admin to
  * act on, which is the whole point of not guessing.
  */
+const MAX_CANDIDATE_CHECKS = 6;
+
 export async function adminFindBrokerServersAction(domain: string): Promise<AdminActionResult> {
   const g = await guard();
   if ("error" in g) return g;
@@ -317,6 +319,21 @@ export async function adminFindBrokerServersAction(domain: string): Promise<Admi
   const bare = normaliseDomain(domain);
   if (!bare) {
     return { error: "Enter the broker's website domain, like tickmill.com." };
+  }
+
+  // Some domains answer on EVERY hostname - a wildcard DNS record pointed at a
+  // web server or CDN. Measured: octafx.com answers on all fifteen candidates.
+  // Without this the admin would queue fifteen terminal checks, about an hour of
+  // pool time, to learn that none of them speak MetaTrader. Ask for a name
+  // nobody could have registered first; if that answers, guessing is worthless
+  // here.
+  const control = `mt5-no-such-host-${Math.random().toString(36).slice(2, 10)}.${bare}:443`;
+  if (await reachable(control, 4000)) {
+    return {
+      error:
+        `${bare} answers on every hostname it is asked about, so guessing cannot tell us anything ` +
+        "about it. Ask the broker's support for their MT5 access point.",
+    };
   }
 
   const candidates = candidateAddresses(bare);
@@ -334,9 +351,13 @@ export async function adminFindBrokerServersAction(domain: string): Promise<Admi
     };
   }
 
+  // Each check costs a real terminal for a couple of minutes, so a domain that
+  // answers broadly is capped rather than allowed to fill the queue.
+  const toCheck = answered.slice(0, MAX_CANDIDATE_CHECKS);
+
   const { error } = await createServiceClient()
     .from("broker_probes")
-    .insert(answered.map((address) => ({ address, requested_by: g.adminId })));
+    .insert(toCheck.map((address) => ({ address, requested_by: g.adminId })));
   if (error) {
     log.error("candidate probes not queued", { detail: error.message });
     return { error: "Found candidates but could not start the checks." };
@@ -345,8 +366,8 @@ export async function adminFindBrokerServersAction(domain: string): Promise<Admi
   revalidatePath("/admin/brokers");
   return {
     pending:
-      `${answered.length} of ${candidates.length} candidates for ${bare} answered. Checking whether ` +
-      "they are really MetaTrader servers — that takes a couple of minutes each, and the answers " +
-      "appear under Recent checks.",
+      `${answered.length} of ${candidates.length} candidates for ${bare} answered; checking ` +
+      `${toCheck.length}. Each takes a couple of minutes on a pool box, and the answers appear ` +
+      "under Recent checks.",
   };
 }
