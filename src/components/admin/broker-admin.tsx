@@ -63,7 +63,9 @@ export function BrokerAdmin({
         toast.error(r.error);
         return;
       }
-      toast.success(draft.id ? "Server updated." : "Server added to the picker.");
+      // Saving also queues a check, so say that rather than a bare "saved".
+      if (r.pending) toast.info(r.pending);
+      else toast.success(draft.id ? "Server updated." : "Server added to the picker.");
       setDraft(EMPTY);
       router.refresh();
     });
@@ -186,6 +188,27 @@ export function BrokerAdmin({
           </div>
         </div>
       </Panel>
+
+      {probes.length > 0 ? (
+        <Panel
+          title="Recent checks"
+          note="what MetaTrader found - including addresses not in the list yet"
+        >
+          <Table cols={["Address", "Verdict", "What MetaTrader said", "When"]}>
+            {probes.slice(0, 8).map((p) => {
+              const v = verdict(p);
+              return (
+                <tr key={`${p.address}-${p.requested_at}`}>
+                  <td className="px-4 py-2 font-mono text-xs">{p.address}</td>
+                  <td className={`px-4 py-2 ${v.tone}`}>{v.text}</td>
+                  <td className="px-4 py-2 text-xs text-muted-foreground">{p.evidence ?? "—"}</td>
+                  <td className="px-4 py-2 text-muted-foreground">{ago(p.requested_at)}</td>
+                </tr>
+              );
+            })}
+          </Table>
+        </Panel>
+      ) : null}
 
       <Panel title="In the picker" note={`${rows.filter((r) => r.enabled).length} of ${rows.length} shown to traders`}>
         <Table cols={["Broker", "Server", "Address", "Kind", "Last check", "Signed in", ""]} empty="No brokers yet.">

@@ -220,9 +220,25 @@ export async function adminSaveBrokerAction(input: BrokerInput): Promise<AdminAc
         : "Could not save the broker.",
     };
   }
+  // Check it without being asked. An address nobody has verified is exactly
+  // what this feature exists to prevent, and an admin should not have to
+  // remember a second click. A trader-verified row needs no probe: someone has
+  // already signed in through it.
+  if (!verifiedServer) {
+    const { error: probeError } = await db
+      .from("broker_probes")
+      .insert({ address: row.address, requested_by: g.adminId });
+    if (probeError) log.error("broker probe not queued on save", { detail: probeError.message });
+  }
+
   revalidatePath("/admin/brokers");
   revalidatePath("/dashboard/ea-setup");
-  return { ok: true };
+  return {
+    ok: true,
+    pending: verifiedServer
+      ? undefined
+      : `Saved. Checking ${row.address} answers as a MetaTrader server — refresh in a minute or two.`,
+  };
 }
 
 /** Take a broker out of the picker without losing the row, or put it back. */
