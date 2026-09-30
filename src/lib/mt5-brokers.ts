@@ -133,3 +133,49 @@ export function isAcceptableServer(v: string): boolean {
   const s = v.trim();
   return isValidServerAddress(s) || EXNESS_NAME_RE.test(s);
 }
+
+/**
+ * Hostnames worth trying for a broker we have no address for.
+ *
+ * Brokers publish a server NAME ("Tickmill-Demo"); the address is usually
+ * nowhere public, so the alternative to asking their support is to try the
+ * shapes every other broker uses and let the network answer. Derived from the
+ * addresses already in the catalogue - mt5-demo.icmarkets.com, dc1.mt5demo.
+ * alpari.com, mt5-demo1.pepperstone.com, mt5.demo.blueberrymarkets.com.
+ *
+ * It finds a broker roughly four times in ten (measured over seven broker
+ * domains), which is worth a few seconds of DNS; the rest still need a human to
+ * ask the broker. Guessing is only safe because nothing is trusted until a real
+ * terminal has confirmed it: mt5.roboforex.com:443 and mt5.xm.com:443 both
+ * accept connections and neither is an MT5 server.
+ */
+const CANDIDATE_PREFIXES = [
+  "mt5", "mt5-demo", "mt5demo", "mt5-live", "mt5-real",
+  "demo.mt5", "mt5.demo", "live.mt5", "mt5.live",
+  "mt5-demo1", "mt5-live1", "mt5-1",
+  "dc1.mt5", "dc1.mt5demo", "trade.mt5",
+];
+
+/** A bare registrable domain from whatever the admin pasted, or null. */
+export function normaliseDomain(input: string): string | null {
+  const bare = input
+    .trim()
+    .toLowerCase()
+    .replace(/^[a-z]+:\/\//, "")
+    .replace(/[/?#].*$/, "")
+    .replace(/^www\./, "")
+    .replace(/:\d+$/, "");
+  // Must look like a domain: at least one dot, no spaces, sane characters.
+  if (!/^[a-z0-9]([a-z0-9-]*[a-z0-9])?(\.[a-z0-9]([a-z0-9-]*[a-z0-9])?)+$/.test(bare)) return null;
+  // An IP is not a broker's domain, and prefixing one would only produce
+  // nonsense like mt5.10.0.0.1. The reachability guard would refuse it later
+  // anyway; there is no reason to generate it.
+  if (/^\d{1,3}(\.\d{1,3}){3}$/.test(bare)) return null;
+  return bare;
+}
+
+export function candidateAddresses(domain: string, port = 443): string[] {
+  const bare = normaliseDomain(domain);
+  if (!bare) return [];
+  return CANDIDATE_PREFIXES.map((p) => `${p}.${bare}:${port}`);
+}

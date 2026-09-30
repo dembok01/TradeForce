@@ -7,7 +7,13 @@ import { getAuthedUser } from "@/lib/data/auth";
 import { createServiceClient } from "@/lib/supabase/service";
 import { log } from "@/lib/log";
 import { logConnection } from "@/lib/connection-log";
-import { isValidServerAddress, isAcceptableServer } from "@/lib/mt5-brokers";
+import {
+  isValidServerAddress,
+  isAcceptableServer,
+  candidateAddresses,
+  normaliseDomain,
+} from "@/lib/mt5-brokers";
+import { reachable } from "@/lib/mt5-reachable";
 
 export type AdminActionResult = { ok?: true; pending?: string; error?: string };
 
@@ -289,4 +295,58 @@ export async function adminProbeBrokerAction(address: string): Promise<AdminActi
   }
   revalidatePath("/admin/brokers");
   return { pending: `Checking ${trimmed}. A pool box runs a real terminal against it — refresh in a minute or two.` };
+}
+
+/**
+ * Try the usual hostname shapes for a broker's domain and check what answers.
+ *
+ * Two stages, because the stages cost wildly different amounts. DNS and a TCP
+ * connect are seconds and run here, in parallel, against all fifteen candidates;
+ * only what survives is handed to a pool box, where each check costs a real
+ * terminal and about two minutes. Measured on icmarkets.com: fifteen candidates,
+ * three answered TCP, and the terminal then showed two of those were genuinely
+ * MetaTrader servers.
+ *
+ * Nothing is added to the picker here. This produces evidence for an admin to
+ * act on, which is the whole point of not guessing.
+ */
+export async function adminFindBrokerServersAction(domain: string): Promise<AdminActionResult> {
+  const g = await guard();
+  if ("error" in g) return g;
+
+  const bare = normaliseDomain(domain);
+  if (!bare) {
+    return { error: "Enter the broker's website domain, like tickmill.com." };
+  }
+
+  const candidates = candidateAddresses(bare);
+  // reachable() refuses anything that is not public unicast, so a domain that
+  // resolves inward cannot turn this into a scan of the private network.
+  const answered = (
+    await Promise.all(candidates.map(async (a) => ((await reachable(a, 4000)) ? a : null)))
+  ).filter((a): a is string => a !== null);
+
+  if (answered.length === 0) {
+    return {
+      error:
+        `None of the ${candidates.length} usual addresses for ${bare} answered. This broker does ` +
+        "not follow the common naming, so ask their support for the MT5 access point.",
+    };
+  }
+
+  const { error } = await createServiceClient()
+    .from("broker_probes")
+    .insert(answered.map((address) => ({ address, requested_by: g.adminId })));
+  if (error) {
+    log.error("candidate probes not queued", { detail: error.message });
+    return { error: "Found candidates but could not start the checks." };
+  }
+
+  revalidatePath("/admin/brokers");
+  return {
+    pending:
+      `${answered.length} of ${candidates.length} candidates for ${bare} answered. Checking whether ` +
+      "they are really MetaTrader servers — that takes a couple of minutes each, and the answers " +
+      "appear under Recent checks.",
+  };
 }

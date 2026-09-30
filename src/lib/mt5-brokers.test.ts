@@ -9,6 +9,8 @@ import {
   brokerOf,
   helpFor,
   exnessServers,
+  normaliseDomain,
+  candidateAddresses,
   type Mt5Server,
 } from "./mt5-brokers";
 
@@ -148,5 +150,48 @@ describe("Exness (trial broker, connected by server name)", () => {
   it("keeps its guidance with its generated entries", () => {
     expect(helpFor(CATALOGUE, "Exness")).toContain("Personal Area");
     expect(helpFor(CATALOGUE, "MetaQuotes")).toBeNull();
+  });
+});
+
+describe("finding a broker's servers from its domain", () => {
+  it("takes the domain out of whatever was pasted", () => {
+    expect(normaliseDomain("tickmill.com")).toBe("tickmill.com");
+    expect(normaliseDomain("  TICKMILL.COM  ")).toBe("tickmill.com");
+    expect(normaliseDomain("https://www.tickmill.com/trading-platforms/mt5")).toBe("tickmill.com");
+    expect(normaliseDomain("tickmill.com:443")).toBe("tickmill.com");
+    expect(normaliseDomain("http://sub.broker.co.uk/x?y=1")).toBe("sub.broker.co.uk");
+  });
+
+  it("refuses anything that is not a domain, including internal names", () => {
+    // A single-label name could point inside the network; it never gets as far
+    // as the reachability guard if it cannot be a candidate in the first place.
+    for (const bad of ["", "Tickmill", "localhost", "not a domain", "10.0.0.1", "..", "-.com"]) {
+      expect(normaliseDomain(bad), bad).toBeNull();
+    }
+    expect(candidateAddresses("localhost")).toEqual([]);
+  });
+
+  it("offers the shapes brokers actually use", () => {
+    const got = candidateAddresses("tickmill.com");
+    expect(got).toContain("mt5.tickmill.com:443");
+    expect(got).toContain("mt5-demo.tickmill.com:443");
+    expect(got).toContain("dc1.mt5demo.tickmill.com:443");
+    expect(got).toHaveLength(15);
+  });
+
+  it("generates only addresses the rest of the system accepts", () => {
+    // Every candidate goes on to be probed and possibly catalogued, so each one
+    // has to be a valid server address by construction.
+    for (const a of candidateAddresses("broker.co.uk")) {
+      expect(isValidServerAddress(a), a).toBe(true);
+    }
+  });
+
+  it("would have found the addresses we already catalogue for IC Markets", () => {
+    // The measured case: of fifteen candidates three answered TCP and the
+    // terminal confirmed two were real - both already in the seed.
+    const got = candidateAddresses("icmarkets.com");
+    expect(got).toContain("mt5-demo.icmarkets.com:443");
+    expect(got).toContain("mt5.icmarkets.com:443");
   });
 });

@@ -3,6 +3,7 @@ import { cache } from "react";
 import { createServiceClient } from "@/lib/supabase/service";
 import { exnessServers, type Mt5Server } from "@/lib/mt5-brokers";
 import { log } from "@/lib/log";
+import { getInbox, type InboxItem } from "@/lib/data/admin";
 
 /**
  * The broker catalogue, read from mt5_brokers instead of a hardcoded array, so
@@ -176,4 +177,16 @@ export async function getLatestProbes(): Promise<Probe[]> {
     if (!latest.has(row.address)) latest.set(row.address, row);
   }
   return [...latest.values()];
+}
+
+/**
+ * Traders asking for a broker we do not list.
+ *
+ * They already arrive through requestBrokerAction as ordinary contact messages;
+ * shown here because this is where the work of answering them happens, and the
+ * server name they give is exactly the input for finding the address.
+ */
+export async function getOpenBrokerRequests(): Promise<InboxItem[]> {
+  const inbox = await getInbox();
+  return inbox.filter((i) => i.kind === "broker" && !i.handledAt);
 }

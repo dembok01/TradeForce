@@ -366,6 +366,42 @@ def run_probe(probe_id: int, address: str) -> tuple[str, str]:
             print(f"probe {probe_id} cleanup: {e}", flush=True)
 
 
+def raise_probe(acc: str, address: str | None):
+    """Queue a check of the address a trader cannot reach.
+
+    At most one automatic probe per address: several traders on the same bad
+    address is common - they were all told the same wrong thing - and the answer
+    is the same for all of them.
+    """
+    if not address:
+        return
+    try:
+        seen = requests.get(
+            f"{PROBE_REST}?address=eq.{requests.utils.quote(address, safe='')}"
+            "&account_id=not.is.null&select=id&limit=1",
+            headers=H, timeout=15)
+        if seen.status_code < 300 and seen.json():
+            return
+        requests.post(PROBE_REST, headers={**H, "Prefer": "return=minimal"},
+                      json={"address": address, "account_id": acc}, timeout=15)
+        print(f"checking whether {address} answers at all (for {acc})", flush=True)
+    except (requests.RequestException, ValueError) as e:
+        print(f"could not queue a check for {address}: {e}", flush=True)
+
+
+# What the trader is told once a probe raised on their behalf comes back. The
+# address being dead is a different problem from the password being wrong, and
+# only one of them is theirs to fix.
+PROBE_VERDICT = {
+    "reached": ("info", "Their server is reachable, so the address is right - the account number, "
+                        "password or the demo/live server is what needs correcting."),
+    "not_reached": ("error", "Nothing answers at that address - it is not a MetaTrader server. "
+                             "Ask your broker for their MT5 access point (something like "
+                             "mt5-demo.yourbroker.com:443) and connect again."),
+    "error": ("warn", "We could not finish checking that address. Support will look."),
+}
+
+
 def probe_once() -> bool:
     """Claim and answer one queued probe. True if there was one.
 
@@ -413,6 +449,12 @@ def probe_once() -> bool:
         )
     except requests.RequestException as e:
         print(f"probe result for {address} not recorded: {e}", flush=True)
+
+    # Raised for a particular trader: put the answer where support reads it.
+    if job.get("account_id"):
+        level, message = PROBE_VERDICT.get(verdict, PROBE_VERDICT["error"])
+        event(job["account_id"], "address_checked", level, message,
+              {"address": address, "result": verdict, "mt5": evidence[:400]})
     return True
 
 
@@ -760,6 +802,10 @@ def check_one(acc: str, name: str):
         report(acc, status="login_failed", status_detail=detail)
         if changed(acc, "login", "silent"):
             event(acc, "no_answer", "error", detail, evidence(acc))
+            # "No answer" does not say WHY, and support cannot tell a wrong
+            # address from wrong credentials without asking someone. Ask a
+            # terminal instead; the verdict comes back into this trader's log.
+            raise_probe(acc, _rows.get(acc, {}).get("mt5_server"))
         return
 
     if state[0] == "failed":

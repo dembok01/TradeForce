@@ -7,9 +7,11 @@ import {
   adminSaveBrokerAction,
   adminSetBrokerEnabledAction,
   adminProbeBrokerAction,
+  adminFindBrokerServersAction,
 } from "@/lib/actions/admin";
 import { Panel, Table } from "@/components/admin/ui";
 import type { BrokerRow, DiscoveredServer, Probe } from "@/lib/data/brokers";
+import type { InboxItem } from "@/lib/data/admin";
 
 const EMPTY = { broker: "", label: "", address: "", kind: "demo" as "demo" | "live", help: "", note: "" };
 type Draft = typeof EMPTY & { id?: number; verifiedServer?: string };
@@ -40,14 +42,17 @@ export function BrokerAdmin({
   rows,
   discovered,
   probes,
+  requests,
 }: {
   rows: BrokerRow[];
   discovered: DiscoveredServer[];
   probes: Probe[];
+  requests: InboxItem[];
 }) {
   const router = useRouter();
   const [pending, startTransition] = useTransition();
   const [draft, setDraft] = useState<Draft>(EMPTY);
+  const [domain, setDomain] = useState("");
 
   const set = (k: keyof Draft) => (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) =>
     setDraft((d) => ({ ...d, [k]: e.target.value }));
@@ -80,6 +85,15 @@ export function BrokerAdmin({
     });
   }
 
+  function findServers(forDomain: string) {
+    startTransition(async () => {
+      const r = await adminFindBrokerServersAction(forDomain);
+      if (r.error) toast.error(r.error);
+      else if (r.pending) toast.info(r.pending);
+      router.refresh();
+    });
+  }
+
   function toggle(id: number, enabled: boolean) {
     startTransition(async () => {
       const r = await adminSetBrokerEnabledAction(id, enabled);
@@ -90,6 +104,63 @@ export function BrokerAdmin({
 
   return (
     <div className="space-y-6">
+      {requests.length > 0 ? (
+        <Panel
+          title="Traders waiting for a broker"
+          note="they asked for these from the Connect page; the server name is what their broker gave them"
+        >
+          <Table cols={["Broker", "Their server name", "Who", "Asked", ""]}>
+            {requests.map((q) => (
+              <tr key={q.id}>
+                <td className="px-4 py-2 font-medium">{q.broker ?? "—"}</td>
+                <td className="px-4 py-2">{q.serverName ?? "not given"}</td>
+                <td className="px-4 py-2 text-xs text-muted-foreground">{q.email}</td>
+                <td className="px-4 py-2 text-muted-foreground">{ago(q.createdAt)}</td>
+                <td className="px-4 py-2 text-right">
+                  <button
+                    className={button}
+                    disabled={pending}
+                    onClick={() => {
+                      setDraft({ ...EMPTY, broker: q.broker ?? "", label: q.serverName ?? "" });
+                      setDomain("");
+                    }}
+                  >
+                    Start adding
+                  </button>
+                </td>
+              </tr>
+            ))}
+          </Table>
+          <p className="px-4 pb-3 text-xs text-muted-foreground">
+            Mark a request handled from the Inbox once its broker is in the picker.
+          </p>
+        </Panel>
+      ) : null}
+
+      <Panel
+        title="Find a broker's servers"
+        note="tries the fifteen addresses brokers usually use, then checks what answers"
+      >
+        <div className="flex flex-wrap items-center gap-2 p-4">
+          <input
+            className={`${field} max-w-xs`}
+            value={domain}
+            onChange={(e) => setDomain(e.target.value)}
+            placeholder="tickmill.com"
+            onKeyDown={(e) => {
+              if (e.key === "Enter" && domain) findServers(domain);
+            }}
+          />
+          <button className={button} disabled={pending || !domain} onClick={() => findServers(domain)}>
+            {pending ? "…" : "Find servers"}
+          </button>
+          <span className="text-xs text-muted-foreground">
+            Works for about four brokers in ten — the rest do not follow the common naming, and their
+            support can give you the address.
+          </span>
+        </div>
+      </Panel>
+
       {discovered.length > 0 ? (
         <Panel
           title="Found from traders"

@@ -351,3 +351,33 @@ class ProbeVerdictTest(unittest.TestCase):
         # Still starting up: keep waiting rather than call it a failure.
         self.assertFalse(a.probe_conclusive("not_reached", "the terminal never opened a connection"))
         self.assertFalse(a.probe_conclusive("error", "the terminal wrote no journal"))
+
+
+@unittest.skipIf(a is None, "agent dependencies not installed")
+class ProbeVerdictMessageTest(unittest.TestCase):
+    """What a trader is told once a check raised on their behalf comes back.
+
+    "No answer from the broker" does not say whose problem it is. A dead address
+    is ours to fix by cataloguing the right one; a refused sign-in is theirs.
+    """
+
+    def test_every_verdict_has_a_message_and_a_level(self):
+        for verdict in ("reached", "not_reached", "error"):
+            level, message = a.PROBE_VERDICT[verdict]
+            self.assertIn(level, ("info", "warn", "error"))
+            self.assertGreater(len(message), 40)
+
+    def test_a_dead_address_tells_them_what_to_ask_their_broker_for(self):
+        level, message = a.PROBE_VERDICT["not_reached"]
+        self.assertEqual(level, "error")
+        self.assertIn("not a MetaTrader server", message)
+        self.assertIn("access point", message)
+
+    def test_a_live_address_points_at_the_credentials_instead(self):
+        level, message = a.PROBE_VERDICT["reached"]
+        self.assertEqual(level, "info")
+        self.assertIn("password", message)
+
+    def test_an_unknown_verdict_falls_back_rather_than_raising(self):
+        self.assertEqual(a.PROBE_VERDICT.get("nonsense", a.PROBE_VERDICT["error"]),
+                         a.PROBE_VERDICT["error"])

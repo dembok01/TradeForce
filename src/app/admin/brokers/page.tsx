@@ -1,13 +1,19 @@
-import { getBrokerRows, getDiscoveredServers, getLatestProbes } from "@/lib/data/brokers";
+import {
+  getBrokerRows,
+  getDiscoveredServers,
+  getLatestProbes,
+  getOpenBrokerRequests,
+} from "@/lib/data/brokers";
 import { BrokerAdmin } from "@/components/admin/broker-admin";
 
 export const dynamic = "force-dynamic";
 
 export default async function BrokersPage() {
-  const [rows, discovered, probes] = await Promise.all([
+  const [rows, discovered, probes, requests] = await Promise.all([
     getBrokerRows(),
     getDiscoveredServers(),
     getLatestProbes(),
+    getOpenBrokerRequests(),
   ]);
 
   return (
@@ -36,7 +42,7 @@ export default async function BrokersPage() {
         </p>
       </div>
 
-      <BrokerAdmin rows={rows} discovered={discovered} probes={probes} />
+      <BrokerAdmin rows={rows} discovered={discovered} probes={probes} requests={requests} />
     </div>
   );
 }
