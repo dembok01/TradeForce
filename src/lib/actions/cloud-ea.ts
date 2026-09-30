@@ -9,6 +9,7 @@ import { createServiceClient } from "@/lib/supabase/service";
 import { API_KEY_PREFIX, hashApiKey } from "@/lib/ea-auth";
 import { sealSecret } from "@/lib/mt5-crypto";
 import { isAcceptableServer, brokerLabel } from "@/lib/mt5-brokers";
+import { getPickerServers } from "@/lib/data/brokers";
 import { isCustomAddress, reachable } from "@/lib/mt5-reachable";
 import { logConnection } from "@/lib/connection-log";
 import { toActionErrorMessage } from "@/lib/action-error";
@@ -63,7 +64,8 @@ export async function enableCloudEaAction(
     // Deliberately after sign-in: opening a socket to a caller's address is an
     // SSRF primitive, so it is never reachable anonymously, and reachable()
     // itself refuses anything that is not public unicast.
-    if (isCustomAddress(server) && !(await reachable(server))) {
+    const catalogue = await getPickerServers();
+    if (isCustomAddress(server, catalogue) && !(await reachable(server))) {
       return {
         error:
           `Nothing answered at ${server}. That needs to be your broker's MetaTrader 5 access ` +
@@ -133,7 +135,7 @@ export async function enableCloudEaAction(
       .is("revoked_at", null);
 
     await logConnection(account.id, userId, "submitted", "info",
-      `You asked us to connect account ${login} on ${brokerLabel(server)}.`, { server });
+      `You asked us to connect account ${login} on ${brokerLabel(catalogue, server)}.`, { server });
 
     revalidatePath("/dashboard/ea-setup");
     return { error: null };

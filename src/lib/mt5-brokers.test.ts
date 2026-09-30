@@ -1,14 +1,33 @@
+import { readFileSync } from "node:fs";
 import { describe, it, expect } from "vitest";
 import {
   isValidServerAddress,
   isAcceptableServer,
   brokerLabel,
+  brokerNames,
   serversForBroker,
-  MT5_SERVERS,
-  MT5_BROKER_NAMES,
-  BROKER_HELP,
   brokerOf,
+  helpFor,
+  exnessServers,
+  type Mt5Server,
 } from "./mt5-brokers";
+
+/**
+ * The catalogue lives in the database now, so these read the migration's seed -
+ * the one place its contents can be checked without a database, and the thing
+ * that would silently go wrong if a broker were lost moving it out of code.
+ */
+const SEED_SQL = readFileSync("supabase/migrations/20260930000000_mt5_brokers.sql", "utf8");
+const SEEDED: Mt5Server[] = [...SEED_SQL.matchAll(
+  /^ {2}\('([^']+)', '((?:[^']|'')+)', '([^']+)', '(demo|live)'/gm,
+)].map((m) => ({
+  broker: m[1],
+  label: m[2].replace(/''/g, "'"),
+  address: m[3],
+  kind: m[4] as "demo" | "live",
+}));
+
+const CATALOGUE: Mt5Server[] = [...SEEDED, ...exnessServers()];
 
 describe("mt5 server address validation", () => {
   it("accepts ip:port and host:port", () => {
@@ -28,50 +47,70 @@ describe("mt5 server address validation", () => {
     }
   });
 
-  it("accepts listed brokers and any valid custom address", () => {
-    expect(isAcceptableServer(MT5_SERVERS[0].address)).toBe(true);
+  it("accepts any valid custom address, and every catalogued one", () => {
     expect(isAcceptableServer("some.broker.ae:443")).toBe(true);
     expect(isAcceptableServer("Exness-Real12")).toBe(false); // not a real Exness server name
+    // Why isAcceptableServer needs no catalogue: membership would be redundant.
+    for (const s of CATALOGUE) {
+      expect(isAcceptableServer(s.address), `${s.broker} ${s.label}`).toBe(true);
+    }
   });
 
   it("labels a known broker, echoes an unknown address", () => {
-    expect(brokerLabel(MT5_SERVERS[0].address)).toContain(MT5_SERVERS[0].broker);
-    expect(brokerLabel("x.broker.com:443")).toBe("x.broker.com:443");
+    expect(brokerLabel(CATALOGUE, SEEDED[0].address)).toContain(SEEDED[0].broker);
+    expect(brokerLabel(CATALOGUE, "x.broker.com:443")).toBe("x.broker.com:443");
+  });
+});
+
+describe("the seeded catalogue", () => {
+  it("carries every broker the hardcoded list had", () => {
+    expect(SEEDED).toHaveLength(26);
+    for (const broker of [
+      "Admirals", "Alpari", "Alpha Capital", "Blueberry Markets", "Deriv", "E8 Markets",
+      "Equiti", "Forex.com", "Funded Trading Plus", "Fusion Markets", "Global Prime",
+      "IC Markets", "IG", "Maven Trading", "MetaQuotes", "MultiBank", "Pepperstone",
+      "Swissquote", "Weltrade",
+    ]) {
+      expect(brokerNames(SEEDED), broker).toContain(broker);
+    }
+  });
+
+  it("seeds addresses only - a name would never connect", () => {
+    // Exness is the sole name-based broker and is deliberately not in the table.
+    for (const s of SEEDED) {
+      expect(isValidServerAddress(s.address), `${s.broker} ${s.label}`).toBe(true);
+      expect(s.broker).not.toBe("Exness");
+    }
+  });
+
+  it("never seeds the same address twice", () => {
+    const addresses = SEEDED.map((s) => s.address);
+    expect(addresses).toEqual([...new Set(addresses)]);
   });
 });
 
 describe("broker picker", () => {
   it("offers each broker once, alphabetically", () => {
-    expect(MT5_BROKER_NAMES).toEqual([...new Set(MT5_BROKER_NAMES)].sort((a, b) => a.localeCompare(b)));
-    expect(MT5_BROKER_NAMES).toContain("MetaQuotes");
+    const names = brokerNames(CATALOGUE);
+    expect(names).toEqual([...new Set(names)].sort((a, b) => a.localeCompare(b)));
+    expect(names).toContain("MetaQuotes");
   });
 
   it("finds a broker's servers however the trader types it", () => {
-    expect(serversForBroker("metaquotes").length).toBeGreaterThan(0);
-    expect(serversForBroker("  MetaQuotes  ").length).toBeGreaterThan(0);
-    expect(serversForBroker("Not A Broker")).toEqual([]);
-    expect(serversForBroker("")).toEqual([]);
-  });
-
-  it("every catalogued server is an address - except Exness, which goes by name", () => {
-    // A name only connects if the image's servers.dat knows it; Exness is the
-    // one broker seeded that way. Anyone else listed by name would never connect.
-    for (const s of MT5_SERVERS) {
-      if (s.broker === "Exness") expect(isValidServerAddress(s.address)).toBe(false);
-      else expect(isValidServerAddress(s.address), `${s.broker} ${s.label}`).toBe(true);
-    }
-  });
-
-  it("never lists the same address twice", () => {
-    const addresses = MT5_SERVERS.map((s) => s.address);
-    expect(addresses).toEqual([...new Set(addresses)]);
+    expect(serversForBroker(CATALOGUE, "metaquotes").length).toBeGreaterThan(0);
+    expect(serversForBroker(CATALOGUE, "  MetaQuotes  ").length).toBeGreaterThan(0);
+    expect(serversForBroker(CATALOGUE, "Not A Broker")).toEqual([]);
+    expect(serversForBroker(CATALOGUE, "")).toEqual([]);
   });
 });
 
 describe("Alpari (trial broker)", () => {
   it("uses Alpari's published access points, one per server", () => {
-    const alpari = serversForBroker("Alpari");
-    expect(alpari.map((s) => s.address)).toEqual(["dc1.mt5demo.alpari.com:443", "dc1.mt5.alpari.com:443"]);
+    const alpari = serversForBroker(CATALOGUE, "Alpari");
+    expect(alpari.map((s) => s.address)).toEqual([
+      "dc1.mt5demo.alpari.com:443",
+      "dc1.mt5.alpari.com:443",
+    ]);
     expect(alpari.map((s) => s.kind)).toEqual(["demo", "live"]);
     // Labels carry the server name the trader sees in MetaTrader and their email.
     expect(alpari[0].label).toContain("Alpari-MT5-Demo");
@@ -79,16 +118,17 @@ describe("Alpari (trial broker)", () => {
   });
 
   it("maps a stored address back to its broker, for the refused-login help", () => {
-    expect(brokerOf("dc1.mt5demo.alpari.com:443")).toBe("Alpari");
-    expect(brokerOf("x.broker.com:443")).toBeNull();
-    expect(brokerOf(null)).toBeNull();
-    expect(BROKER_HELP.Alpari).toContain("Alpari-MT5-Demo");
+    expect(brokerOf(CATALOGUE, "dc1.mt5demo.alpari.com:443")).toBe("Alpari");
+    expect(brokerOf(CATALOGUE, "x.broker.com:443")).toBeNull();
+    expect(brokerOf(CATALOGUE, null)).toBeNull();
+    // Alpari's guidance moved into the table; the migration sets it.
+    expect(SEED_SQL).toContain("Alpari-MT5-Demo and real accounts");
   });
 });
 
 describe("Exness (trial broker, connected by server name)", () => {
   it("lists its servers by the names traders see in the Personal Area", () => {
-    const names = serversForBroker("Exness").map((s) => s.address);
+    const names = serversForBroker(CATALOGUE, "Exness").map((s) => s.address);
     expect(names).toContain("Exness-MT5Real");
     expect(names).toContain("Exness-MT5Real8");
     expect(names).toContain("Exness-MT5Trial8");
@@ -102,6 +142,11 @@ describe("Exness (trial broker, connected by server name)", () => {
     expect(isAcceptableServer("ExnessKE-MT5Real4")).toBe(true);
     expect(isAcceptableServer("Exness-MT5Real8; rm -rf /")).toBe(false);
     expect(isAcceptableServer("Exness-MT4Real8")).toBe(false);
-    expect(brokerOf("Exness-MT5Real45")).toBe("Exness");
+    expect(brokerOf(CATALOGUE, "Exness-MT5Real45")).toBe("Exness");
+  });
+
+  it("keeps its guidance with its generated entries", () => {
+    expect(helpFor(CATALOGUE, "Exness")).toContain("Personal Area");
+    expect(helpFor(CATALOGUE, "MetaQuotes")).toBeNull();
   });
 });

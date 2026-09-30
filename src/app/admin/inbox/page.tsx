@@ -37,8 +37,11 @@ function Row({ m }: { m: InboxItem }) {
           <>
             <div className="font-medium">{m.broker ?? "—"}</div>
             <div className="text-xs text-muted-foreground">
-              Server name: {m.serverName ?? "not given"} · add it to src/lib/mt5-brokers.ts after
-              verify-brokers.sh confirms the address
+              Server name: {m.serverName ?? "not given"} ·{" "}
+              <Link href="/admin/brokers" className="text-primary hover:underline">
+                add it under Brokers
+              </Link>{" "}
+              once you have the broker&rsquo;s address
             </div>
           </>
         ) : (

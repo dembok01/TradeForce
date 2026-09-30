@@ -1,6 +1,6 @@
 import { lookup } from "node:dns/promises";
 import { connect, isIP } from "node:net";
-import { MT5_SERVERS } from "@/lib/mt5-brokers";
+import type { Mt5Server } from "@/lib/mt5-brokers";
 
 /**
  * Is anything listening at a broker address?
@@ -27,9 +27,9 @@ const TIMEOUT_MS = 3000;
  * pool box, and a transient blip must never block a signup - a broker that
  * really is down is reported by the agent within minutes either way.
  */
-export function isCustomAddress(server: string): boolean {
+export function isCustomAddress(server: string, catalogue: Mt5Server[]): boolean {
   const s = server.trim();
-  return s.includes(":") && !MT5_SERVERS.some((b) => b.address === s);
+  return s.includes(":") && !catalogue.some((b) => b.address === s);
 }
 
 /**

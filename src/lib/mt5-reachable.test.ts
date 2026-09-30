@@ -1,6 +1,13 @@
 import { createServer, type Server } from "node:net";
 import { afterAll, describe, expect, it } from "vitest";
 import { isCustomAddress, isPublicUnicast, reachable, tcpOpen } from "./mt5-reachable";
+import type { Mt5Server } from "./mt5-brokers";
+
+/** A stand-in catalogue: the list now comes from the database, not from code. */
+const CATALOGUE: Mt5Server[] = [
+  { broker: "Alpari", label: "Demo", address: "dc1.mt5demo.alpari.com:443", kind: "demo" },
+  { broker: "IC Markets", label: "Demo", address: "mt5-demo.icmarkets.com:443", kind: "demo" },
+];
 
 /** A real listener on a free loopback port, so "open" is not mocked. */
 function listen(): Promise<{ server: Server; port: number }> {
@@ -87,17 +94,17 @@ describe("reachable", () => {
 
 describe("isCustomAddress", () => {
   it("a dropdown address is not probed", () => {
-    expect(isCustomAddress("dc1.mt5demo.alpari.com:443")).toBe(false);
-    expect(isCustomAddress("  mt5-demo.icmarkets.com:443  ")).toBe(false);
+    expect(isCustomAddress("dc1.mt5demo.alpari.com:443", CATALOGUE)).toBe(false);
+    expect(isCustomAddress("  mt5-demo.icmarkets.com:443  ", CATALOGUE)).toBe(false);
   });
 
   it("a typed-in address is probed", () => {
     // The one that cost a trader 19 hours: resolves, refuses, not in our list.
-    expect(isCustomAddress("demo.icmarkets.com:443")).toBe(true);
+    expect(isCustomAddress("demo.icmarkets.com:443", CATALOGUE)).toBe(true);
   });
 
   it("a name-based server has no port to probe", () => {
-    expect(isCustomAddress("Exness-MT5Trial8")).toBe(false);
-    expect(isCustomAddress("ICMarketsSC-Demo")).toBe(false);
+    expect(isCustomAddress("Exness-MT5Trial8", CATALOGUE)).toBe(false);
+    expect(isCustomAddress("ICMarketsSC-Demo", CATALOGUE)).toBe(false);
   });
 });

@@ -1,11 +1,13 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
+import { z } from "zod";
 import { isAdmin } from "@/lib/admin";
 import { getAuthedUser } from "@/lib/data/auth";
 import { createServiceClient } from "@/lib/supabase/service";
 import { log } from "@/lib/log";
 import { logConnection } from "@/lib/connection-log";
+import { isValidServerAddress } from "@/lib/mt5-brokers";
 
 export type AdminActionResult = { ok?: true; pending?: string; error?: string };
 
@@ -154,5 +156,92 @@ export async function adminHandleConnectionAction(accountId: string): Promise<Ad
   }
   revalidatePath("/admin/inbox");
   revalidatePath("/admin");
+  return { ok: true };
+}
+
+/* ---------------------------------------------------------------- brokers */
+
+const brokerInput = z.object({
+  id: z.number().int().positive().optional(),
+  broker: z.string().trim().min(1, "Name the broker.").max(80),
+  label: z.string().trim().min(1, "Name which of their servers this is.").max(80),
+  address: z.string().trim().min(3).max(120),
+  kind: z.enum(["demo", "live"]),
+  help: z.string().trim().max(600).optional(),
+  note: z.string().trim().max(600).optional(),
+  /** Set when the row comes from a trader who actually signed in through it. */
+  verifiedServer: z.string().trim().max(80).optional(),
+});
+
+export type BrokerInput = z.input<typeof brokerInput>;
+
+/**
+ * Add or edit a server in the picker.
+ *
+ * Addresses only. A broker NAME resolves solely when it is already inside the
+ * image's encrypted servers.dat - ours holds MetaQuotes and a hand-seeded Exness
+ * - so a name saved here would never connect for anybody, and it would fail at
+ * login with a message the trader cannot act on.
+ */
+export async function adminSaveBrokerAction(input: BrokerInput): Promise<AdminActionResult> {
+  const g = await guard();
+  if ("error" in g) return g;
+
+  const parsed = brokerInput.safeParse(input);
+  if (!parsed.success) return { error: parsed.error.issues[0]?.message ?? "Check the details." };
+  const { id, verifiedServer, ...row } = parsed.data;
+
+  if (!isValidServerAddress(row.address)) {
+    return {
+      error:
+        `"${row.address}" is a server name, not an address. MetaTrader can only resolve a name ` +
+        "it already knows, so the picker needs the broker's access point, like " +
+        "mt5-demo.yourbroker.com:443.",
+    };
+  }
+
+  const db = createServiceClient();
+  const now = new Date().toISOString();
+  // A trader having signed in through it IS the verification - the agent only
+  // records "Connected to <server>" after MetaTrader reported authorisation.
+  const verified = verifiedServer
+    ? { verified_at: now, verified_server: verifiedServer, source: "trader" as const }
+    : null;
+
+  const { error } = id
+    ? await db.from("mt5_brokers").update({ ...row, ...(verified ?? {}), updated_at: now }).eq("id", id)
+    : await db.from("mt5_brokers").insert({ ...row, ...(verified ?? { source: "admin" as const }) });
+
+  if (error) {
+    log.error("admin broker save failed", { detail: error.message });
+    return {
+      error: error.code === "23505"
+        ? "That address is already in the list."
+        : "Could not save the broker.",
+    };
+  }
+  revalidatePath("/admin/brokers");
+  revalidatePath("/dashboard/ea-setup");
+  return { ok: true };
+}
+
+/** Take a broker out of the picker without losing the row, or put it back. */
+export async function adminSetBrokerEnabledAction(
+  id: number,
+  enabled: boolean,
+): Promise<AdminActionResult> {
+  const g = await guard();
+  if ("error" in g) return g;
+
+  const { error } = await createServiceClient()
+    .from("mt5_brokers")
+    .update({ enabled, updated_at: new Date().toISOString() })
+    .eq("id", id);
+  if (error) {
+    log.error("admin broker toggle failed", { detail: error.message, accountId: String(id) });
+    return { error: "Could not update the broker." };
+  }
+  revalidatePath("/admin/brokers");
+  revalidatePath("/dashboard/ea-setup");
   return { ok: true };
 }

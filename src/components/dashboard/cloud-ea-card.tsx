@@ -6,11 +6,12 @@ import { ShieldCheck, Loader2, TriangleAlert, ChevronDown } from "lucide-react";
 import { toast } from "sonner";
 import { enableCloudEaAction, disableCloudEaAction, requestBrokerAction } from "@/lib/actions/cloud-ea";
 import {
-  MT5_BROKER_NAMES,
-  BROKER_HELP,
+  brokerNames,
+  helpFor,
   serversForBroker,
   brokerLabel,
   brokerOf,
+  type Mt5Server,
 } from "@/lib/mt5-brokers";
 import { looksLikePropFirm } from "@/lib/prop-firms";
 import type { CloudEa, ConnectionStep } from "@/lib/data/cloud-ea";
@@ -130,13 +131,22 @@ function startingBlurb(c: CloudEa): string | null {
   return null;
 }
 
-export function CloudEaCard({ initial, propFirm }: { initial: CloudEa; propFirm?: string | null }) {
+export function CloudEaCard({
+  initial,
+  propFirm,
+  servers: catalogue,
+}: {
+  initial: CloudEa;
+  propFirm?: string | null;
+  /** Loaded from mt5_brokers by the page, so admins can add one without a deploy. */
+  servers: Mt5Server[];
+}) {
   const router = useRouter();
   const [login, setLogin] = useState(initial.login ?? "");
   const [password, setPassword] = useState("");
   // After a refused sign-in, start from what they sent: usually only the
   // password (or the demo/live server) was wrong.
-  const previousBroker = brokerOf(initial.server);
+  const previousBroker = brokerOf(catalogue, initial.server);
   const [broker, setBroker] = useState(
     previousBroker ?? (initial.server ? OTHER : "")
   );
@@ -149,7 +159,7 @@ export function CloudEaCard({ initial, propFirm }: { initial: CloudEa; propFirm?
   const [pending, startTransition] = useTransition();
 
   const isOther = broker === OTHER;
-  const servers = isOther ? [] : serversForBroker(broker);
+  const servers = isOther ? [] : serversForBroker(catalogue, broker);
   const effectiveServer = isOther ? customServer.trim() : serverAddress;
   const brokerName = isOther ? otherBroker.trim() : broker;
   // Exness servers go by name (see mt5-brokers.ts), so its "not listed" path
@@ -162,7 +172,7 @@ export function CloudEaCard({ initial, propFirm }: { initial: CloudEa; propFirm?
   function pickBroker(value: string) {
     setBroker(value);
     setRequested(false);
-    const found = value === OTHER ? [] : serversForBroker(value);
+    const found = value === OTHER ? [] : serversForBroker(catalogue, value);
     setServerAddress(found.length === 1 ? found[0].address : "");
   }
 
@@ -250,7 +260,7 @@ export function CloudEaCard({ initial, propFirm }: { initial: CloudEa; propFirm?
               <div className="text-sm">
                 <p>{startingBlurb(initial) ?? s.blurb}</p>
                 <p className="mt-1 text-muted-foreground">
-                  Account {initial.login} · {initial.server ? brokerLabel(initial.server) : ""}
+                  Account {initial.login} · {initial.server ? brokerLabel(catalogue, initial.server) : ""}
                 </p>
                 {initial.detail ? (
                   <p className="mt-1 text-muted-foreground">{initial.detail}</p>
@@ -280,8 +290,8 @@ export function CloudEaCard({ initial, propFirm }: { initial: CloudEa; propFirm?
                   </li>
                   <li>
                     Check the server:{" "}
-                    {previousBroker && BROKER_HELP[previousBroker]
-                      ? BROKER_HELP[previousBroker]
+                    {previousBroker && helpFor(catalogue, previousBroker)
+                      ? helpFor(catalogue, previousBroker)
                       : "demo and real accounts are on different servers, and the account only exists on its own one."}
                   </li>
                 </ul>
@@ -294,7 +304,7 @@ export function CloudEaCard({ initial, propFirm }: { initial: CloudEa; propFirm?
                 <option value="" disabled>
                   Choose your broker
                 </option>
-                {MT5_BROKER_NAMES.map((name) => (
+                {brokerNames(catalogue).map((name) => (
                   <option key={name} value={name}>
                     {name}
                   </option>
@@ -322,8 +332,8 @@ export function CloudEaCard({ initial, propFirm }: { initial: CloudEa; propFirm?
                     </option>
                   ))}
                 </NativeSelect>
-                {BROKER_HELP[broker] ? (
-                  <p className="text-xs text-muted-foreground">{BROKER_HELP[broker]}</p>
+                {helpFor(catalogue, broker) ? (
+                  <p className="text-xs text-muted-foreground">{helpFor(catalogue, broker)}</p>
                 ) : null}
                 <button
                   type="button"
@@ -365,7 +375,7 @@ export function CloudEaCard({ initial, propFirm }: { initial: CloudEa; propFirm?
                   />
                   <p className="text-xs text-muted-foreground">
                     {otherIsExness ? (
-                      BROKER_HELP.Exness
+                      helpFor(catalogue, "Exness")
                     ) : (
                       <>
                         Ask your broker&apos;s support for “the MT5 server address and port” for your
