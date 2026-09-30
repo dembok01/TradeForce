@@ -274,6 +274,24 @@ export interface Database {
         Update: Partial<Database["public"]["Tables"]["ea_events"]["Row"]>;
         Relationships: [];
       };
+      broker_probes: {
+        Row: {
+          id: number;
+          address: string;
+          requested_by: string | null;
+          requested_at: string;
+          host: string | null;
+          status: "queued" | "running" | "done";
+          result: "reached" | "not_reached" | "error" | null;
+          evidence: string | null;
+          finished_at: string | null;
+        };
+        Insert: Omit<Partial<Database["public"]["Tables"]["broker_probes"]["Row"]>, "id"> & {
+          address: string;
+        };
+        Update: Partial<Database["public"]["Tables"]["broker_probes"]["Row"]>;
+        Relationships: [];
+      };
       mt5_brokers: {
         Row: {
           id: number;

@@ -3,9 +3,13 @@
 import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { toast } from "sonner";
-import { adminSaveBrokerAction, adminSetBrokerEnabledAction } from "@/lib/actions/admin";
+import {
+  adminSaveBrokerAction,
+  adminSetBrokerEnabledAction,
+  adminProbeBrokerAction,
+} from "@/lib/actions/admin";
 import { Panel, Table } from "@/components/admin/ui";
-import type { BrokerRow, DiscoveredServer } from "@/lib/data/brokers";
+import type { BrokerRow, DiscoveredServer, Probe } from "@/lib/data/brokers";
 
 const EMPTY = { broker: "", label: "", address: "", kind: "demo" as "demo" | "live", help: "", note: "" };
 type Draft = typeof EMPTY & { id?: number; verifiedServer?: string };
@@ -19,12 +23,27 @@ function ago(iso: string | null): string {
   return days <= 0 ? "today" : days === 1 ? "yesterday" : `${days}d ago`;
 }
 
+/** What the last check found, in the admin's words rather than the column's. */
+function verdict(p: Probe | undefined): { text: string; tone: string; title?: string } {
+  if (!p) return { text: "not checked", tone: "text-muted-foreground" };
+  if (p.status !== "done") return { text: "checking…", tone: "text-muted-foreground" };
+  if (p.result === "reached") {
+    return { text: "answers as MT5", tone: "text-emerald-600", title: p.evidence ?? undefined };
+  }
+  if (p.result === "not_reached") {
+    return { text: "nothing there", tone: "text-destructive", title: p.evidence ?? undefined };
+  }
+  return { text: "check failed", tone: "text-destructive", title: p.evidence ?? undefined };
+}
+
 export function BrokerAdmin({
   rows,
   discovered,
+  probes,
 }: {
   rows: BrokerRow[];
   discovered: DiscoveredServer[];
+  probes: Probe[];
 }) {
   const router = useRouter();
   const [pending, startTransition] = useTransition();
@@ -46,6 +65,15 @@ export function BrokerAdmin({
       }
       toast.success(draft.id ? "Server updated." : "Server added to the picker.");
       setDraft(EMPTY);
+      router.refresh();
+    });
+  }
+
+  function check(address: string) {
+    startTransition(async () => {
+      const r = await adminProbeBrokerAction(address);
+      if (r.error) toast.error(r.error);
+      else if (r.pending) toast.info(r.pending);
       router.refresh();
     });
   }
@@ -137,6 +165,14 @@ export function BrokerAdmin({
             <button className={button} disabled={pending || !draft.address} onClick={save}>
               {pending ? "…" : draft.id ? "Save changes" : "Add to picker"}
             </button>
+            <button
+              className={button}
+              disabled={pending || !draft.address}
+              onClick={() => check(draft.address)}
+              title="Runs a real terminal against the address on a pool box"
+            >
+              Check it answers
+            </button>
             {draft.id || draft.address ? (
               <button className={button} disabled={pending} onClick={() => setDraft(EMPTY)}>
                 Cancel
@@ -152,19 +188,30 @@ export function BrokerAdmin({
       </Panel>
 
       <Panel title="In the picker" note={`${rows.filter((r) => r.enabled).length} of ${rows.length} shown to traders`}>
-        <Table cols={["Broker", "Server", "Address", "Kind", "Verified", "Source", ""]} empty="No brokers yet.">
+        <Table cols={["Broker", "Server", "Address", "Kind", "Last check", "Signed in", ""]} empty="No brokers yet.">
           {rows.map((r) => (
             <tr key={r.id} className={r.enabled ? "" : "opacity-50"}>
               <td className="px-4 py-2">{r.broker}</td>
               <td className="px-4 py-2">{r.label}</td>
               <td className="px-4 py-2 font-mono text-xs">{r.address}</td>
               <td className="px-4 py-2">{r.kind}</td>
-              <td className="px-4 py-2 text-muted-foreground">
-                {ago(r.verified_at)}
-                {r.verified_server ? ` · ${r.verified_server}` : ""}
+              <td className="px-4 py-2">
+                {(() => {
+                  const v = verdict(probes.find((p) => p.address === r.address));
+                  return (
+                    <span className={v.tone} title={v.title}>
+                      {v.text}
+                    </span>
+                  );
+                })()}
               </td>
-              <td className="px-4 py-2 text-muted-foreground">{r.source}</td>
+              <td className="px-4 py-2 text-muted-foreground">
+                {r.verified_server ? `${r.verified_server} · ${ago(r.verified_at)}` : "—"}
+              </td>
               <td className="space-x-2 px-4 py-2 text-right">
+                <button className={button} disabled={pending} onClick={() => check(r.address)}>
+                  Check
+                </button>
                 <button
                   className={button}
                   disabled={pending}

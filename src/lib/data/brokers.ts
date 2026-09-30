@@ -144,3 +144,36 @@ export function discoverFrom(rows: SignedInRow[], catalogued: string[]): Discove
 
   return [...found.values()].sort((a, b) => b.lastSeen.localeCompare(a.lastSeen));
 }
+
+export type Probe = {
+  address: string;
+  status: "queued" | "running" | "done";
+  result: "reached" | "not_reached" | "error" | null;
+  evidence: string | null;
+  requested_at: string;
+};
+
+/**
+ * The most recent verification per address.
+ *
+ * Only a pool box can run one - it takes a real terminal about ninety seconds -
+ * so the console shows the last answer rather than asking on page load.
+ */
+export async function getLatestProbes(): Promise<Probe[]> {
+  const { data, error } = await createServiceClient()
+    .from("broker_probes")
+    .select("address,status,result,evidence,requested_at")
+    .order("requested_at", { ascending: false })
+    .limit(200);
+  if (error) {
+    log.error("broker probes unavailable", { detail: error.message });
+    return [];
+  }
+  // Newest first, so the first sighting of an address is its latest answer.
+  // Returned as a list rather than a Map: this crosses into a client component.
+  const latest = new Map<string, Probe>();
+  for (const row of (data ?? []) as Probe[]) {
+    if (!latest.has(row.address)) latest.set(row.address, row);
+  }
+  return [...latest.values()];
+}

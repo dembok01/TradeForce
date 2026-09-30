@@ -10,6 +10,7 @@ It also runs the file bridge (tf_bridge.py) for hosted EAs in bridge mode:
 their reports and rules pass through here instead of the website.
 """
 import base64
+import glob
 import os
 import shutil
 import signal
@@ -257,6 +258,183 @@ def remove(account_id: str):
         print(f"prefix still busy for {account_id}: {e}", flush=True)
         return
     shutil.rmtree(os.path.join(DATA, account_id), ignore_errors=True)
+
+
+# ------------------------------------------------------------------- probes
+# "Does this address answer as a MetaTrader server?", asked by the admin console
+# when someone adds a broker.
+#
+# Only a pool box can answer it. A TCP connection proves nothing:
+# mt5.roboforex.com and mt5.xm.com both accept one on 443 and neither speaks MT5
+# (tested 29 Sep 2026). So a throwaway terminal tries the address with a login
+# that was never valid - being REFUSED by a broker is the proof a broker is
+# there - and the container is torn down either way.
+
+PROBE_REST = f"{SUPABASE}/rest/v1/broker_probes"
+PROBE_DATA = os.environ.get("TF_PROBE_DATA", "/srv/tf-probe")
+# Measured end to end on this box: a real server answers in ~134s (most of it
+# MetaTrader starting), and a host that is not one never says anything
+# conclusive, so it costs the full timeout. Kept well above the positive case
+# because a wrong "nothing there" is far more expensive than waiting.
+PROBE_TIMEOUT = int(os.environ.get("TF_PROBE_TIMEOUT", "240"))
+PROBE_POLL = int(os.environ.get("TF_PROBE_POLL", "20"))
+# Deliberately not a real account. Long enough to be well-formed, and it belongs
+# to nobody, so the only thing a broker can answer is "no such account".
+PROBE_LOGIN = "50000000"
+PROBE_PASSWORD = "not-a-real-password"
+
+
+def classify_probe(entries: list | None) -> tuple[str, str]:
+    """The verdict, and the journal line it came from.
+
+    A refusal is the good outcome: "authorization on <addr> failed (Invalid
+    account)" means a real MT5 server heard us and rejected a login that never
+    existed. Anything that answers on the port but never gets that far is a
+    website, or nothing.
+
+    The broker's own server name cannot come from here - asked by address,
+    MetaTrader echoes the address back. A canonical name only appears when a
+    real account signs in.
+    """
+    if not entries:
+        return "error", "the terminal wrote no journal"
+    for entry in reversed(entries):
+        message = entry[-1]
+        if "authorized on" in message:
+            return "reached", message
+        if "authorization" in message and "failed" in message:
+            return "reached", message
+        if "no connection to" in message:
+            return "not_reached", message
+    return "not_reached", "the terminal never opened a connection"
+
+
+def probe_conclusive(verdict: str, evidence: str) -> bool:
+    """Stop waiting once the answer cannot change."""
+    return verdict == "reached" or "no connection to" in evidence
+
+
+def run_probe(probe_id: int, address: str) -> tuple[str, str]:
+    """Start one terminal on `address`, read its journal, remove it."""
+    acc = f"p{probe_id}"
+    name = f"tf-probe-{probe_id}"
+    vol = os.path.join(PROBE_DATA, acc)
+    try:
+        tf_prefixes.mount(acc, ensure_base(IMAGE), data=PROBE_DATA)
+        # The shared copy carries journals from when it was built; they would be
+        # read as this probe's answer.
+        logs = os.path.join(vol, *tf_bridge.LOGIN_LOGS)
+        for old in glob.glob(os.path.join(logs, "*.log")):
+            try:
+                os.unlink(old)
+            except OSError:
+                pass
+        ini = os.path.join(vol, ".wine", "drive_c", "tf.ini")
+        # No Expert= line: this asks a connection question, not an enforcement
+        # one, so no EA is loaded and nothing reports to the database.
+        with open(ini, "w") as f:
+            f.write(f"[Common]\nLogin={PROBE_LOGIN}\nPassword={PROBE_PASSWORD}\n"
+                    f"Server={address}\nCertInstall=1\nNewsEnable=0\n")
+        os.chmod(ini, 0o600)
+        if os.geteuid() == 0:
+            os.chown(ini, tf_prefixes.UID, tf_prefixes.GID)
+
+        sh("docker", "rm", "-f", name)
+        subprocess.run(
+            ["docker", "run", "-d", "--name", name, "--memory", "1g", *ntsync_args(),
+             "-e", "WINEDLLOVERRIDES=winebus.sys,wineusb.sys,winebth.sys,winehid.sys=d",
+             "-v", f"{vol}:/config", "-e", r"MT5_CMD_OPTIONS=/config:C:\tf.ini", IMAGE],
+            check=True, capture_output=True, text=True, timeout=120,
+        )
+
+        deadline = time.monotonic() + PROBE_TIMEOUT
+        verdict, evidence = "error", "the terminal wrote no journal"
+        while time.monotonic() < deadline:
+            time.sleep(5)
+            verdict, evidence = classify_probe(tf_bridge.journal(vol))
+            if probe_conclusive(verdict, evidence):
+                break
+        return verdict, evidence
+    finally:
+        sh("docker", "rm", "-f", name)
+        try:
+            tf_prefixes.unmount(acc, data=PROBE_DATA)
+            shutil.rmtree(vol, ignore_errors=True)
+        except OSError as e:
+            # Leave the directory rather than delete through a live mount. Never
+            # return from here: that would discard the verdict just measured.
+            print(f"probe {probe_id} cleanup: {e}", flush=True)
+
+
+def probe_once() -> bool:
+    """Claim and answer one queued probe. True if there was one.
+
+    Reading the queue is allowed to raise: the caller backs off on it, which is
+    what keeps an agent deployed ahead of its migration from logging every 20s.
+    """
+    r = requests.get(f"{PROBE_REST}?status=eq.queued&order=requested_at.asc&limit=1",
+                     headers=H, timeout=15)
+    r.raise_for_status()
+    rows = r.json()
+    if not rows:
+        return False
+
+    job = rows[0]
+    # Claiming filters on status too, so if a second box is ever added only one
+    # of them runs the probe.
+    try:
+        claim = requests.patch(
+            f"{PROBE_REST}?id=eq.{job['id']}&status=eq.queued",
+            headers={**H, "Prefer": "return=representation"},
+            json={"status": "running", "host": HOST}, timeout=15,
+        )
+        if claim.status_code >= 300 or not claim.json():
+            return False
+    except (requests.RequestException, ValueError) as e:
+        print(f"probe claim failed: {e}", flush=True)
+        return False
+
+    address = job["address"]
+    print(f"probing {address}", flush=True)
+    try:
+        verdict, evidence = run_probe(job["id"], address)
+    except Exception as e:  # noqa: BLE001 - a probe must never take the agent down
+        verdict, evidence = "error", str(e)[:600]
+        print(f"probe {address} failed: {e}", flush=True)
+    print(f"probe {address}: {verdict} - {evidence}", flush=True)
+
+    try:
+        requests.patch(
+            f"{PROBE_REST}?id=eq.{job['id']}",
+            headers={**H, "Prefer": "return=minimal"},
+            json={"status": "done", "result": verdict, "evidence": evidence[:600],
+                  "finished_at": "now()"},
+            timeout=15,
+        )
+    except requests.RequestException as e:
+        print(f"probe result for {address} not recorded: {e}", flush=True)
+    return True
+
+
+def probe_forever(stop: threading.Event):
+    """Own thread: a probe takes ~90s and reconcile must not wait for it.
+
+    Backs off when the queue cannot be read at all, because the usual reason is
+    an agent deployed ahead of its migration - and a line every 20s for hours
+    would bury the errors that matter.
+    """
+    failures = 0
+    while not stop.is_set():
+        try:
+            if probe_once():
+                failures = 0
+                continue  # answer any backlog without waiting a full poll
+            failures = 0
+        except Exception as e:  # noqa: BLE001
+            failures += 1
+            if failures == 1 or failures % 20 == 0:
+                print(f"probe loop error ({failures}):", e, flush=True)
+        stop.wait(PROBE_POLL * min(max(failures, 1), 15))
 
 
 # ---------------------------------------------------------------- telemetry
@@ -862,6 +1040,10 @@ if __name__ == "__main__":
 
     signal.signal(signal.SIGTERM, on_term)
     signal.signal(signal.SIGINT, on_term)
+
+    probe_thread = threading.Thread(
+        target=probe_forever, args=(stopping,), name="probes", daemon=True)
+    probe_thread.start()
 
     pass_n = 0
     while not stopping.is_set():

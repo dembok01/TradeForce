@@ -291,3 +291,63 @@ class BuildDriftTest(unittest.TestCase):
 
     def test_own_build_is_none_until_the_account_writes_one(self):
         self.assertIsNone(a.own_build("no-such-account", data=tempfile.mkdtemp()))
+
+
+@unittest.skipIf(a is None, "agent dependencies not installed")
+class ProbeVerdictTest(unittest.TestCase):
+    """Reading a candidate broker address from MetaTrader's own journal.
+
+    Every line below was produced by a real probe on the pool box, not invented:
+    a refusal is the GOOD outcome, because only a real MT5 server can refuse a
+    login, and an address that merely answers on TCP 443 never gets that far.
+    """
+
+    def entry(self, message):
+        return ("09:00:00.000", "Network", message)
+
+    def test_a_refused_login_proves_a_real_server(self):
+        got = a.classify_probe([self.entry(
+            "'50000000': authorization on mt5-demo.icmarkets.com:443 failed (Invalid account)")])
+        self.assertEqual(got[0], "reached")
+        self.assertIn("Invalid account", got[1])
+
+    def test_a_server_name_that_resolves_counts_too(self):
+        # Exness and MetaQuotes are reached by name through the seeded servers.dat.
+        got = a.classify_probe([self.entry(
+            "'50000000': authorization on Exness-MT5Trial8 failed (Invalid account)")])
+        self.assertEqual(got[0], "reached")
+
+    def test_an_accepted_login_is_obviously_reached(self):
+        got = a.classify_probe([self.entry("'53168878': authorized on Alpari-MT5-Demo")])
+        self.assertEqual(got[0], "reached")
+
+    def test_a_host_that_refuses_the_connection_is_not_a_server(self):
+        # The address that left one trader on "Connecting" for nineteen hours.
+        got = a.classify_probe([self.entry(
+            "'235277869': no connection to demo.icmarkets.com:443")])
+        self.assertEqual(got, ("not_reached", "'235277869': no connection to demo.icmarkets.com:443"))
+
+    def test_a_web_server_on_443_never_gets_a_connection_line(self):
+        # mt5.roboforex.com and mt5.xm.com both accept TCP 443 and are not MT5:
+        # the terminal starts, writes a journal, and never tries to connect.
+        got = a.classify_probe([self.entry("MetaTrader 5 x64 build 6182 started")])
+        self.assertEqual(got[0], "not_reached")
+        self.assertIn("never opened a connection", got[1])
+
+    def test_no_journal_at_all_is_an_error_not_a_verdict(self):
+        self.assertEqual(a.classify_probe(None)[0], "error")
+        self.assertEqual(a.classify_probe([])[0], "error")
+
+    def test_the_newest_line_wins(self):
+        got = a.classify_probe([
+            self.entry("'1': no connection to mt5.example.com:443"),
+            self.entry("'1': authorization on mt5.example.com:443 failed (Invalid account)"),
+        ])
+        self.assertEqual(got[0], "reached")
+
+    def test_waiting_stops_only_once_the_answer_cannot_change(self):
+        self.assertTrue(a.probe_conclusive("reached", "authorized on X"))
+        self.assertTrue(a.probe_conclusive("not_reached", "'1': no connection to x.com:443"))
+        # Still starting up: keep waiting rather than call it a failure.
+        self.assertFalse(a.probe_conclusive("not_reached", "the terminal never opened a connection"))
+        self.assertFalse(a.probe_conclusive("error", "the terminal wrote no journal"))

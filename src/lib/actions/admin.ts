@@ -7,7 +7,7 @@ import { getAuthedUser } from "@/lib/data/auth";
 import { createServiceClient } from "@/lib/supabase/service";
 import { log } from "@/lib/log";
 import { logConnection } from "@/lib/connection-log";
-import { isValidServerAddress } from "@/lib/mt5-brokers";
+import { isValidServerAddress, isAcceptableServer } from "@/lib/mt5-brokers";
 
 export type AdminActionResult = { ok?: true; pending?: string; error?: string };
 
@@ -244,4 +244,33 @@ export async function adminSetBrokerEnabledAction(
   revalidatePath("/admin/brokers");
   revalidatePath("/dashboard/ea-setup");
   return { ok: true };
+}
+
+/**
+ * Ask a pool box whether an address answers as a MetaTrader server.
+ *
+ * It cannot be answered here: reaching an MT5 server means speaking its
+ * protocol, and a TCP connection proves nothing - mt5.roboforex.com and
+ * mt5.xm.com both accept one on 443 and neither is an MT5 server. So the job is
+ * queued and the agent runs a throwaway terminal against it, which takes about
+ * a minute and a half.
+ */
+export async function adminProbeBrokerAction(address: string): Promise<AdminActionResult> {
+  const g = await guard();
+  if ("error" in g) return g;
+
+  const trimmed = address.trim();
+  if (!isAcceptableServer(trimmed)) {
+    return { error: "That is not an address or a server name we could try." };
+  }
+
+  const { error } = await createServiceClient()
+    .from("broker_probes")
+    .insert({ address: trimmed, requested_by: g.adminId });
+  if (error) {
+    log.error("broker probe not queued", { detail: error.message });
+    return { error: "Could not start the check." };
+  }
+  revalidatePath("/admin/brokers");
+  return { pending: `Checking ${trimmed}. A pool box runs a real terminal against it — refresh in a minute or two.` };
 }
