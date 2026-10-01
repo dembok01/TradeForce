@@ -1,0 +1,29 @@
+# The terminal image plus the one tool needed to drive its window.
+#
+# Adding a broker means using MetaTrader's own "Open an Account -> Find your
+# company" search: there is no file to author and no API (servers.dat is
+# encrypted, and build 6182's MCP server exposes no broker tools). So a search
+# container clicks the window, which needs xdotool.
+#
+# Kept as a separate tag rather than added to tf-mt5:current because terminals
+# have no business carrying an input-synthesis tool, and because this layer can
+# be rebuilt without touching the image traders actually run. It shares every
+# layer with its parent, so it costs megabytes, not gigabytes - and search
+# containers reuse the parent's unpacked prefix, so there is no second base.
+FROM tf-mt5:current
+
+# The image carries WineHQ's apt repository, whose key this base does not have;
+# that failure must not stop us installing from Debian's own.
+#
+# imagemagick is for checking what the window actually did. Note "import", not
+# xwd: xwd captures MetaTrader's dialogs as solid black (measured 1 Oct 2026 on
+# both the company wizard and the login box), which is purely a capture
+# artifact - the dialog is on screen and responding. Debugging a search with
+# xwd means reading blank rectangles and concluding, wrongly, that nothing
+# opened.
+RUN set -eux; \
+    apt-get update || true; \
+    apt-get install -y --no-install-recommends xdotool imagemagick; \
+    rm -rf /var/lib/apt/lists/*; \
+    xdotool --version; \
+    import -version | head -1
