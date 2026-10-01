@@ -1,7 +1,7 @@
 #!/bin/bash
 # Move hosted EAs onto the file bridge, one client at a time, on the pool server.
 #
-#   rollout-bridge.sh install                 agent v1.3 in place of v1.2, bridge still off
+#   rollout-bridge.sh install                 install the agent beside this script, verify, roll back on failure
 #   rollout-bridge.sh roll <account-id>...    EA v1.26 in bridge mode, verified, rolled back on failure
 #   rollout-bridge.sh gaps <hours> <id>...    the 48h gate: equity-report gaps longer than 5 minutes
 #   rollout-bridge.sh uninstall               back to agent v1.2 (run after rolling EAs back)
@@ -47,11 +47,19 @@ remove_bridge() {
   set_bridge_list "${out:-off}"
 }
 
+# The version being installed, read from the file rather than hardcoded: this
+# check was pinned to "1.3" and on 1 Oct 2026 it tore down a perfectly healthy
+# 1.6.0 agent and restored v1.2 - which has no bridge at all, while every
+# account was on it. A health check that fails closed on an unknown version is
+# worse than no check.
+agent_version() { sed -n 's/^AGENT_VERSION *= *"\([^"]*\)".*/\1/p' "$HERE/tf_agent.py" | head -1; }
+
 agent_up() {  # agent_up <since epoch> -> the restarted agent reported in
-  local since=$1
+  local since=$1 want; want=$(agent_version)
+  [ -n "$want" ] || { log "cannot read AGENT_VERSION from tf_agent.py"; return 1; }
   for i in $(seq 1 30); do
-    if journalctl -u tf-agent --since "@$since" --no-pager 2>/dev/null | grep -qE "tf-agent 1\.3(\.[0-9]+)? up"; then
-      rest "pool_servers?select=agent_version&host=eq.$TF_HOST" | grep -q '"1\.3' && return 0
+    if journalctl -u tf-agent --since "@$since" --no-pager 2>/dev/null | grep -qF "tf-agent $want up"; then
+      rest "pool_servers?select=agent_version&host=eq.$TF_HOST" | grep -qF "\"$want\"" && return 0
     fi
     sleep 5
   done
@@ -70,8 +78,8 @@ install_agent() {
   local t; t=$(date -u +%s)
   ln -sfn $AGENT_DIR/tf_agent.py /usr/local/bin/tf-agent
   systemctl restart tf-agent
-  if agent_up "$t"; then log "agent v1.3 running, bridge=$(bridge_list)"; return 0; fi
-  log "agent v1.3 did not come up - restoring v1.2"
+  if agent_up "$t"; then log "agent $(agent_version) running, bridge=$(bridge_list)"; return 0; fi
+  log "agent $(agent_version) did not come up - restoring v1.2"
   uninstall_agent
   return 1
 }
@@ -137,7 +145,7 @@ roll() {  # roll <account-id>
   local M="$vol/.wine/drive_c/Program Files/MetaTrader 5"
   log "=== $name"
   [ -d "$M" ] && docker inspect "$name" >/dev/null 2>&1 || { log "no such hosted terminal"; return 1; }
-  readlink /usr/local/bin/tf-agent | grep -q $AGENT_DIR || { log "agent v1.3 not installed - run install first"; return 1; }
+  readlink /usr/local/bin/tf-agent | grep -q $AGENT_DIR || { log "current agent not installed - run install first"; return 1; }
 
   # 1. The agent serves this account before the EA ever looks for it.
   add_bridge "$id"
