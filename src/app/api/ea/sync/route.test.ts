@@ -64,7 +64,13 @@ describe("POST /api/ea/sync", () => {
     // have traded three cheap calls for one expensive one.
     const res = await post({ equity: 10_000, knownConfigVersion: 7 });
     const json = await res.json();
-    expect(json).toEqual({ ok: true, configured: true, configVersion: 7, serverTime: expect.any(String) });
+    expect(json).toEqual({
+      ok: true,
+      configured: true,
+      configVersion: 7,
+      serverTime: expect.any(String),
+      utcOffsetMinutes: 330, // Asia/Kolkata, sent even when the config is current
+    });
     expect(json.config).toBeUndefined();
   });
 

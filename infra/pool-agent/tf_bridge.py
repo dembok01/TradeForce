@@ -32,6 +32,7 @@ import threading
 import time
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 PROTOCOL = 1
 KINDS = ("sync", "account", "trades", "violations", "events")
@@ -409,16 +410,33 @@ def shape_config(r: dict) -> dict:
     }
 
 
-def inbox_core(rules_row: dict | None) -> dict:
+def utc_offset_minutes(tz: str | None, now: datetime | None = None) -> int | None:
+    """Port of utcOffsetMinutes() in src/lib/time-boundaries.ts. None when this
+    box can't resolve the zone (no tzdata): the EA then falls back to its own
+    three-zone table instead of being told a wrong offset."""
+    try:
+        off = (now or datetime.now(timezone.utc)).astimezone(ZoneInfo(tz or "UTC")).utcoffset()
+    except (ZoneInfoNotFoundError, ValueError):
+        return None
+    return round(off.total_seconds() / 60) if off is not None else None
+
+
+def inbox_core(rules_row: dict | None, now: datetime | None = None) -> dict:
     """What the EA needs to know, shaped like the /api/ea/sync response."""
     if rules_row is None:
         return {"v": PROTOCOL, "configured": False, "configVersion": None}
-    return {
+    core = {
         "v": PROTOCOL,
         "configured": True,
         "configVersion": rules_row["config_version"],
         "config": shape_config(rules_row),
     }
+    # Outside config, as on the website: it changes at a DST switch without a
+    # new config version, and being part of the inbox key rewrites the file.
+    offset = utc_offset_minutes(rules_row.get("timezone"), now)
+    if offset is not None:
+        core["utcOffsetMinutes"] = offset
+    return core
 
 
 # =========================================================== filesystem

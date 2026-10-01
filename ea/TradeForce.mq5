@@ -37,7 +37,9 @@ struct TfConfig {
   bool   sesOverlap;
   string customStart;          // "HH:MM[:SS]" or ""
   string customEnd;
-  string timezone;             // IANA name (Asia/Kolkata | UTC | America/New_York)
+  string timezone;             // IANA name
+  bool   hasUtcOffset;         // server told us the zone's live offset (1.31+)
+  int    utcOffsetMinutes;     // e.g. 330 for IST; beats the table below when set
 };
 
 TfConfig g_cfg;
@@ -89,7 +91,7 @@ datetime g_realizedTodayCacheAt = 0;
 
 // Failed POSTs are retried on later timer ticks (lost on EA restart - the
 // server is the durable record, this just smooths transient network drops).
-#define EA_VERSION  "1.30"
+#define EA_VERSION  "1.31"
 #define PENDING_MAX 64
 string g_pendingPath[PENDING_MAX];
 string g_pendingBody[PENDING_MAX];
@@ -291,9 +293,11 @@ void FlushPending(const bool force = false) {
 
 //+------------------------------------------------------------------+
 //| Time & timezone                                                   |
-//| The product offers three timezones; a tiny table beats shipping   |
-//| a tz database. NY gets the standard US DST rule (2nd Sun Mar -    |
-//| 1st Sun Nov).                                                     |
+//| Since 1.31 the server sends the zone's live UTC offset on every   |
+//| sync, so a trader can pick any timezone and DST switches arrive   |
+//| within a minute. The three-zone table is the fallback for an      |
+//| older server or bridge that doesn't send it. NY gets the standard |
+//| US DST rule (2nd Sun Mar - 1st Sun Nov).                          |
 //+------------------------------------------------------------------+
 int FirstSundayOfMonth(const int year, const int month) {
   MqlDateTime dt;
@@ -316,9 +320,24 @@ bool IsUsDst(const datetime gmtNow) {
 }
 
 int TimezoneOffsetMinutes(const datetime gmtNow) {
+  if (g_cfg.hasUtcOffset) return g_cfg.utcOffsetMinutes;
   if (g_cfg.timezone == "Asia/Kolkata") return 330;
   if (g_cfg.timezone == "America/New_York") return IsUsDst(gmtNow) ? -240 : -300;
   return 0; // UTC and anything unrecognised
+}
+
+// Takes "utcOffsetMinutes" from a sync response or bridge rules file. Absent
+// means an older server: keep whatever we had (or the table). Returns true when
+// the value changed, so the caller can persist it.
+bool ReadUtcOffset(CJAVal &j) {
+  if (!j.HasKey("utcOffsetMinutes", jtINT)) return false;
+  const int offset = (int)j["utcOffsetMinutes"].ToInt();
+  if (MathAbs(offset) > 14 * 60) return false; // no real zone sits outside +/-14h
+  if (g_cfg.hasUtcOffset && g_cfg.utcOffsetMinutes == offset) return false;
+  g_cfg.hasUtcOffset     = true;
+  g_cfg.utcOffsetMinutes = offset;
+  Print("TradeForce: trading day follows UTC", offset >= 0 ? "+" : "", offset, " min (", g_cfg.timezone, ")");
+  return true;
 }
 
 // Identity of the trader's current local calendar day - counters "reset" at
@@ -685,6 +704,7 @@ void SaveConfigToDisk() {
   j["customStart"]         = g_cfg.customStart;
   j["customEnd"]           = g_cfg.customEnd;
   j["timezone"]            = g_cfg.timezone;
+  if (g_cfg.hasUtcOffset) j["utcOffsetMinutes"] = g_cfg.utcOffsetMinutes;
   int h = FileOpen(TF_CFG_FILE, FILE_WRITE | FILE_TXT | FILE_ANSI);
   if (h == INVALID_HANDLE) return;
   FileWriteString(h, j.Serialize());
@@ -715,6 +735,7 @@ bool LoadConfigFromDisk() {
   g_cfg.customStart         = j["customStart"].ToStr();
   g_cfg.customEnd           = j["customEnd"].ToStr();
   g_cfg.timezone            = j["timezone"].ToStr();
+  ReadUtcOffset(j);
   g_cfgFromCache = true;
   return true;
 }
@@ -760,6 +781,7 @@ bool ReadBridgeInbox() {
   const bool fresh = (long)TimeGMT() - j["bridgeAt"].ToInt() <= TF_BRIDGE_STALE_SECONDS;
   const bool configured = j["configured"].ToBool();
   const long remoteVersion = j["configVersion"].ToInt();
+  const bool offsetChanged = configured && ReadUtcOffset(j);
 
   if (fresh && !configured) {
     // Authoritative, exactly like the server answering "not configured".
@@ -776,6 +798,7 @@ bool ReadBridgeInbox() {
       Print("TradeForce: bridge announced v", remoteVersion, " but sent no config - keeping current rules.");
     }
   }
+  if (offsetChanged && g_cfg.configured) SaveConfigToDisk();
   if (g_cfg.configured) g_cfgFromCache = !fresh;
   return fresh;
 }
@@ -870,6 +893,7 @@ bool SyncWithServer() {
     return true;
   }
 
+  const bool offsetChanged = ReadUtcOffset(json);
   const long remoteVersion = json["configVersion"].ToInt();
   if (!g_cfg.configured || remoteVersion != g_cfg.configVersion) {
     // The server sends "config" exactly when our version is stale. Confirm it
@@ -883,6 +907,8 @@ bool SyncWithServer() {
             " but sent no config - keeping current rules.");
     }
   }
+  // ApplyConfig already saved when the config changed; a DST switch alone doesn't.
+  if (offsetChanged && g_cfg.configured) SaveConfigToDisk();
   // Rules loaded from the disk cache at startup are confirmed current now.
   if (g_cfg.configured && g_cfg.configVersion == remoteVersion) g_cfgFromCache = false;
   return true;
@@ -1646,6 +1672,7 @@ int OnInit() {
     Notify("TradeForce: " + TradeBlockText(g_tradeBlock) + ".");
   g_cfg.configured = false;
   g_cfg.configVersion = -1;
+  g_cfg.hasUtcOffset = false; // globals survive a re-init; the next sync re-sends it
   if (BridgeMode) {
     FolderCreate("tf_bridge");
     FolderCreate("tf_bridge\\out");

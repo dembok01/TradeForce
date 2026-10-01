@@ -3,6 +3,7 @@ import { verifyEaRequest, eaFailureResponse } from "@/lib/ea-auth";
 import { createServiceClient } from "@/lib/supabase/service";
 import { eaSyncSchema, shapeConfig, recordAccountReport } from "@/lib/ea-payload";
 import { log } from "@/lib/log";
+import { utcOffsetMinutes } from "@/lib/time-boundaries";
 
 /**
  * The whole EA polling loop in one request.
@@ -65,6 +66,11 @@ export async function POST(request: Request) {
     configured: true,
     configVersion: rules.config_version,
     serverTime,
+    // On every sync, not inside config: config only travels when its version
+    // changes, and a DST switch changes the offset without touching the row.
+    // EA 1.31+ takes its day boundary from this (it has no tz database), which
+    // is what lets a trader pick any timezone. Older EAs ignore it.
+    utcOffsetMinutes: utcOffsetMinutes(rules.timezone),
     ...(stale ? { config: shapeConfig(rules) } : {}),
   });
 }

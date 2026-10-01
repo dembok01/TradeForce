@@ -8,6 +8,7 @@ import shutil
 import tempfile
 import time
 import unittest
+from datetime import datetime, timezone
 from pathlib import Path
 
 import tf_bridge as b
@@ -132,6 +133,16 @@ class ShapeConfigTest(unittest.TestCase):
 
     def test_unconfigured_inbox(self):
         self.assertEqual(b.inbox_core(None), {"v": 1, "configured": False, "configVersion": None})
+
+    def test_inbox_carries_the_live_utc_offset(self):
+        # Same expectation as src/app/api/ea/sync/route.test.ts.
+        self.assertEqual(b.inbox_core(RULES)["utcOffsetMinutes"], 330)
+        ny = {**RULES, "timezone": "America/New_York"}
+        summer = datetime(2026, 7, 1, tzinfo=timezone.utc)
+        winter = datetime(2026, 1, 15, tzinfo=timezone.utc)
+        self.assertEqual(b.inbox_core(ny, summer)["utcOffsetMinutes"], -240)
+        self.assertEqual(b.inbox_core(ny, winter)["utcOffsetMinutes"], -300)
+        self.assertNotIn("utcOffsetMinutes", b.inbox_core({**RULES, "timezone": "Mars/Olympus"}))
 
 
 # ================================================================ filesystem

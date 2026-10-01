@@ -140,9 +140,15 @@ allows:
 
 Details that matter:
 
-- **Daily reset is timezone-aware** and mirrors the web app: `Asia/Kolkata`
-  (+05:30), `UTC`, and `America/New_York` (EST/EDT with the US DST rule). The
-  timezone comes from the server config, not the terminal clock.
+- **Daily reset is timezone-aware** and mirrors the web app. Since 1.31 the
+  server sends the zone's live `utcOffsetMinutes` on every sync (and the pool
+  bridge writes it into the rules file), so any IANA timezone works and DST
+  switches land within a minute. Older EAs, or a server that doesn't send it,
+  fall back to the built-in table: `Asia/Kolkata` (+05:30), `UTC`, and
+  `America/New_York` (EST/EDT with the US DST rule) - any other zone resets at
+  UTC midnight on those builds. The timezone never comes from the terminal clock.
+- **Session windows are UTC.** The dashboard converts a custom window from the
+  trader's clock to UTC when it is saved, so every build enforces it correctly.
 - **Restart-safe counters**: trades-today and realized P/L are derived from the
   terminal's deal history since local midnight, not in-memory counters — pulling
   the EA off the chart and re-attaching doesn't reset the limits.
