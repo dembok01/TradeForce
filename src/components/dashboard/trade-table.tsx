@@ -1,7 +1,8 @@
 "use client";
 
 import { useOptimistic, useState, useTransition } from "react";
-import { format } from "date-fns";
+import { formatInTimeZone } from "date-fns-tz";
+import { useTimezone } from "@/components/dashboard/timezone-context";
 import { motion } from "motion/react";
 import { Trash2, ScrollText } from "lucide-react";
 import { toast } from "sonner";
@@ -54,6 +55,7 @@ export function TradeTable({
   trades: Trade[];
   manualEntryLocked?: boolean;
 }) {
+  const tz = useTimezone();
   // Remove the row immediately; useOptimistic reconciles with the revalidated
   // server list, and reverts if the delete throws.
   const [optimisticTrades, removeOptimistic] = useOptimistic(trades, (state, removedId: string) =>
@@ -154,7 +156,7 @@ export function TradeTable({
               {trade.pnl !== null ? formatSignedCurrency(trade.pnl) : "—"}
             </LedgerCell>
             <LedgerCell mono className="text-muted-foreground">
-              {format(new Date(trade.entry_time), "MMM d, yyyy HH:mm")}
+              {formatInTimeZone(trade.entry_time, tz, "MMM d, yyyy HH:mm")}
             </LedgerCell>
             <LedgerCell className="w-56 py-1.5">
               <NotesCell trade={trade} />

@@ -1,4 +1,7 @@
+import { formatInTimeZone } from "date-fns-tz";
 import { formatCurrency } from "@/lib/format";
+import { safeTimezone, timezoneAbbrev } from "@/lib/time-boundaries";
+import { utcTimeToLocal } from "@/lib/trading-sessions";
 import { tradeBlockHelp } from "@/lib/ea-trade-block";
 import type { Json, ViolationType } from "@/lib/supabase/database.types";
 
@@ -40,8 +43,27 @@ function flag(d: Record<string, unknown>, key: string): boolean {
 
 const fmtPct = (v: number) => `${Number.isInteger(v) ? v : v.toFixed(2)}%`;
 
+// The EA reports session times on the UTC clock (timeUtc: an ISO instant, or
+// "HH:MM" from older builds; windowStart/End: "HH:MM"). Traders read their own.
+function sessionTimes(d: Record<string, unknown>, timeZone: string) {
+  const tz = safeTimezone(timeZone);
+  const raw = str(d, "timeUtc");
+  const at = raw && Number.isFinite(Date.parse(raw)) ? new Date(raw) : new Date();
+  const zone = timezoneAbbrev(tz, at);
+  const start = str(d, "windowStart");
+  const end = str(d, "windowEnd");
+  let time: string | null = null;
+  if (raw && Number.isFinite(Date.parse(raw))) time = `${formatInTimeZone(at, tz, "HH:mm")} ${zone}`;
+  else if (raw && /^\d{1,2}:\d{2}/.test(raw)) time = `${utcTimeToLocal(raw, tz, at)} ${zone}`;
+  else if (raw) time = raw;
+  return {
+    window: start && end ? `${utcTimeToLocal(start, tz, at)}–${utcTimeToLocal(end, tz, at)} ${zone}` : null,
+    time,
+  };
+}
+
 /** One-sentence "what happened", with the numbers that triggered it. */
-export function explainViolation(v: ViolationLike): string {
+export function explainViolation(v: ViolationLike, timeZone = "UTC"): string {
   const d = asRecord(v.details);
 
   // Newer EA builds prevent instead of closing where MT5 allows it: a pending
@@ -58,10 +80,9 @@ export function explainViolation(v: ViolationLike): string {
       case "DAILY_LOSS_BREACH":
         return "Prevented — your pending order was deleted; the account is locked for the day after the loss breach (no cost incurred).";
       default: {
-        const start = str(d, "windowStart");
-        const end = str(d, "windowEnd");
-        if (start && end)
-          return `Prevented — your pending order was deleted before it could fill outside your session window (${start}–${end} UTC), at no cost.`;
+        const { window } = sessionTimes(d, timeZone);
+        if (window)
+          return `Prevented — your pending order was deleted before it could fill outside your session window (${window}), at no cost.`;
         return "Prevented — your pending order was deleted before it could fill outside your allowed sessions (no cost incurred).";
       }
     }
@@ -114,12 +135,9 @@ export function explainViolation(v: ViolationLike): string {
     }
     case "OUTSIDE_SESSION": {
       // windowStart/windowEnd arrive with newer EA builds; timeUtc always has.
-      const start = str(d, "windowStart");
-      const end = str(d, "windowEnd");
-      const time = str(d, "timeUtc");
-      if (start && end)
-        return `Closed — opened outside your session window (${start}–${end} UTC).`;
-      if (time) return `Closed — opened at ${time} UTC, outside your allowed sessions.`;
+      const { window, time } = sessionTimes(d, timeZone);
+      if (window) return `Closed — opened outside your session window (${window}).`;
+      if (time) return `Closed — opened at ${time}, outside your allowed sessions.`;
       return "Closed — opened outside your allowed session windows.";
     }
   }
@@ -163,7 +181,7 @@ export function violationAction(v: ViolationLike): string {
 }
 
 /** Labeled figures for the expanded incident view; empty for legacy rows. */
-export function violationFigures(v: ViolationLike): { label: string; value: string }[] {
+export function violationFigures(v: ViolationLike, timeZone = "UTC"): { label: string; value: string }[] {
   const d = asRecord(v.details);
   const figures: { label: string; value: string }[] = [];
   const push = (label: string, value: string | null) => {
@@ -198,10 +216,12 @@ export function violationFigures(v: ViolationLike): { label: string; value: stri
       push("Stop-loss", str(d, "reason") ? "None attached" : null);
       break;
     }
-    case "OUTSIDE_SESSION":
-      push("Opened at (UTC)", str(d, "timeUtc"));
-      push("Allowed window (UTC)", str(d, "windowStart") && str(d, "windowEnd") ? `${str(d, "windowStart")}–${str(d, "windowEnd")}` : null);
+    case "OUTSIDE_SESSION": {
+      const { window, time } = sessionTimes(d, timeZone);
+      push("Opened at", time);
+      push("Allowed window", window);
       break;
+    }
   }
 
   // Standardized keys newer EA builds attach to every report.

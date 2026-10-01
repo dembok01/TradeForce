@@ -1,7 +1,8 @@
 "use client";
 
 import { useOptimistic, useState, useTransition } from "react";
-import { format } from "date-fns";
+import { formatInTimeZone } from "date-fns-tz";
+import { useTimezone } from "@/components/dashboard/timezone-context";
 import { Copy, Check, Plus } from "lucide-react";
 import { toast } from "sonner";
 import { generateApiKeyAction, revokeApiKeyAction } from "@/lib/actions/api-keys";
@@ -20,6 +21,7 @@ import {
 } from "@/components/ui/dialog";
 
 export function ApiKeyManager({ initialKeys }: { initialKeys: ApiKey[] }) {
+  const tz = useTimezone();
   const [keys, setKeys] = useState(initialKeys);
   // Optimistically mark a key revoked while the server action is in flight;
   // reverts automatically if the action fails (setKeys is only called on success).
@@ -91,8 +93,8 @@ export function ApiKeyManager({ initialKeys }: { initialKeys: ApiKey[] }) {
                 <p className="font-mono text-xs text-muted-foreground">
                   {key.key_prefix}••••••••
                   {" · created "}
-                  {format(new Date(key.created_at), "MMM d, yyyy")}
-                  {key.last_used_at ? ` · last used ${format(new Date(key.last_used_at), "MMM d")}` : ""}
+                  {formatInTimeZone(key.created_at, tz, "MMM d, yyyy")}
+                  {key.last_used_at ? ` · last used ${formatInTimeZone(key.last_used_at, tz, "MMM d")}` : ""}
                 </p>
               </div>
               {key.revoked_at ? (

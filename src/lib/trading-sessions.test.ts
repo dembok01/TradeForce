@@ -4,6 +4,10 @@ import {
   isCustomWindowActive,
   nextSessionEdge,
   parseTimeToUtcHours,
+  localTimeToUtc,
+  utcTimeToLocal,
+  formatWindowLocal,
+  timezoneOptions,
 } from "@/lib/trading-sessions";
 
 // Fixed UTC instants so these never depend on the wall clock.
@@ -75,5 +79,42 @@ describe("parseTimeToUtcHours", () => {
   it("parses HH:MM and HH:MM:SS", () => {
     expect(parseTimeToUtcHours("08:30")).toBe(8.5);
     expect(parseTimeToUtcHours("13:45:00")).toBe(13.75);
+  });
+});
+
+describe("custom window on the trader's clock", () => {
+  const jan = at(12);
+  const jul = new Date(Date.UTC(2026, 6, 1, 12));
+
+  it("converts IST to the UTC the EA enforces, and back", () => {
+    // The reported bug: 09:00-15:30 typed by an IST trader was enforced as UTC.
+    expect(localTimeToUtc("09:00", "Asia/Kolkata", jan)).toBe("03:30");
+    expect(localTimeToUtc("15:30", "Asia/Kolkata", jan)).toBe("10:00");
+    expect(utcTimeToLocal("03:30:00", "Asia/Kolkata", jan)).toBe("09:00");
+  });
+
+  it("wraps across midnight in both directions", () => {
+    expect(localTimeToUtc("02:00", "Asia/Kolkata", jan)).toBe("20:30");
+    expect(utcTimeToLocal("22:00", "Asia/Kolkata", jan)).toBe("03:30");
+    expect(localTimeToUtc("21:00", "America/New_York", jan)).toBe("02:00");
+  });
+
+  it("uses the offset in force at the time (DST)", () => {
+    expect(localTimeToUtc("09:30", "America/New_York", jan)).toBe("14:30");
+    expect(localTimeToUtc("09:30", "America/New_York", jul)).toBe("13:30");
+  });
+
+  it("labels preset windows in the trader's zone", () => {
+    expect(formatWindowLocal(8, 16.5, "Asia/Kolkata", jan)).toBe("13:30–22:00 IST");
+    expect(formatWindowLocal(8, 16.5, "UTC", jan)).toBe("08:00–16:30 UTC");
+  });
+
+  it("lists every zone once, the launch three first, IST by its current name", () => {
+    const values = timezoneOptions(undefined, jan).map((o) => o.value);
+    expect(values.slice(0, 3)).toEqual(["Asia/Kolkata", "UTC", "America/New_York"]);
+    expect(values).not.toContain("Asia/Calcutta");
+    expect(new Set(values).size).toBe(values.length);
+    expect(values.length).toBeGreaterThan(300);
+    expect(timezoneOptions("Etc/GMT-4", jan)[0].value).toBe("Etc/GMT-4");
   });
 });

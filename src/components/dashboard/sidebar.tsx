@@ -35,12 +35,19 @@ export function Sidebar({
   }
 
   return (
-    <aside className="hidden h-full w-64 shrink-0 flex-col border-r border-sidebar-border bg-sidebar lg:flex">
+    // Sticky + viewport-high: on long pages (journal, violations) the nav and
+    // the EA status used to scroll away with the content.
+    <aside className="sticky top-0 hidden h-screen w-64 shrink-0 flex-col border-r border-sidebar-border bg-sidebar lg:flex">
       <Link href="/" className="flex h-16 items-center border-b border-sidebar-border px-6">
         <span className="font-display text-lg font-semibold tracking-tight text-sidebar-foreground">
           Trade<span className="text-gradient-gold">Force</span>
         </span>
       </Link>
+
+      {/* First thing under the logo: "is anything protecting me?" */}
+      <div className="border-b border-sidebar-border px-3 py-2">
+        <EaStatusDot state={eaState} lastSeenAt={eaLastSeenAt} className="w-full" />
+      </div>
 
       <nav className="flex-1 space-y-1 overflow-y-auto px-3 py-4">
         {DASHBOARD_NAV_ITEMS.map((item) => {
@@ -63,10 +70,6 @@ export function Sidebar({
           );
         })}
       </nav>
-
-      <div className="px-3 pb-1">
-        <EaStatusDot state={eaState} lastSeenAt={eaLastSeenAt} />
-      </div>
 
       {setup && !setupHidden && (
         <div className="mx-3 mb-3 rounded-lg border border-primary/20 bg-primary/5 p-3">

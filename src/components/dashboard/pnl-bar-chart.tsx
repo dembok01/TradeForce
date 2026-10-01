@@ -61,6 +61,8 @@ export function PnlBarChart({ data }: { data: PnlBucket[] }) {
           dataKey="label"
           axisLine={false}
           tickLine={false}
+          // Third-width cards can't fit 8 "Sep 13" labels; drop some rather than overprint.
+          minTickGap={8}
           tick={{ fill: AXIS, fontSize: 11, fontFamily: "var(--font-mono)" }}
         />
         <YAxis hide />

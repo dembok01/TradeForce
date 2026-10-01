@@ -131,18 +131,19 @@ the Supabase dashboard or a future admin view with `service_role`).
   breakdown (gauge + 4 factor meters)
 - Data: `src/lib/data/violations.ts`, `src/lib/data/discipline.ts`
 
-### Trade Journal (`/dashboard/journal`)
+### Journal & Analytics (`/dashboard/journal`)
+- One page (the old `/dashboard/analytics` redirects here, `next.config.ts`):
+  win rate, trades this week/month and 3 P/L bar charts (7d/8wk/6mo) on top,
+  the trade log below
 - Table (Symbol/Direction/Entry/Exit/P&L/Date-Time), inline autosaving notes
-  field, date-range filter (URL-driven), manual "Log trade" dialog
+  field, date-range filter (URL-driven, days cut on the trader's timezone),
+  manual "Log trade" dialog
 - Manual entry locks while the EA is live (last report < 24h,
   `src/lib/ea-connection.ts`) so the record stays verified; EA rows show a
   badge instead of a delete button and can never be deleted (enforced in the
   server action too, not just the UI). Notes stay editable on every row.
-- Data/actions: `src/lib/data/trades.ts`, `src/lib/actions/trades.ts`
-
-### Analytics (`/dashboard/analytics`)
-- Win rate, trades this week/month, 3 P/L bar charts (7d/8wk/6mo)
-- Data: `src/lib/data/analytics.ts`; chart: `components/dashboard/pnl-bar-chart.tsx`
+- Data/actions: `src/lib/data/trades.ts`, `src/lib/data/analytics.ts`,
+  `src/lib/actions/trades.ts`; chart: `components/dashboard/pnl-bar-chart.tsx`
 
 ### EA Setup (`/dashboard/ea-setup`)
 - Connection badge (Connected / Last seen / Never connected, from

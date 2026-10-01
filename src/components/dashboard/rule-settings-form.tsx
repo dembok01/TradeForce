@@ -20,8 +20,10 @@ export function RuleSettingsForm({ rules }: { rules: TradingRules | null }) {
   const errors = state.fieldErrors;
 
   useEffect(() => {
-    if (state.success) toast.success("Rules saved and activated.");
+    // `active` is what was submitted, so it's the state the save just wrote.
+    if (state.success) toast.success(active ? "Rules saved — charter active." : "Rules saved — charter paused.");
     if (state.error && !state.fieldErrors) toast.error(state.error);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- fire once per action result, not on toggle
   }, [state]);
 
   return (
@@ -29,11 +31,15 @@ export function RuleSettingsForm({ rules }: { rules: TradingRules | null }) {
       <Card>
         <CardHeader>
           <CardTitle>Risk limits</CardTitle>
-          <CardDescription>The numbers TradeForce enforces against every trade.</CardDescription>
+          <CardDescription>
+            The numbers TradeForce enforces against every trade. Leave any blank to not enforce it.
+          </CardDescription>
         </CardHeader>
         <CardContent className="grid gap-5 sm:grid-cols-2">
           <div className="space-y-2">
-            <Label htmlFor="daily_loss_limit">Daily loss limit ($)</Label>
+            <Label htmlFor="daily_loss_limit">
+              Daily loss limit ($) <span className="text-muted-foreground">(optional)</span>
+            </Label>
             <Input
               id="daily_loss_limit"
               name="daily_loss_limit"
@@ -48,7 +54,9 @@ export function RuleSettingsForm({ rules }: { rules: TradingRules | null }) {
             <FieldError id="daily_loss_limit-error" message={errors?.daily_loss_limit} />
           </div>
           <div className="space-y-2">
-            <Label htmlFor="max_trades_per_day">Max trades per day</Label>
+            <Label htmlFor="max_trades_per_day">
+              Max trades per day <span className="text-muted-foreground">(optional)</span>
+            </Label>
             <Input
               id="max_trades_per_day"
               name="max_trades_per_day"
@@ -62,7 +70,9 @@ export function RuleSettingsForm({ rules }: { rules: TradingRules | null }) {
             <FieldError id="max_trades_per_day-error" message={errors?.max_trades_per_day} />
           </div>
           <div className="space-y-2">
-            <Label htmlFor="max_open_positions">Max open positions</Label>
+            <Label htmlFor="max_open_positions">
+              Max open positions <span className="text-muted-foreground">(optional)</span>
+            </Label>
             <Input
               id="max_open_positions"
               name="max_open_positions"
@@ -76,7 +86,9 @@ export function RuleSettingsForm({ rules }: { rules: TradingRules | null }) {
             <FieldError id="max_open_positions-error" message={errors?.max_open_positions} />
           </div>
           <div className="space-y-2">
-            <Label htmlFor="risk_per_trade_percent">Risk per trade (% of balance)</Label>
+            <Label htmlFor="risk_per_trade_percent">
+              Risk per trade (% of balance) <span className="text-muted-foreground">(optional)</span>
+            </Label>
             <Input
               id="risk_per_trade_percent"
               name="risk_per_trade_percent"
@@ -116,7 +128,7 @@ export function RuleSettingsForm({ rules }: { rules: TradingRules | null }) {
       </Card>
 
       <Button type="submit" variant="gold" size="lg" disabled={pending}>
-        {pending ? "Saving…" : "Save & activate"}
+        {pending ? "Saving…" : "Save rules"}
       </Button>
     </form>
   );

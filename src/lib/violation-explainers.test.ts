@@ -54,7 +54,18 @@ describe("explainViolation", () => {
     expect(explainViolation(v)).toContain("08:00–16:30");
   });
 
-  it("blocked pending order reads as prevention, not a close", () => {
+  it("prints session times on the trader's clock, not UTC", () => {
+    const v: ViolationLike = {
+      type: "OUTSIDE_SESSION",
+      details: { timeUtc: "2026-01-05T18:42:00Z", windowStart: "08:00", windowEnd: "16:30" },
+    };
+    expect(explainViolation(v, "Asia/Kolkata")).toContain("13:30–22:00 IST");
+    const noWindow: ViolationLike = { type: "OUTSIDE_SESSION", details: { timeUtc: "2026-01-05T18:42:00Z" } };
+    expect(explainViolation(noWindow, "Asia/Kolkata")).toContain("opened at 00:12 IST");
+    expect(violationFigures(v, "Asia/Kolkata")).toContainEqual({ label: "Opened at", value: "00:12 IST" });
+  });
+
+    it("blocked pending order reads as prevention, not a close", () => {
     const session: ViolationLike = {
       type: "OUTSIDE_SESSION",
       details: { blockedPendingOrder: true, windowStart: "08:00", windowEnd: "16:30", symbol: "EURUSD" },

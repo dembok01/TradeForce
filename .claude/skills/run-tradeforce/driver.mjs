@@ -4,7 +4,7 @@
 // browser download). Run from the repo root:
 //
 //   node .claude/skills/run-tradeforce/driver.mjs smoke
-//   node .claude/skills/run-tradeforce/driver.mjs shot /dashboard/analytics --email E --password P
+//   node .claude/skills/run-tradeforce/driver.mjs shot /dashboard/journal --email E --password P
 //   node .claude/skills/run-tradeforce/driver.mjs shot /login
 //
 // BASE_URL env or --base overrides http://localhost:3000.

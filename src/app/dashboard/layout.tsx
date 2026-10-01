@@ -4,12 +4,14 @@ import { getProfile } from "@/lib/data/profile";
 import { getSetupStatus } from "@/lib/data/setup";
 import { getEaConnection } from "@/lib/data/api-keys";
 import { getEaIncident } from "@/lib/data/ea-events";
+import { getRequestTimezone } from "@/lib/data/rules";
 import { eaSeenWithin, EA_CONNECTED_WINDOW_MS } from "@/lib/ea-connection";
 import type { EaState } from "@/components/dashboard/ea-status";
 import { Sidebar } from "@/components/dashboard/sidebar";
 import { MobileTopbar } from "@/components/dashboard/mobile-topbar";
 import { AutoRefresh } from "@/components/dashboard/auto-refresh";
 import { MotionProvider } from "@/components/motion/motion-provider";
+import { TimezoneProvider } from "@/components/dashboard/timezone-context";
 
 export default async function DashboardLayout({ children }: { children: React.ReactNode }) {
   const user = await getAuthedUser();
@@ -36,7 +38,7 @@ export default async function DashboardLayout({ children }: { children: React.Re
           total: setupStatus.checklist.total,
         };
 
-  const { lastSeenAt } = await getEaConnection();
+  const [{ lastSeenAt }, timezone] = await Promise.all([getEaConnection(), getRequestTimezone()]);
   let eaState: EaState = eaSeenWithin(lastSeenAt, EA_CONNECTED_WINDOW_MS)
     ? "live"
     : lastSeenAt
@@ -70,9 +72,16 @@ export default async function DashboardLayout({ children }: { children: React.Re
           eaLastSeenAt={lastSeenAt}
         />
         <div className="flex min-w-0 flex-1 flex-col">
-          <MobileTopbar name={profile.full_name} email={user.email ?? ""} />
+          <MobileTopbar
+            name={profile.full_name}
+            email={user.email ?? ""}
+            eaState={eaState}
+            eaLastSeenAt={lastSeenAt}
+          />
           <main className="flex-1 p-4 sm:p-6 lg:p-8">
-            <MotionProvider>{children}</MotionProvider>
+            <TimezoneProvider timezone={timezone}>
+              <MotionProvider>{children}</MotionProvider>
+            </TimezoneProvider>
           </main>
         </div>
       </div>

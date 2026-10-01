@@ -1,7 +1,8 @@
 "use client";
 
 import { Fragment, useState } from "react";
-import { format } from "date-fns";
+import { formatInTimeZone } from "date-fns-tz";
+import { useTimezone } from "@/components/dashboard/timezone-context";
 import { AnimatePresence, motion } from "motion/react";
 import { ChevronDown } from "lucide-react";
 import type { Violation } from "@/lib/data/violations";
@@ -25,6 +26,7 @@ import { cn } from "@/lib/utils";
 // Each row reads as a sentence built from the numbers that triggered it;
 // expanding a row shows the full incident (rule, figures, what the EA did).
 export function ViolationsTable({ violations }: { violations: Violation[] }) {
+  const tz = useTimezone();
   const [openId, setOpenId] = useState<string | null>(null);
 
   return (
@@ -40,7 +42,7 @@ export function ViolationsTable({ violations }: { violations: Violation[] }) {
       <tbody>
         {violations.map((v) => {
           const open = openId === v.id;
-          const figures = violationFigures(v);
+          const figures = violationFigures(v, tz);
           return (
             <Fragment key={v.id}>
               <tr
@@ -57,9 +59,9 @@ export function ViolationsTable({ violations }: { violations: Violation[] }) {
                   )}
                 </LedgerCell>
                 <LedgerCell mono className="whitespace-nowrap text-muted-foreground">
-                  {format(new Date(v.occurred_at), "MMM d, yyyy HH:mm")}
+                  {formatInTimeZone(v.occurred_at, tz, "MMM d, yyyy HH:mm")}
                 </LedgerCell>
-                <LedgerCell className="text-muted-foreground">{explainViolation(v)}</LedgerCell>
+                <LedgerCell className="text-muted-foreground">{explainViolation(v, tz)}</LedgerCell>
                 <LedgerCell className="pr-0">
                   <ChevronDown
                     className={cn(

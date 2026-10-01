@@ -1,7 +1,8 @@
 "use client";
 
 import { Area, AreaChart, ReferenceLine, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
-import { format } from "date-fns";
+import { formatInTimeZone } from "date-fns-tz";
+import { useTimezone } from "@/components/dashboard/timezone-context";
 import { Activity } from "lucide-react";
 import type { EquityPoint } from "@/lib/data/equity";
 import { formatCurrency } from "@/lib/format";
@@ -32,6 +33,7 @@ export function EquitySparkline({
   points: EquityPoint[];
   violationTimes: string[];
 }) {
+  const tz = useTimezone();
   if (points.length < 2) {
     return (
       <EmptyState title="No equity history yet" icon={Activity} className="h-40 py-0">
@@ -42,7 +44,7 @@ export function EquitySparkline({
 
   const data: ChartPoint[] = points.map((p) => ({
     at: p.at,
-    label: format(new Date(p.at), "HH:mm"),
+    label: formatInTimeZone(p.at, tz, "HH:mm"),
     equity: p.equity,
   }));
 

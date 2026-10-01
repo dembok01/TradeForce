@@ -19,6 +19,8 @@ const validInput = {
   session_new_york_enabled: false,
   session_asian_enabled: false,
   session_london_ny_overlap_enabled: true,
+  custom_session_start: "",
+  custom_session_end: "",
   timezone: "UTC",
 };
 
@@ -47,8 +49,19 @@ describe("onboardingSchema", () => {
     ).toBe(false);
   });
 
-  it("requires the core risk numbers", () => {
-    expect(onboardingSchema.safeParse({ ...validInput, daily_loss_limit: "" }).success).toBe(false);
+  it("lets every limit be left blank", () => {
+    const out = onboardingSchema.parse({
+      ...validInput,
+      daily_loss_limit: "",
+      risk_per_trade_percent: "",
+      max_trades_per_day: "",
+    });
+    expect(out.daily_loss_limit).toBeNull();
+    expect(out.risk_per_trade_percent).toBeNull();
+    expect(out.max_trades_per_day).toBeNull();
+  });
+
+  it("still bounds a limit that is filled in", () => {
     expect(onboardingSchema.safeParse({ ...validInput, daily_loss_limit: "0" }).success).toBe(
       false
     );
@@ -70,6 +83,38 @@ describe("onboardingSchema", () => {
   });
 });
 
+describe("custom window and timezone", () => {
+  it("accepts a window, including one that runs past midnight", () => {
+    const out = onboardingSchema.parse({
+      ...validInput,
+      custom_session_start: "22:00",
+      custom_session_end: "02:30",
+    });
+    expect(out.custom_session_start).toBe("22:00");
+    expect(out.custom_session_end).toBe("02:30");
+  });
+
+  it("wants both ends, a real time, and a non-empty window", () => {
+    const bad = [
+      { custom_session_start: "09:00", custom_session_end: "" },
+      { custom_session_start: "", custom_session_end: "17:00" },
+      { custom_session_start: "09:00", custom_session_end: "09:00" },
+      { custom_session_start: "9am", custom_session_end: "17:00" },
+      { custom_session_start: "25:00", custom_session_end: "17:00" },
+    ];
+    for (const window of bad) {
+      expect(onboardingSchema.safeParse({ ...validInput, ...window }).success).toBe(false);
+    }
+  });
+
+  it("takes any IANA zone, stores IST by its current name, and falls back to UTC", () => {
+    const tz = (timezone: string) => onboardingSchema.parse({ ...validInput, timezone }).timezone;
+    expect(tz("Asia/Dubai")).toBe("Asia/Dubai");
+    expect(tz("Asia/Calcutta")).toBe("Asia/Kolkata");
+    expect(tz("Mars/Olympus")).toBe("UTC");
+  });
+});
+
 describe("onboarding step schemas", () => {
   it("cover every schema field exactly once", () => {
     const stepFields = Object.values(ONBOARDING_STEP_SCHEMAS).flatMap((schema) =>
@@ -82,10 +127,15 @@ describe("onboarding step schemas", () => {
 
   it("validate against the same rules as the full schema", () => {
     const risk = ONBOARDING_STEP_SCHEMAS.risk.safeParse({
-      daily_loss_limit: "",
+      daily_loss_limit: "0",
       risk_per_trade_percent: "1",
     });
     expect(risk.success).toBe(false);
+    const sessions = ONBOARDING_STEP_SCHEMAS.sessions.safeParse({
+      ...validInput,
+      custom_session_start: "09:00",
+    });
+    expect(sessions.success).toBe(false);
   });
 
   it("keeps the enum vocabulary in sync with the option lists", () => {

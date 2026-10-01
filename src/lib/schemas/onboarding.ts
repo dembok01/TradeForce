@@ -1,6 +1,6 @@
 import { z } from "zod";
-import { optionalNumber, requiredNumber } from "@/lib/schemas/form";
-import { RULE_BOUNDS } from "@/lib/schemas/rules";
+import { optionalNumber } from "@/lib/schemas/form";
+import { RULE_BOUNDS, customWindowError, customWindowOk, timeOrBlank, timezoneField } from "@/lib/schemas/rules";
 
 // Option lists live here (not in the wizard) so the zod enums and the UI can
 // never drift apart. Client-safe: no server-only imports.
@@ -34,22 +34,24 @@ const optionalText = z
 
 // Numeric inputs arrive as strings from controlled inputs (same convention as
 // the FormData forms), so the form.ts helpers apply unchanged.
-export const onboardingSchema = z.object({
+// Every limit is optional: a trader may only want a session window, or only a
+// loss limit. The action activates the charter only if something is set.
+const onboardingFields = z.object({
   full_name: optionalText,
   experience_level: experienceEnum,
   markets_traded: z.array(marketEnum).min(1, "Pick at least one market."),
   prop_firm: optionalText,
 
-  daily_loss_limit: requiredNumber("Enter a daily loss limit between $0 and $10,000,000.", {
+  daily_loss_limit: optionalNumber("Daily loss limit must be between $0.01 and $10,000,000.", {
     min: 0.01,
     max: RULE_BOUNDS.dailyLossLimitMax,
   }),
-  risk_per_trade_percent: requiredNumber("Risk per trade must be between 0 and 100%.", {
+  risk_per_trade_percent: optionalNumber("Risk per trade must be between 0.01 and 100%.", {
     min: 0.01,
     max: 100,
   }),
 
-  max_trades_per_day: requiredNumber("Enter a daily trade cap between 1 and 500.", {
+  max_trades_per_day: optionalNumber("Daily trade cap must be between 1 and 500.", {
     min: 1,
     max: RULE_BOUNDS.maxTradesPerDayMax,
     int: true,
@@ -64,15 +66,20 @@ export const onboardingSchema = z.object({
   session_new_york_enabled: z.boolean(),
   session_asian_enabled: z.boolean(),
   session_london_ny_overlap_enabled: z.boolean(),
-  timezone: z.string().trim().min(1).catch("UTC"),
+  // "HH:MM" on the trader's own clock; the action converts to stored UTC.
+  custom_session_start: timeOrBlank,
+  custom_session_end: timeOrBlank,
+  timezone: timezoneField,
 });
+
+export const onboardingSchema = onboardingFields.refine(customWindowOk, customWindowError);
 
 export type OnboardingInput = z.input<typeof onboardingSchema>;
 export type OnboardingValues = z.output<typeof onboardingSchema>;
 
 // The Settings page's Profile card edits the same four "about you" fields the
 // wizard collects — one schema so they can't drift.
-export const profileDetailsSchema = onboardingSchema.pick({
+export const profileDetailsSchema = onboardingFields.pick({
   full_name: true,
   experience_level: true,
   markets_traded: true,
@@ -80,20 +87,25 @@ export const profileDetailsSchema = onboardingSchema.pick({
 });
 
 // Per-step validation uses the exact same source of truth as the final parse.
+// (zod refuses .pick() on a refined object, hence onboardingFields.)
 export const ONBOARDING_STEP_SCHEMAS = {
-  about: onboardingSchema.pick({
+  about: onboardingFields.pick({
     full_name: true,
     experience_level: true,
     markets_traded: true,
     prop_firm: true,
   }),
-  risk: onboardingSchema.pick({ daily_loss_limit: true, risk_per_trade_percent: true }),
-  pace: onboardingSchema.pick({ max_trades_per_day: true, max_open_positions: true }),
-  sessions: onboardingSchema.pick({
-    session_london_enabled: true,
-    session_new_york_enabled: true,
-    session_asian_enabled: true,
-    session_london_ny_overlap_enabled: true,
-    timezone: true,
-  }),
+  risk: onboardingFields.pick({ daily_loss_limit: true, risk_per_trade_percent: true }),
+  pace: onboardingFields.pick({ max_trades_per_day: true, max_open_positions: true }),
+  sessions: onboardingFields
+    .pick({
+      session_london_enabled: true,
+      session_new_york_enabled: true,
+      session_asian_enabled: true,
+      session_london_ny_overlap_enabled: true,
+      custom_session_start: true,
+      custom_session_end: true,
+      timezone: true,
+    })
+    .refine(customWindowOk, customWindowError),
 } as const;

@@ -1,6 +1,7 @@
 "use client";
 
-import { format } from "date-fns";
+import { formatInTimeZone } from "date-fns-tz";
+import { useTimezone } from "@/components/dashboard/timezone-context";
 import { VIOLATION_PENALTY } from "@/lib/discipline-score";
 import { VIOLATION_LABELS, explainViolation } from "@/lib/violation-explainers";
 import type { DisciplineFactors, DisciplineViolation } from "@/lib/data/discipline";
@@ -44,6 +45,7 @@ export function DisciplineBreakdown({
   discipline: DisciplineFactors;
   children: React.ReactNode;
 }) {
+  const tz = useTimezone();
   return (
     <Sheet>
       <SheetTrigger
@@ -84,10 +86,10 @@ export function DisciplineBreakdown({
                   <ul className="mt-2 space-y-2">
                     {violations.slice(0, SHOWN_PER_FACTOR).map((v: DisciplineViolation) => (
                       <li key={v.id} className="ledger-row py-2 text-xs">
-                        <p className="text-foreground">{explainViolation(v)}</p>
+                        <p className="text-foreground">{explainViolation(v, tz)}</p>
                         <p className="mt-0.5 text-muted-foreground">
                           {VIOLATION_LABELS[v.type]} ·{" "}
-                          {format(new Date(v.occurred_at), "MMM d, HH:mm")}
+                          {formatInTimeZone(v.occurred_at, tz, "MMM d, HH:mm")}
                         </p>
                       </li>
                     ))}

@@ -69,7 +69,6 @@ export async function createTradeAction(
     }
 
     revalidatePath("/dashboard/journal");
-    revalidatePath("/dashboard/analytics");
     revalidatePath("/dashboard");
     return { error: null, success: true };
   } catch (err) {
@@ -108,6 +107,5 @@ export async function deleteTradeAction(tradeId: string) {
   const { error } = await supabase.from("trades").delete().eq("id", tradeId);
   if (error) throw new Error(error.message);
   revalidatePath("/dashboard/journal");
-  revalidatePath("/dashboard/analytics");
   revalidatePath("/dashboard");
 }

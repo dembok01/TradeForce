@@ -128,6 +128,26 @@ export default async function DashboardHomePage() {
       )}
 
       <StaggerGroup className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
+        {/* First tile: nothing else on this page matters if no EA is enforcing. */}
+        <StaggerItem>
+          <StatTile
+            label="EA connection"
+            value={
+              eaLastSeen
+                ? eaIsLive
+                  ? "Connected"
+                  : `Last seen ${formatDistanceToNowStrict(eaLastSeen, { addSuffix: true })}`
+                : null
+            }
+            sublabel={
+              eaLastSeen && eaIsLive
+                ? `checked in ${formatDistanceToNowStrict(eaLastSeen, { addSuffix: true })}`
+                : undefined
+            }
+            emptyHint="No EA has connected yet"
+            accent={eaLastSeen ? (eaIsLive ? "success" : "warning") : "neutral"}
+          />
+        </StaggerItem>
         <StaggerItem>
           <StatTile
             label="Current equity"
@@ -211,25 +231,6 @@ export default async function DashboardHomePage() {
                     ? "destructive"
                     : "neutral"
             }
-          />
-        </StaggerItem>
-        <StaggerItem>
-          <StatTile
-            label="EA connection"
-            value={
-              eaLastSeen
-                ? eaIsLive
-                  ? "Connected"
-                  : `Last seen ${formatDistanceToNowStrict(eaLastSeen, { addSuffix: true })}`
-                : null
-            }
-            sublabel={
-              eaLastSeen && eaIsLive
-                ? `checked in ${formatDistanceToNowStrict(eaLastSeen, { addSuffix: true })}`
-                : undefined
-            }
-            emptyHint="No EA has connected yet"
-            accent={eaLastSeen ? (eaIsLive ? "success" : "warning") : "neutral"}
           />
         </StaggerItem>
       </StaggerGroup>

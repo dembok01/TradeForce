@@ -5,15 +5,10 @@ import { addDays, startOfDay } from "date-fns";
 import { fromZonedTime, toZonedTime } from "date-fns-tz";
 import { Lock } from "lucide-react";
 import { nextSessionEdge } from "@/lib/trading-sessions";
+import { timezoneAbbrev } from "@/lib/time-boundaries";
 import { formatCurrency } from "@/lib/format";
 import type { AccountStatus } from "@/lib/risk-status";
 import { cn } from "@/lib/utils";
-
-const TZ_SHORT: Record<string, string> = {
-  "Asia/Kolkata": "IST",
-  UTC: "UTC",
-  "America/New_York": "ET",
-};
 
 function formatDuration(minutes: number): string {
   const clamped = Math.max(0, minutes);
@@ -54,7 +49,7 @@ export function TodayStrip({
   const wallNow = toZonedTime(now, timezone);
   const nextMidnightUtc = fromZonedTime(addDays(startOfDay(wallNow), 1), timezone);
   const resetMinutes = (nextMidnightUtc.getTime() - now.getTime()) / 60_000;
-  const tzShort = TZ_SHORT[timezone] ?? timezone;
+  const tzShort = timezoneAbbrev(timezone, now);
 
   const edge = nextSessionEdge(sessions, now);
   const locked = status === "locked";

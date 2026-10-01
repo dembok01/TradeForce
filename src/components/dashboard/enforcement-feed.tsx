@@ -1,7 +1,8 @@
 "use client";
 
 import { useState } from "react";
-import { format } from "date-fns";
+import { formatInTimeZone } from "date-fns-tz";
+import { useTimezone } from "@/components/dashboard/timezone-context";
 import { motion } from "motion/react";
 import type { FeedEvent } from "@/lib/enforcement-feed";
 import { closeRefused, explainViolation, VIOLATION_LABELS } from "@/lib/violation-explainers";
@@ -69,6 +70,7 @@ export function FeedRowView({
  * moment the product proves the EA is really there.
  */
 export function EnforcementFeed({ events }: { events: FeedEvent[] }) {
+  const tz = useTimezone();
   const [seenIds] = useState(() => new Set(events.map((e) => e.id)));
 
   return (
@@ -76,7 +78,7 @@ export function EnforcementFeed({ events }: { events: FeedEvent[] }) {
       {events.map((event) => {
         const isNew = !seenIds.has(event.id);
         if (isNew) seenIds.add(event.id);
-        const time = format(new Date(event.at), "HH:mm");
+        const time = formatInTimeZone(event.at, tz, "HH:mm");
 
         if (event.kind === "violation") {
           return (
@@ -86,8 +88,8 @@ export function EnforcementFeed({ events }: { events: FeedEvent[] }) {
               tone="violation"
               title={
                 closeRefused(event)
-                  ? `${explainViolation(event)} — NOT CLOSED: the broker refused (${closeRefused(event)})`
-                  : explainViolation(event)
+                  ? `${explainViolation(event, tz)} — NOT CLOSED: the broker refused (${closeRefused(event)})`
+                  : explainViolation(event, tz)
               }
               amount={VIOLATION_LABELS[event.type]}
               flash={isNew}

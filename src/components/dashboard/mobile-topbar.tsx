@@ -9,8 +9,19 @@ import { cn } from "@/lib/utils";
 import { signOutAction } from "@/lib/actions/auth";
 import { Button } from "@/components/ui/button";
 import { DASHBOARD_NAV_ITEMS } from "@/lib/dashboard-nav";
+import { EaStatusDot, type EaState } from "@/components/dashboard/ea-status";
 
-export function MobileTopbar({ name, email }: { name: string | null; email: string }) {
+export function MobileTopbar({
+  name,
+  email,
+  eaState,
+  eaLastSeenAt,
+}: {
+  name: string | null;
+  email: string;
+  eaState: EaState;
+  eaLastSeenAt: string | null;
+}) {
   const [open, setOpen] = useState(false);
   const pathname = usePathname();
 
@@ -20,6 +31,8 @@ export function MobileTopbar({ name, email }: { name: string | null; email: stri
         <Link href="/dashboard" className="font-display text-base font-semibold tracking-tight">
           Trade<span className="text-gradient-gold">Force</span>
         </Link>
+        {/* Mobile had no EA status at all before - it lived in the desktop sidebar only. */}
+        <EaStatusDot state={eaState} lastSeenAt={eaLastSeenAt} className="ml-auto mr-2 px-2" />
         <button
           type="button"
           onClick={() => setOpen(true)}

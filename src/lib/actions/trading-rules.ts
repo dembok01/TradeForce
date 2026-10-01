@@ -5,6 +5,7 @@ import { getAuthedActionContext } from "@/lib/actions/_helpers";
 import { toActionErrorMessage } from "@/lib/action-error";
 import { ruleSettingsSchema, sessionConfigSchema } from "@/lib/schemas/rules";
 import { fieldErrorsFrom, type FieldErrors } from "@/lib/schemas/form";
+import { localTimeToUtc } from "@/lib/trading-sessions";
 import { log } from "@/lib/log";
 import type { ServerClient } from "@/lib/data/account";
 
@@ -63,8 +64,11 @@ export async function updateSessionConfigAction(
         session_new_york_enabled: values.session_new_york_enabled,
         session_asian_enabled: values.session_asian_enabled,
         session_london_ny_overlap_enabled: values.session_london_ny_overlap_enabled,
-        custom_session_start: values.custom_session_start,
-        custom_session_end: values.custom_session_end,
+        // Typed on the trader's clock, stored (and enforced) as UTC.
+        custom_session_start:
+          values.custom_session_start && localTimeToUtc(values.custom_session_start, values.timezone),
+        custom_session_end:
+          values.custom_session_end && localTimeToUtc(values.custom_session_end, values.timezone),
         timezone: values.timezone,
       })
       .eq("account_id", account.id);

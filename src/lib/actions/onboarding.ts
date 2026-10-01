@@ -6,6 +6,7 @@ import { getAuthedActionContext } from "@/lib/actions/_helpers";
 import { toActionErrorMessage } from "@/lib/action-error";
 import { onboardingSchema } from "@/lib/schemas/onboarding";
 import { fieldErrorsFrom, type FieldErrors } from "@/lib/schemas/form";
+import { localTimeToUtc } from "@/lib/trading-sessions";
 import { log } from "@/lib/log";
 
 export type OnboardingActionState = {
@@ -28,6 +29,19 @@ export async function completeOnboardingAction(input: unknown): Promise<Onboardi
     if (!ctx.ok) return { error: ctx.error };
     const { supabase, userId, account } = ctx;
 
+    // Every provision is optional, but an "active" charter with nothing in it
+    // is a lie on the dashboard (Rule Settings enforces the same).
+    const hasAnyRule =
+      values.daily_loss_limit !== null ||
+      values.risk_per_trade_percent !== null ||
+      values.max_trades_per_day !== null ||
+      values.max_open_positions !== null ||
+      values.session_london_enabled ||
+      values.session_new_york_enabled ||
+      values.session_asian_enabled ||
+      values.session_london_ny_overlap_enabled ||
+      values.custom_session_start !== null;
+
     // trading_rules is unique(account_id), so signing the charter is one upsert.
     const { error: rulesError } = await supabase.from("trading_rules").upsert(
       {
@@ -41,8 +55,13 @@ export async function completeOnboardingAction(input: unknown): Promise<Onboardi
         session_new_york_enabled: values.session_new_york_enabled,
         session_asian_enabled: values.session_asian_enabled,
         session_london_ny_overlap_enabled: values.session_london_ny_overlap_enabled,
+        // Typed on the trader's clock, stored (and enforced) as UTC.
+        custom_session_start:
+          values.custom_session_start && localTimeToUtc(values.custom_session_start, values.timezone),
+        custom_session_end:
+          values.custom_session_end && localTimeToUtc(values.custom_session_end, values.timezone),
         timezone: values.timezone,
-        is_active: true,
+        is_active: hasAnyRule,
       },
       { onConflict: "account_id" }
     );

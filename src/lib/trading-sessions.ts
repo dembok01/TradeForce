@@ -1,3 +1,5 @@
+import { safeTimezone, timezoneAbbrev, utcOffsetMinutes } from "@/lib/time-boundaries";
+
 // Reference session windows in UTC hours (approximate, standard forex convention).
 // Good enough for Phase 1's "is a session active right now" indicator; Phase 2 can
 // refine with exact exchange calendars/DST handling once the EA is the source of truth.
@@ -67,8 +69,64 @@ export function nextSessionEdge(
   return closes ?? opens;
 }
 
-export const TIMEZONE_OPTIONS = [
-  { value: "Asia/Kolkata", label: "IST — India Standard Time" },
-  { value: "UTC", label: "GMT / UTC — Greenwich Mean Time" },
-  { value: "America/New_York", label: "EST — Eastern Standard Time" },
-];
+const pad2 = (n: number) => String(n).padStart(2, "0");
+
+/** Fractional hours -> "HH:MM", wrapping past midnight either way. */
+function hoursToHhmm(hours: number): string {
+  const total = ((Math.round(hours * 60) % 1440) + 1440) % 1440;
+  return `${pad2(Math.floor(total / 60))}:${pad2(total % 60)}`;
+}
+
+// The custom window is STORED as UTC wall time, because that is what every EA
+// ever shipped enforces. Traders type and read it on their own clock, so the
+// forms convert at the edge and nothing downstream changes.
+// ponytail: the offset is taken at `now`, so in a DST zone a saved window stays
+// put in UTC and moves an hour on the local clock at the switch - the preset
+// sessions behave the same way. Store local time and convert per request (and
+// bump config_version at each switch) if DST traders need it pinned.
+
+/** "09:00" typed in `timeZone` -> the "HH:MM" UTC wall time to store. */
+export function localTimeToUtc(time: string, timeZone: string, now = new Date()): string {
+  return hoursToHhmm(parseTimeToUtcHours(time) - utcOffsetMinutes(timeZone, now) / 60);
+}
+
+/** A stored UTC "HH:MM[:SS]" -> "HH:MM" on the trader's clock. */
+export function utcTimeToLocal(time: string, timeZone: string, now = new Date()): string {
+  return hoursToHhmm(parseTimeToUtcHours(time) + utcOffsetMinutes(timeZone, now) / 60);
+}
+
+/** A UTC window on the trader's clock: "13:30–22:00 IST". */
+export function formatWindowLocal(
+  startUtc: number,
+  endUtc: number,
+  timeZone: string,
+  now = new Date()
+): string {
+  const offset = utcOffsetMinutes(timeZone, now) / 60;
+  return `${hoursToHhmm(startUtc + offset)}–${hoursToHhmm(endUtc + offset)} ${timezoneAbbrev(timeZone, now)}`;
+}
+
+function gmtLabel(offsetMinutes: number): string {
+  const sign = offsetMinutes < 0 ? "-" : "+";
+  const abs = Math.abs(offsetMinutes);
+  return `GMT${sign}${pad2(Math.floor(abs / 60))}:${pad2(abs % 60)}`;
+}
+
+// The three the product launched with stay on top.
+const PINNED_TIMEZONES = ["Asia/Kolkata", "UTC", "America/New_York"];
+
+/**
+ * Every IANA zone the runtime knows, pinned ones first, each labelled with its
+ * current GMT offset. `include` keeps an already-saved zone selectable even if
+ * this runtime doesn't list it.
+ */
+export function timezoneOptions(include?: string, now = new Date()): { value: string; label: string }[] {
+  const known = typeof Intl.supportedValuesOf === "function" ? Intl.supportedValuesOf("timeZone") : [];
+  // safeTimezone folds Asia/Calcutta into the pinned Asia/Kolkata; dedupe after.
+  const zones = [...new Set([...PINNED_TIMEZONES, ...known].map(safeTimezone))];
+  if (include && !zones.includes(safeTimezone(include))) zones.unshift(safeTimezone(include));
+  return zones.map((value) => ({
+    value,
+    label: `${value.replaceAll("_", " ")} (${gmtLabel(utcOffsetMinutes(value, now))})`,
+  }));
+}

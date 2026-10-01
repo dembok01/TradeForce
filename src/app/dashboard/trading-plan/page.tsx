@@ -1,4 +1,6 @@
 import { getTradingPlanStatus } from "@/lib/data/trading-plan";
+import { getRequestTimezone } from "@/lib/data/rules";
+import { formatWindowLocal } from "@/lib/trading-sessions";
 import { formatCurrency } from "@/lib/format";
 import { PageHeader } from "@/components/dashboard/page-header";
 import { RuleStatusBadge } from "@/components/dashboard/rule-status-badge";
@@ -21,7 +23,7 @@ function ProvisionHeader({ index, title }: { index: string; title: string }) {
 }
 
 export default async function TradingPlanPage() {
-  const status = await getTradingPlanStatus();
+  const [status, timezone] = await Promise.all([getTradingPlanStatus(), getRequestTimezone()]);
   const { rules } = status;
 
   if (!rules) {
@@ -151,7 +153,12 @@ export default async function TradingPlanPage() {
                   .filter((s) => s.enabled)
                   .map((session) => (
                     <li key={session.key} className="ledger-row flex items-center justify-between py-3">
-                      <span className="text-sm">{session.label}</span>
+                      <span className="text-sm">
+                        {session.label}
+                        <span className="ml-2 font-mono-tabular text-xs text-muted-foreground">
+                          {formatWindowLocal(session.startUtc, session.endUtc, timezone)}
+                        </span>
+                      </span>
                       <Badge variant={session.active ? "success" : "secondary"}>
                         {session.active ? "Active now" : "Closed"}
                       </Badge>

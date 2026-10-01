@@ -3,11 +3,24 @@ import { getAccountContext } from "@/lib/data/context";
 import { countExact, getTodayTradeStats } from "@/lib/data/_shared";
 import { getAccountRules, type TradingRules } from "@/lib/data/rules";
 import { deriveStatus } from "@/lib/risk-status";
-import { SESSION_WINDOWS, isWithinUtcWindow, isCustomWindowActive } from "@/lib/trading-sessions";
+import {
+  SESSION_WINDOWS,
+  isWithinUtcWindow,
+  isCustomWindowActive,
+  parseTimeToUtcHours,
+  type SessionKey,
+} from "@/lib/trading-sessions";
 
 export type { TradingRules };
 
-export type ActiveSession = { key: string; label: string; enabled: boolean; active: boolean };
+export type ActiveSession = {
+  key: string;
+  label: string;
+  enabled: boolean;
+  active: boolean;
+  startUtc: number;
+  endUtc: number;
+};
 
 export type TradingPlanStatus = {
   rules: TradingRules | null;
@@ -36,43 +49,28 @@ export async function getTradingPlanStatus(): Promise<TradingPlanStatus> {
 
   const { todayPnl, todayTradeCount } = todayStats;
 
-  const sessions: ActiveSession[] = rules
+  const presets: [SessionKey, boolean][] = rules
     ? [
-        {
-          key: "london",
-          label: SESSION_WINDOWS.london.label,
-          enabled: rules.session_london_enabled,
-          active: isWithinUtcWindow(SESSION_WINDOWS.london.startUtc, SESSION_WINDOWS.london.endUtc),
-        },
-        {
-          key: "newYork",
-          label: SESSION_WINDOWS.newYork.label,
-          enabled: rules.session_new_york_enabled,
-          active: isWithinUtcWindow(SESSION_WINDOWS.newYork.startUtc, SESSION_WINDOWS.newYork.endUtc),
-        },
-        {
-          key: "asian",
-          label: SESSION_WINDOWS.asian.label,
-          enabled: rules.session_asian_enabled,
-          active: isWithinUtcWindow(SESSION_WINDOWS.asian.startUtc, SESSION_WINDOWS.asian.endUtc),
-        },
-        {
-          key: "londonNyOverlap",
-          label: SESSION_WINDOWS.londonNyOverlap.label,
-          enabled: rules.session_london_ny_overlap_enabled,
-          active: isWithinUtcWindow(
-            SESSION_WINDOWS.londonNyOverlap.startUtc,
-            SESSION_WINDOWS.londonNyOverlap.endUtc
-          ),
-        },
-        {
-          key: "custom",
-          label: "Custom window",
-          enabled: Boolean(rules.custom_session_start && rules.custom_session_end),
-          active: isCustomWindowActive(rules.custom_session_start, rules.custom_session_end),
-        },
+        ["london", rules.session_london_enabled],
+        ["newYork", rules.session_new_york_enabled],
+        ["asian", rules.session_asian_enabled],
+        ["londonNyOverlap", rules.session_london_ny_overlap_enabled],
       ]
     : [];
+  const sessions: ActiveSession[] = presets.map(([key, enabled]) => {
+    const w = SESSION_WINDOWS[key];
+    return { key, label: w.label, enabled, active: isWithinUtcWindow(w.startUtc, w.endUtc), startUtc: w.startUtc, endUtc: w.endUtc };
+  });
+  if (rules?.custom_session_start && rules.custom_session_end) {
+    sessions.push({
+      key: "custom",
+      label: "Custom window",
+      enabled: true,
+      active: isCustomWindowActive(rules.custom_session_start, rules.custom_session_end),
+      startUtc: parseTimeToUtcHours(rules.custom_session_start),
+      endUtc: parseTimeToUtcHours(rules.custom_session_end),
+    });
+  }
 
   const anyEnabledSessionActive = sessions.some((s) => s.enabled && s.active);
   const hasAnyEnabledSession = sessions.some((s) => s.enabled);

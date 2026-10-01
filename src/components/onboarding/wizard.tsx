@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, useTransition } from "react";
+import { useEffect, useMemo, useState, useTransition } from "react";
 import Link from "next/link";
 import { AnimatePresence, motion, useReducedMotion } from "motion/react";
 import { Check } from "lucide-react";
@@ -12,7 +12,8 @@ import {
   ONBOARDING_STEP_SCHEMAS,
 } from "@/lib/schemas/onboarding";
 import { fieldErrorsFrom, type FieldErrors } from "@/lib/schemas/form";
-import { TIMEZONE_OPTIONS } from "@/lib/trading-sessions";
+import { SESSION_WINDOWS, formatWindowLocal, timezoneOptions } from "@/lib/trading-sessions";
+import { safeTimezone } from "@/lib/time-boundaries";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -38,10 +39,10 @@ const STEPS = [
 type StepKey = (typeof STEPS)[number]["key"];
 
 const SESSION_TOGGLES = [
-  { name: "session_london_enabled", label: "London", hint: "08:00–16:30 UTC" },
-  { name: "session_new_york_enabled", label: "New York", hint: "13:00–22:00 UTC" },
-  { name: "session_asian_enabled", label: "Asian", hint: "00:00–09:00 UTC" },
-  { name: "session_london_ny_overlap_enabled", label: "London / New York overlap", hint: "13:00–16:30 UTC" },
+  { name: "session_london_enabled", label: "London", window: SESSION_WINDOWS.london },
+  { name: "session_new_york_enabled", label: "New York", window: SESSION_WINDOWS.newYork },
+  { name: "session_asian_enabled", label: "Asian", window: SESSION_WINDOWS.asian },
+  { name: "session_london_ny_overlap_enabled", label: "London / New York overlap", window: SESSION_WINDOWS.londonNyOverlap },
 ] as const;
 
 type WizardValues = {
@@ -57,6 +58,8 @@ type WizardValues = {
   session_new_york_enabled: boolean;
   session_asian_enabled: boolean;
   session_london_ny_overlap_enabled: boolean;
+  custom_session_start: string;
+  custom_session_end: string;
   timezone: string;
 };
 
@@ -83,8 +86,12 @@ export function OnboardingWizard({ defaultFullName = "" }: { defaultFullName?: s
     session_new_york_enabled: false,
     session_asian_enabled: false,
     session_london_ny_overlap_enabled: false,
+    custom_session_start: "",
+    custom_session_end: "",
     timezone: "UTC",
   });
+  const [customOn, setCustomOn] = useState(false);
+  const tzOptions = useMemo(() => timezoneOptions(values.timezone), [values.timezone]);
   const [step, setStep] = useState(0);
   const [direction, setDirection] = useState(1);
   const [fieldErrors, setFieldErrors] = useState<FieldErrors>({});
@@ -92,15 +99,19 @@ export function OnboardingWizard({ defaultFullName = "" }: { defaultFullName?: s
   const [pending, startTransition] = useTransition();
   const reduceMotion = useReducedMotion();
 
-  // Default the timezone to the browser's, when it's one we offer. Done in an
-  // effect (not the initializer) so server and client first paints match.
+  // Default the timezone to the browser's. Done in an effect (not the
+  // initializer) so server and client first paints match.
   useEffect(() => {
-    const tz = Intl.DateTimeFormat().resolvedOptions().timeZone;
-    if (TIMEZONE_OPTIONS.some((o) => o.value === tz)) {
-      // eslint-disable-next-line react-hooks/set-state-in-effect -- one-shot browser-only default; an initializer would mismatch the server paint
-      setValues((v) => ({ ...v, timezone: tz }));
-    }
+    const tz = safeTimezone(Intl.DateTimeFormat().resolvedOptions().timeZone);
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- one-shot browser-only default; an initializer would mismatch the server paint
+    setValues((v) => ({ ...v, timezone: tz }));
   }, []);
+
+  function toggleCustom(on: boolean) {
+    setCustomOn(on);
+    // Off means no custom window at all, not a half-filled one.
+    if (!on) setValues((v) => ({ ...v, custom_session_start: "", custom_session_end: "" }));
+  }
 
   function set<K extends keyof WizardValues>(key: K, value: WizardValues[K]) {
     setValues((v) => ({ ...v, [key]: value }));
@@ -164,19 +175,22 @@ export function OnboardingWizard({ defaultFullName = "" }: { defaultFullName?: s
     window.setTimeout(submit, provisions.length * 180 + 450);
   }
 
-  const enabledSessions = SESSION_TOGGLES.filter((t) => values[t.name]).map((t) => t.label);
+  const enabledSessions: string[] = SESSION_TOGGLES.filter((t) => values[t.name]).map((t) => t.label);
+  if (values.custom_session_start && values.custom_session_end) {
+    enabledSessions.push(`${values.custom_session_start}–${values.custom_session_end}`);
+  }
   const provisions = [
     {
       label: "Daily loss limit",
-      value: values.daily_loss_limit ? `$${values.daily_loss_limit}` : "—",
+      value: values.daily_loss_limit ? `$${values.daily_loss_limit}` : "Not set",
     },
     {
       label: "Risk per trade",
-      value: values.risk_per_trade_percent ? `${values.risk_per_trade_percent}%` : "—",
+      value: values.risk_per_trade_percent ? `${values.risk_per_trade_percent}%` : "Not set",
     },
     {
       label: "Max trades per day",
-      value: values.max_trades_per_day || "—",
+      value: values.max_trades_per_day || "No cap",
     },
     {
       label: "Max open positions",
@@ -187,6 +201,10 @@ export function OnboardingWizard({ defaultFullName = "" }: { defaultFullName?: s
       value: enabledSessions.length > 0 ? enabledSessions.join(", ") : "Any time",
     },
   ];
+  // Mirrors the action: nothing set = saved, but not switched on.
+  const willActivate =
+    provisions.slice(0, 4).some((p) => p.value !== "Not set" && p.value !== "No cap") ||
+    enabledSessions.length > 0;
 
   const isReview = STEPS[step].key === "review";
 
@@ -378,11 +396,13 @@ export function OnboardingWizard({ defaultFullName = "" }: { defaultFullName?: s
                   <StepShell
                     eyebrow="Step two"
                     title="The line you won't cross"
-                    description="These two numbers do the most protecting. TradeForce holds them for you on the days discipline is hardest."
+                    description="These two numbers do the most protecting. Both are optional — leave either blank and TradeForce won't enforce it."
                   >
                     <div className="space-y-6">
                       <div className="space-y-2">
-                        <Label htmlFor="daily_loss_limit">Daily loss limit ($)</Label>
+                        <Label htmlFor="daily_loss_limit">
+                          Daily loss limit ($) <span className="text-muted-foreground">(optional)</span>
+                        </Label>
                         <Input
                           id="daily_loss_limit"
                           type="number"
@@ -400,7 +420,9 @@ export function OnboardingWizard({ defaultFullName = "" }: { defaultFullName?: s
                         <FieldError id="daily_loss_limit-error" message={fieldErrors.daily_loss_limit} />
                       </div>
                       <div className="space-y-2">
-                        <Label htmlFor="risk_per_trade_percent">Risk per trade (% of balance)</Label>
+                        <Label htmlFor="risk_per_trade_percent">
+                          Risk per trade (% of balance) <span className="text-muted-foreground">(optional)</span>
+                        </Label>
                         <Input
                           id="risk_per_trade_percent"
                           type="number"
@@ -432,14 +454,16 @@ export function OnboardingWizard({ defaultFullName = "" }: { defaultFullName?: s
                   >
                     <div className="space-y-6">
                       <div className="space-y-2">
-                        <Label htmlFor="max_trades_per_day">Max trades per day</Label>
+                        <Label htmlFor="max_trades_per_day">
+                          Max trades per day <span className="text-muted-foreground">(optional)</span>
+                        </Label>
                         <Input
                           id="max_trades_per_day"
                           type="number"
                           min="1"
                           value={values.max_trades_per_day}
                           onChange={(e) => set("max_trades_per_day", e.target.value)}
-                          placeholder="e.g. 5"
+                          placeholder="Leave blank for no cap"
                           autoFocus
                           aria-invalid={Boolean(fieldErrors.max_trades_per_day)}
                         />
@@ -471,12 +495,32 @@ export function OnboardingWizard({ defaultFullName = "" }: { defaultFullName?: s
                     description="Restrict trading to the windows your edge actually lives in. Leave them all off to allow trading anytime."
                   >
                     <div className="space-y-6">
+                      <div className="space-y-2">
+                        <Label>Your timezone</Label>
+                        <Select value={values.timezone} onValueChange={(v) => set("timezone", v)}>
+                          <SelectTrigger className="max-w-sm">
+                            <SelectValue placeholder="Select timezone" />
+                          </SelectTrigger>
+                          <SelectContent>
+                            {tzOptions.map((tz) => (
+                              <SelectItem key={tz.value} value={tz.value}>
+                                {tz.label}
+                              </SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                        <p className="text-xs text-muted-foreground">
+                          Your trading day resets at midnight here, and every window below is shown on this clock.
+                        </p>
+                      </div>
                       <div className="space-y-4">
                         {SESSION_TOGGLES.map((toggle) => (
                           <div key={toggle.name} className="flex items-center justify-between">
                             <div>
                               <Label htmlFor={toggle.name}>{toggle.label}</Label>
-                              <p className="text-xs text-muted-foreground">{toggle.hint}</p>
+                              <p className="text-xs text-muted-foreground">
+                                {formatWindowLocal(toggle.window.startUtc, toggle.window.endUtc, values.timezone)}
+                              </p>
                             </div>
                             <Switch
                               id={toggle.name}
@@ -485,21 +529,45 @@ export function OnboardingWizard({ defaultFullName = "" }: { defaultFullName?: s
                             />
                           </div>
                         ))}
-                      </div>
-                      <div className="space-y-2">
-                        <Label>Timezone</Label>
-                        <Select value={values.timezone} onValueChange={(v) => set("timezone", v)}>
-                          <SelectTrigger className="max-w-xs">
-                            <SelectValue placeholder="Select timezone" />
-                          </SelectTrigger>
-                          <SelectContent>
-                            {TIMEZONE_OPTIONS.map((tz) => (
-                              <SelectItem key={tz.value} value={tz.value}>
-                                {tz.label}
-                              </SelectItem>
-                            ))}
-                          </SelectContent>
-                        </Select>
+                        <div className="border-t border-border/60 pt-4">
+                          <div className="flex items-center justify-between">
+                            <div>
+                              <Label htmlFor="custom_window">Custom window</Label>
+                              <p className="text-xs text-muted-foreground">
+                                Your own start and end time, on your clock.
+                              </p>
+                            </div>
+                            <Switch id="custom_window" checked={customOn} onCheckedChange={toggleCustom} />
+                          </div>
+                          {customOn && (
+                            <div className="mt-4 grid grid-cols-1 gap-4 sm:grid-cols-2">
+                              <div className="space-y-2">
+                                <Label htmlFor="custom_session_start">Start time</Label>
+                                <Input
+                                  id="custom_session_start"
+                                  type="time"
+                                  value={values.custom_session_start}
+                                  onChange={(e) => set("custom_session_start", e.target.value)}
+                                  aria-invalid={Boolean(fieldErrors.custom_session_end)}
+                                />
+                              </div>
+                              <div className="space-y-2">
+                                <Label htmlFor="custom_session_end">End time</Label>
+                                <Input
+                                  id="custom_session_end"
+                                  type="time"
+                                  value={values.custom_session_end}
+                                  onChange={(e) => set("custom_session_end", e.target.value)}
+                                  aria-invalid={Boolean(fieldErrors.custom_session_end)}
+                                  aria-describedby={
+                                    fieldErrors.custom_session_end ? "custom_session_end-error" : undefined
+                                  }
+                                />
+                              </div>
+                            </div>
+                          )}
+                          <FieldError id="custom_session_end-error" message={fieldErrors.custom_session_end} />
+                        </div>
                       </div>
                     </div>
                   </StepShell>
@@ -535,9 +603,10 @@ export function OnboardingWizard({ defaultFullName = "" }: { defaultFullName?: s
                       ))}
                     </ol>
                     <p className="mt-6 text-xs text-muted-foreground">
-                      Signing activates enforcement immediately
-                      {values.full_name ? `, ${values.full_name.trim()}` : ""}. Every provision can be
-                      amended later from Rule Settings.
+                      {willActivate
+                        ? `Signing activates enforcement immediately${values.full_name ? `, ${values.full_name.trim()}` : ""}.`
+                        : "Nothing is set yet, so the charter is saved but stays switched off until you add a rule."}{" "}
+                      Every provision can be amended later from Rule Settings.
                     </p>
                   </StepShell>
                 )}
