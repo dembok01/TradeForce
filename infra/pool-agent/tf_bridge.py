@@ -620,14 +620,20 @@ def housekeep(dirs: BridgeDirs, now: float) -> None:
 LOGIN_LOGS = (".wine", "drive_c", "Program Files", "MetaTrader 5", "logs")
 
 
-def journal(volume: str) -> list[tuple[str, str, str]] | None:
-    """(time, source, message) from MT5's own journal, newest two days, oldest
-    first; None if there is no journal yet. A sign-in just before midnight is
-    only in yesterday's file, so one day is not enough."""
+def journal(volume: str, files: int = 2, skip: int = 0) -> list[tuple[str, str, str]] | None:
+    """(time, source, message) from MT5's own journal, newest first by file age,
+    oldest line first; None if there is no journal yet.
+
+    Two files by default: a sign-in just before midnight is only in yesterday's
+    file, so one day is not enough. `skip` drops that many newest files, which is
+    how login_state reaches further back for a verdict without re-reading the
+    window it has already looked at.
+    """
     d = os.path.join(volume, *LOGIN_LOGS)
     try:
         logs = sorted((os.path.join(d, n) for n in os.listdir(d) if n.endswith(".log")),
-                      key=os.path.getmtime)[-2:]
+                      key=os.path.getmtime)
+        logs = logs[: len(logs) - skip][-files:] if skip else logs[-files:]
     except OSError:
         return None
     if not logs:
@@ -648,15 +654,56 @@ def journal(volume: str) -> list[tuple[str, str, str]] | None:
     return out
 
 
+# MetaTrader's way of saying it cannot reach the broker at all. Age never makes
+# this stale: a wrong address keeps producing it for as long as the terminal runs.
+NO_LINK = "no connection to"
+# How many older journal files to search for a sign-in verdict. A terminal that
+# signed in a week ago and has been healthy since has that line far outside the
+# two-day window, and reporting it as "waiting" told four traders their terminal
+# had failed while their EAs reported every minute.
+VERDICT_LOOKBACK = 14
+
+
 def login_state(volume: str) -> tuple[str, str] | None:
     """What MT5's journal says about signing in to the broker.
 
     ('ok', server name) or ('failed', reason) for the latest outcome; ('waiting',
     last network line) while it has neither; None if there is no journal yet.
+
+    The recent window decides first, because it is the current truth. Only when
+    it holds no verdict AND is not complaining about the link do older files get
+    searched - that is what keeps a long-lived healthy terminal reported as
+    signed in, without ever dressing up a broken link as a good one.
     """
     lines = journal(volume)
     if lines is None:
         return None
+    recent = _verdict(lines)
+    if recent:
+        return recent
+    network = _last_network(lines)
+    if NO_LINK in network.lower():
+        return ("waiting", network)
+    for skip in range(2, VERDICT_LOOKBACK, 2):
+        older = journal(volume, skip=skip)
+        if not older:
+            break
+        found = _verdict(older)
+        if found:
+            return found
+    return ("waiting", network)
+
+
+def _last_network(lines: list[tuple[str, str, str]]) -> str:
+    network = ""
+    for _, source, msg in lines:
+        if source == "Network":
+            network = msg
+    return network
+
+
+def _verdict(lines: list[tuple[str, str, str]]) -> tuple[str, str] | None:
+    """The latest sign-in outcome in these lines, if any."""
     result, network = None, ""
     for _, source, msg in lines:
         low = msg.lower()
@@ -672,7 +719,7 @@ def login_state(volume: str) -> tuple[str, str] | None:
             # "...: authorization on Broker-Server failed (Invalid account)"
             reason = msg.split("failed", 1)[1].strip(" ()\t") or "rejected by the broker"
             result = ("failed", reason)
-    return result or ("waiting", network)
+    return result
 
 
 def ea_start(volume: str) -> tuple[str, str] | None:

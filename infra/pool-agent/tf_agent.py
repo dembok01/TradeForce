@@ -60,7 +60,7 @@ POLL = int(os.environ.get("TF_POLL", "15"))
 # Which hosted EAs use the file bridge: "off", "all", or account ids, comma-separated.
 BRIDGE = os.environ.get("TF_BRIDGE", "off")
 
-AGENT_VERSION = "1.6.0"
+AGENT_VERSION = "1.6.2"
 TELEMETRY_EVERY = int(os.environ.get("TF_TELEMETRY_EVERY", "4"))  # passes; 4 x 15s = 60s
 
 REST = f"{SUPABASE}/rest/v1/mt5_instances"
@@ -784,31 +784,55 @@ def check_one(acc: str, name: str):
     state = tf_bridge.login_state(vol)
 
     if state is None or state[0] == "waiting":
-        # Only a container that has never been heard to sign in, and only in
-        # its first day: login_state reads two days of journal, so an older
-        # healthy terminal can simply have no sign-in line left to find.
-        if acc in _login_reported:
-            return
+        # Nothing known about the sign-in, which is not the same as a problem:
+        # login_state reads two days of journal, so a terminal that has been up
+        # for a week has no sign-in line left to find. Report a silent broker
+        # only while the container is young enough for that to mean something -
+        # and then carry on, because everything below has to keep running for an
+        # old terminal too.
+        #
+        # This used to return. Four traders spent two days reading "we couldn't
+        # start your terminal" while their EAs reported every sixty seconds,
+        # because the recovery that clears a stale error sits below here - and so
+        # does the watchdog that restarts a dead MetaTrader, which was therefore
+        # switched off for every container older than a day.
         up = uptime_seconds(name)
-        if up is None or not LOGIN_PATIENCE < up < 86_400:
-            return
+        young = up is not None and LOGIN_PATIENCE < up < 86_400
+        said = (state[1] or "") if state else ""
+        # The eight-minute window still applies at the start: MetaTrader says
+        # "no connection" transiently while it is finding the server, and calling
+        # that a failure would alarm every trader who just connected.
+        #
+        # What does NOT apply is an upper age limit. A terminal MetaTrader cannot
+        # connect through is never "protected", however long it has been up: one
+        # trader's address was wrong, and with the old limit the fall-through
+        # below reported it as running purely because the EA process was alive.
+        old_enough = up is not None and up > LOGIN_PATIENCE
+        broken = old_enough and tf_bridge.NO_LINK in said.lower()
+        first_silent = old_enough and up < 86_400 and acc not in _login_reported
+        state = ("waiting", said) if broken or first_silent else None
+    if state is not None and state[0] == "waiting":
+        first = _login_reported.get(acc) != "silent"
         _login_reported[acc] = "silent"
-        said = state[1] if state and state[1] else ""
-        print(f"no answer from the broker for {acc} after {int(up)}s: {said or 'journal silent'}", flush=True)
-        detail = ("Your broker's server has not answered for 8 minutes"
+        said = state[1] or ""
+        waited = f" after {int(up)}s" if up is not None else ""
+        if first:
+            print(f"no answer from the broker for {acc}{waited}: {said or 'journal silent'}", flush=True)
+        detail = ("Your broker's server has not answered"
                   + (f" (MetaTrader says: {said[:160]})" if said else "")
                   + ". The server is probably wrong - pick your broker and the exact server your "
                     "account is on (it's in your broker's account email or client area), then connect again.")
-        report(acc, status="login_failed", status_detail=detail)
+        if first:
+            report(acc, status="login_failed", status_detail=detail)
         if changed(acc, "login", "silent"):
             event(acc, "no_answer", "error", detail, evidence(acc))
             # "No answer" does not say WHY, and support cannot tell a wrong
             # address from wrong credentials without asking someone. Ask a
             # terminal instead; the verdict comes back into this trader's log.
             raise_probe(acc, _rows.get(acc, {}).get("mt5_server"))
-        return
+        state = None
 
-    if state[0] == "failed":
+    if state is not None and state[0] == "failed":
         if _login_reported.get(acc) != "failed":
             _login_reported[acc] = "failed"
             print(f"login rejected for {acc}: {state[1]}", flush=True)
@@ -821,14 +845,14 @@ def check_one(acc: str, name: str):
                   {"reason": state[1], **evidence(acc)})
         return
 
-    server = state[1]
-    if _login_reported.get(acc) != "ok":
+    server = state[1] if state else None
+    if state is not None and _login_reported.get(acc) != "ok":
         # The server name confirms to the trader that they picked the right
         # one, and teaches us which name answers at that address.
         _login_reported[acc] = "ok"
         print(f"login ok for {acc}: {server or 'server name not logged'}", flush=True)
         report(acc, status="running", status_detail=f"Connected to {server}" if server else None)
-    if changed(acc, "login", "ok"):
+    if state is not None and changed(acc, "login", "ok"):
         event(acc, "signed_in", "info", f"Signed in to {server or 'your broker'}.")
 
     mode = tf_bridge.trading_mode(vol)

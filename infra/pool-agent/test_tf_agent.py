@@ -9,6 +9,7 @@ import base64
 import os
 import shutil
 import tempfile
+import time
 import unittest
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
@@ -128,6 +129,77 @@ class CheckOneTest(unittest.TestCase):
         a.check_one(ACC, NAME)
         self.assertEqual(self.events, [])
         self.assertEqual(self.reports[-1]["status"], "error")  # status still corrected
+
+    # An old terminal has no sign-in line left to find: login_state reads two
+    # days of journal. Four live accounts sat on "we couldn't start your
+    # terminal" for two days because check_one gave up at that point, before the
+    # recovery below it - and before the watchdog.
+    OLD = 6 * 86400
+    UNRELATED = "0\t1\t09:00:00.000\tTerminal\tMetaTrader 5 x64 build 6215 started"
+
+    def journal_files(self, *files):
+        """(name, lines) oldest first, with mtimes so the newest really is newest."""
+        base = time.time() - 86400 * (len(files) + 1)
+        for i, (name, lines) in enumerate(files):
+            path = self.logs / name
+            path.write_bytes("\n".join(lines).encode("utf-16-le"))
+            os.utime(path, (base + i * 3600, base + i * 3600))
+
+    def test_a_sign_in_older_than_the_window_is_still_found(self):
+        # The four live accounts: signed in on day one, healthy ever since, and
+        # the verdict sits far outside the two newest journal files.
+        self.journal_files(("20260926.log", SIGNED_IN),
+                           ("20261001.log", [self.UNRELATED]),
+                           ("20261002.log", [self.UNRELATED]))
+        a.uptime_seconds = lambda name: self.OLD
+        a._rows[ACC] = {"ea_reported_at": datetime.now(timezone.utc).isoformat(), "status": "error"}
+        a.check_one(ACC, NAME)
+        self.assertEqual(self.reports[-1]["status"], "running")
+        self.assertEqual(self.reports[-1]["status_detail"], "Connected to Alpari-MT5-Demo")
+
+    def test_a_broken_link_outranks_an_old_sign_in(self):
+        # And the opposite: never report protected while MetaTrader is saying it
+        # cannot reach the broker, however long the container has been up.
+        self.journal_files(
+            ("20260926.log", SIGNED_IN),
+            ("20261001.log", [self.UNRELATED]),
+            ("20261002.log", ["0\t1\t09:00:00.000\tNetwork\t'1': no connection to demo.icmarkets.com:443"]),
+        )
+        a.uptime_seconds = lambda name: self.OLD
+        a._rows[ACC] = {"ea_reported_at": datetime.now(timezone.utc).isoformat(), "status": "running"}
+        a.check_one(ACC, NAME)
+        self.assertEqual(self.reports[-1]["status"], "login_failed")
+        self.assertIn("no connection to demo.icmarkets.com", self.reports[-1]["status_detail"])
+
+    def test_a_dead_link_on_a_young_container_is_unchanged(self):
+        self.journal_files(("20261002.log", ["0\t1\t09:00:05.000\tNetwork\t'1': no connection to x.invalid:443"]))
+        a.uptime_seconds = lambda name: a.LOGIN_PATIENCE + 1
+        a.check_one(ACC, NAME)
+        self.assertEqual(self.reports[-1]["status"], "login_failed")
+        self.assertEqual(self.kinds(), ["no_answer"])
+
+    def test_an_aged_out_sign_in_line_still_clears_a_stale_error(self):
+        self.journal(self.UNRELATED)
+        a.uptime_seconds = lambda name: self.OLD
+        a._rows[ACC] = {"ea_reported_at": datetime.now(timezone.utc).isoformat(), "status": "error"}
+        a.check_one(ACC, NAME)
+        self.assertEqual(self.reports[-1]["status"], "running")
+
+    def test_an_aged_out_sign_in_line_does_not_invent_a_broker_problem(self):
+        self.journal(self.UNRELATED)
+        a.uptime_seconds = lambda name: self.OLD
+        a._rows[ACC] = {"ea_reported_at": datetime.now(timezone.utc).isoformat(), "status": "running"}
+        a.check_one(ACC, NAME)
+        self.assertNotIn("no_answer", self.kinds())
+        self.assertNotIn("login_failed", [r.get("status") for r in self.reports])
+
+    def test_the_watchdog_still_runs_for_an_old_terminal(self):
+        self.journal(self.UNRELATED)
+        a.uptime_seconds = lambda name: self.OLD
+        a.mt5_running = lambda name: False
+        a.check_one(ACC, NAME)   # first miss: left alone
+        a.check_one(ACC, NAME)   # second miss in a row: restarted
+        self.assertEqual(self.restarts, [("docker", "restart", "-t", "30", NAME)])
 
     def test_a_recovered_ea_clears_the_error_status(self):
         self.journal(*SIGNED_IN)
