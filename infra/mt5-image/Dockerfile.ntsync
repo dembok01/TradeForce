@@ -16,3 +16,11 @@ RUN set -eux; \
     rm -rf /opt/wine-stable; \
     ln -sfn /opt/wine-ntsync /opt/wine-stable; \
     /opt/wine-stable/bin/wine --version
+
+# Wine prompts for wine-mono the first time it touches a prefix it has to
+# upgrade, and that prompt is MODAL: on the image's own entrypoint the terminal
+# never starts behind it. MetaTrader is native code and needs no .NET, so
+# disable the two components Wine would offer to download. mt5-prefix.tgz is
+# baked under this same Wine, which is the real fix; this is the belt to that
+# pair of braces, for any prefix that still arrives needing an upgrade.
+ENV WINEDLLOVERRIDES="mscoree,mshtml=d"

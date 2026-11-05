@@ -16,8 +16,15 @@ apt-get install -y --no-install-recommends \
   libxml2-dev libxslt1-dev libasound2-dev libudev-dev libusb-1.0-0-dev \
   libcups2-dev libdbus-1-dev libpcap-dev libvulkan-dev libpulse-dev
 # After the toolchain, so that /usr/include/linux exists to drop it into.
-dpkg -x linux-libc-dev_6.14.0-37.37_amd64.deb /work/hdr
-install -Dm644 /work/hdr/usr/include/linux/ntsync.h /usr/include/linux/ntsync.h
+#
+# The header comes from the HOST's own kernel headers, copied into /work by
+# whoever runs this (find /usr/src -name ntsync.h). It used to be unpacked from
+# a pinned linux-libc-dev_6.14.0-37.37_amd64.deb, which meant depending on one
+# old file still being in the Ubuntu archive - it was not there when this had to
+# be rebuilt from nothing in Oct 2026. Taking it from the running kernel is both
+# always available and guaranteed to match the /dev/ntsync the terminals use.
+[ -f /work/ntsync.h ] || { echo "FATAL: copy the host's ntsync.h into /work first"; exit 1; }
+install -Dm644 /work/ntsync.h /usr/include/linux/ntsync.h
 cd /work/wine-11.0
 ./configure --prefix=/opt/wine-ntsync --enable-archs=i386,x86_64 --disable-tests
 echo "=== ntsync detected? ==="

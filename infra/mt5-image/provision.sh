@@ -25,21 +25,26 @@ cp -f /opt/tf/TradeForce.ex5 "$MT5/MQL5/Experts/TradeForce.ex5"
 # one-off "Open an Account -> Exness" search in a clone of this same prefix, so
 # it decrypts here. Overwritten on every provision so a rebuild picks up a
 # newer seed.
-[ -f /opt/tf/servers.dat ] && cp -f /opt/tf/servers.dat "$MT5/Config/servers.dat"
+[ -s /opt/tf/servers.dat ] && cp -f /opt/tf/servers.dat "$MT5/Config/servers.dat"
 
 # TFCHART: a custom symbol the EA chart opens on. A custom symbol lives in the
 # terminal, so it exists whatever the broker calls its instruments - a fixed
 # "EURUSD" chart never synced on Alpari MT5 demo or Exness Standard (EURUSDm),
 # and an EA whose chart symbol never syncs never starts. Definition in
 # Bases/symbols.custom.dat, 600 flat M1 bars in Bases/Custom/history/TFCHART.
-[ -f /opt/tf/tfchart.tgz ] && tar xzf /opt/tf/tfchart.tgz -C "$MT5/Bases"
+[ -s /opt/tf/tfchart.tgz ] && tar xzf /opt/tf/tfchart.tgz -C "$MT5/Bases"
 
 # A saved account would be wiped by MT5 anyway ("Accounts deleted due security
 # reason"). Credentials arrive via tf.ini instead.
 rm -f "$MT5/Config/accounts.dat"
 
 # Per-user files the agent dropped in the volume root.
-[ -f /config/tf.set ] && install -m 600 /config/tf.set "$MT5/MQL5/Presets/tf.set"
+# -D creates the leading directories: MQL5/Presets does not exist in a fresh
+# MT5 install (the terminal makes it the first time a preset is saved), so a
+# prefix baked from a clean install has no Presets/ and a plain install fails
+# with ENOENT - which aborts provisioning under set -e and leaves the trader on
+# "we couldn't start your terminal" for ever.
+[ -f /config/tf.set ] && install -D -m 600 /config/tf.set "$MT5/MQL5/Presets/tf.set"
 # C:\tf.ini is a proven path; don't rely on Wine's Z: mapping of the Linux root.
 [ -f /config/tf.ini ] && install -m 600 /config/tf.ini /config/.wine/drive_c/tf.ini
 
