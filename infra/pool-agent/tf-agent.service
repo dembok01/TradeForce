@@ -1,0 +1,36 @@
+[Unit]
+Description=TradeForce pool agent (reconcile hosted terminals, relay the file bridge)
+Documentation=file:///opt/tradeforce/agent/README.md
+# Nothing pushes to this agent - it only makes outbound calls - so it needs no
+# port and no inbound rule. What it does need is Docker, and the shared MT5
+# prefixes mounted BEFORE any container starts: a terminal that comes up on an
+# unmounted prefix finds no MetaTrader and tries to reinstall it.
+Requires=docker.service
+After=docker.service tf-prefixes.service network-online.target
+Wants=network-online.target
+# If the agent dies in a loop, back off rather than hammer Supabase. These are
+# [Unit] directives: systemd ignores them under [Service] with only an
+# "Unknown key name" line in the journal, so the limit silently never applies.
+StartLimitIntervalSec=300
+StartLimitBurst=10
+
+[Service]
+Type=simple
+# The symlink, not the file: rollout-bridge.sh installs and rolls back agent
+# versions by repointing /usr/local/bin/tf-agent, and a unit that named the
+# real path would keep running the version being rolled back.
+ExecStart=/usr/local/bin/tf-agent
+EnvironmentFile=/etc/tradeforce.env
+# Root, because it drives Docker and mounts overlayfs per account.
+User=root
+# On SIGTERM the agent lets the bridge finish the report in hand rather than
+# die between writing a row and deleting its file, and joins that thread with
+# a 20s timeout - so give it more than 20s before SIGKILL.
+TimeoutStopSec=45
+Restart=always
+RestartSec=5
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target

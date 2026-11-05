@@ -1,0 +1,62 @@
+# tf-mt5:current - the terminal image, public base plus the four files that
+# make it ours.
+#
+# THIS FILE DID NOT EXIST UNTIL 28 OCT 2026. The original lived only in
+# /root/docker-mt5 on the pool box, and when that box was deleted the image was
+# the one piece of production that could not be rebuilt from this repository.
+# Everything needed to recreate it is now either here or in BOOTSTRAP.md.
+#
+# Pinned by digest, not by tag. gmag11/metatrader5_vnc:2.3 and :latest are the
+# same image today, but "latest" is a moving target and a terminal image that
+# changes under us changes Wine, MetaTrader and the s6 init path all at once.
+# What this base gives us: MetaTrader 5 under Wine, KasmVNC, openbox, an s6
+# init that installs MT5 into /config on first run, uid 911 ("abc"), and
+# MT5_CMD_OPTIONS to point the terminal at a config file.
+FROM gmag11/metatrader5_vnc@sha256:2fdff449cf70b74c242319828b6859592ab52dfb05690d9a989c75107dabf4c1
+
+# Build context is /root/docker-mt5 on the pool box. Of these four, two come
+# straight from this repository and two are baked once per box (BOOTSTRAP.md):
+#
+#   provision.sh     infra/mt5-image/provision.sh
+#   TradeForce.ex5   public/downloads/TradeForce.ex5 - the compiled EA
+#   mt5-prefix.tgz   a provisioned Wine prefix with MetaTrader already in it,
+#                    so a new trader costs no 3GB unpack. Baked by letting the
+#                    base image install MT5 once into an empty volume.
+#   tfchart.tgz      Bases/symbols.custom.dat + Bases/Custom/history/TFCHART -
+#                    the broker-independent symbol every hosted chart opens on.
+#                    Without it MT5 waits five minutes for a symbol to sync and
+#                    then removes the EA.
+# --chmod on provision.sh deliberately: it is the image's entrypoint for
+# provisioning, and COPY otherwise preserves the checkout's mode. git had it
+# as 100644, so this image only ever had an executable copy because the build
+# host happened to have the bit set - a clean clone produced an image whose
+# every provision died with "permission denied".
+COPY --chmod=0755 provision.sh /opt/tf/
+COPY TradeForce.ex5 mt5-prefix.tgz tfchart.tgz /opt/tf/
+
+# servers.dat is deliberately NOT copied here. It is the encrypted broker
+# directory, seeded by hand through MetaTrader's "Open an Account" search, and
+# it is the only artifact on a pool box that cannot be produced from source.
+# provision.sh copies it only if it exists, so the image is valid without one -
+# and must be, because an empty or wrong servers.dat is worse than none: it
+# would overwrite the directory in every prefix. Needed only for brokers that
+# publish no addresses (Exness). To add a seed, put it in the build context and
+# uncomment:
+# COPY servers.dat /opt/tf/servers.dat
+
+# tfchart.tgz is the one file here that cannot be produced from source on this
+# box: creating the custom symbol needs a terminal that already has symbols,
+# which means a broker login. So the first build of a rebuilt box uses a 0-byte
+# placeholder, and TFCHART is harvested from the first terminal that authorizes
+# and baked into a later tag. provision.sh tests -s, not -f, precisely so an
+# empty placeholder counts as absent - with -f an empty servers.dat would also
+# overwrite the stock broker directory that ships inside mt5-prefix.tgz.
+#
+#   : > tfchart.tgz        # only when a real one is not available yet
+
+# --entrypoint /opt/tf/provision.sh is how the agent prepares a volume.
+RUN chmod 755 /opt/tf/provision.sh
+
+LABEL org.opencontainers.image.title="tf-mt5" \
+      org.opencontainers.image.description="Hosted MetaTrader 5 terminal for TradeForce" \
+      org.opencontainers.image.base.name="gmag11/metatrader5_vnc:2.3"
