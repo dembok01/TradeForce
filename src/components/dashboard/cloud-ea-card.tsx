@@ -2,7 +2,7 @@
 
 import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
-import { ShieldCheck, Loader2, TriangleAlert, ChevronDown } from "lucide-react";
+import { ShieldCheck, Loader2, TriangleAlert, ChevronDown, Download, Ban } from "lucide-react";
 import { toast } from "sonner";
 import { enableCloudEaAction, disableCloudEaAction, requestBrokerAction } from "@/lib/actions/cloud-ea";
 import {
@@ -11,6 +11,8 @@ import {
   serversForBroker,
   brokerLabel,
   brokerOf,
+  eaPolicyFor,
+  type EaPolicy,
   type Mt5Server,
 } from "@/lib/mt5-brokers";
 import { looksLikePropFirm } from "@/lib/prop-firms";
@@ -131,6 +133,86 @@ function startingBlurb(c: CloudEa): string | null {
   return null;
 }
 
+const EA_DOWNLOAD_PATH = "/downloads/TradeForce.ex5";
+
+/**
+ * What a funded trader sees instead of the password form.
+ *
+ * Hosting a prop-firm account is not a shared-IP problem - that part is
+ * fixable. It is that every firm checked requires the named account holder to
+ * place the trades, and a hosted terminal means we hold their password. Running
+ * the same EA on their own MetaTrader removes the clause entirely, and removes
+ * the datacentre IP, the shared machine identity and the 24/7 session with it.
+ *
+ * The trade is honest and worth stating plainly: protection then only runs while
+ * their computer does. On a funded account the firm's own daily drawdown is the
+ * hard limit anyway, so what TradeForce adds there is discipline, not a backstop.
+ */
+function FundedAccountNotice({ policy, firm }: { policy: EaPolicy; firm: string }) {
+  const who = firm.trim() || "Your firm";
+
+  if (policy === "prohibited") {
+    return (
+      <div className="rounded-lg border border-destructive/40 bg-destructive/10 p-3 text-sm">
+        <p className="flex items-center gap-2 font-medium">
+          <Ban className="size-4 shrink-0 text-destructive" aria-hidden />
+          {who} does not allow Expert Advisors
+        </p>
+        <p className="mt-1 text-muted-foreground">
+          Their terms prohibit EAs, bots and scripts on every account and every platform, so there
+          is no setup we can offer that keeps you inside your agreement — not our hosted terminal
+          and not the downloadable EA either. Connecting anyway would put your account and your
+          payout at risk, so we won&apos;t do it.
+        </p>
+        <p className="mt-2 text-muted-foreground">
+          You can still use TradeForce on an ordinary broker account. If you believe their policy
+          has changed, ask them in writing and send us their reply — we&apos;ll re-check it.
+        </p>
+      </div>
+    );
+  }
+
+  return (
+    <div className="space-y-3 rounded-lg border p-3 text-sm">
+      <div>
+        <p className="flex items-center gap-2 font-medium">
+          <ShieldCheck className="size-4 shrink-0" aria-hidden />
+          Funded account — run the EA on your own MetaTrader
+        </p>
+        <p className="mt-1 text-muted-foreground">
+          {who} requires that you place your own trades, so we don&apos;t host funded accounts: a
+          hosted terminal means we hold your trading password, and that is the clause that costs
+          traders their accounts. Download the EA and attach it to your own MetaTrader instead —
+          your rules, limits and dashboard all work exactly the same.
+        </p>
+      </div>
+
+      <ol className="list-decimal space-y-1 pl-5 text-muted-foreground">
+        <li>Download the EA and drop it into your MetaTrader&apos;s Experts folder.</li>
+        <li>Attach it to any chart, then paste your EA key from Rule Settings.</li>
+        {policy === "approval_required" ? (
+          <li>
+            <strong>Get {who}&apos;s written approval first.</strong> They review and approve EAs in
+            advance — keep their reply, it is what protects your payout if you are ever asked.
+          </li>
+        ) : null}
+      </ol>
+
+      <Button asChild variant="outline" size="sm">
+        <a href={EA_DOWNLOAD_PATH} download>
+          <Download className="size-4" aria-hidden />
+          Download TradeForce.ex5
+        </a>
+      </Button>
+
+      <p className="text-xs text-muted-foreground">
+        One honest difference: the EA protects you only while your computer is running. We&apos;ll
+        tell you if it stops reporting, so you are never unprotected without knowing.
+      </p>
+    </div>
+  );
+}
+
 export function CloudEaCard({
   initial,
   propFirm,
@@ -168,6 +250,10 @@ export function CloudEaCard({
   // Onboarding asks for the trader's prop firm, so a funded trader is warned even
   // when their account sits at an ordinary-looking broker address.
   const propRisk = looksLikePropFirm(brokerName, effectiveServer, requestServerName, propFirm);
+  // Exact, from the catalogue: a prop firm we have actually read the contract
+  // of, which is refused server-side too. propRisk stays the fuzzy fallback for
+  // a firm reached by a typed address we have never catalogued.
+  const eaPolicy = eaPolicyFor(catalogue, effectiveServer);
 
   function pickBroker(value: string) {
     setBroker(value);
@@ -407,69 +493,82 @@ export function CloudEaCard({
               </div>
             ) : null}
 
-            <div className="grid gap-3 sm:grid-cols-2">
-              <div className="space-y-1.5">
-                <Label htmlFor="mt5-login">MT5 account number</Label>
-                <Input
-                  id="mt5-login"
-                  inputMode="numeric"
-                  autoComplete="off"
-                  placeholder="e.g. 53168878"
-                  value={login}
-                  onChange={(e) => setLogin(e.target.value.replace(/\s/g, ""))}
-                />
-              </div>
-              <div className="space-y-1.5">
-                <Label htmlFor="mt5-password">MT5 trading password</Label>
-                <Input
-                  id="mt5-password"
-                  type="password"
-                  autoComplete="off"
-                  value={password}
-                  onChange={(e) => setPassword(e.target.value)}
-                />
-              </div>
-            </div>
+            {eaPolicy ? (
+              <FundedAccountNotice policy={eaPolicy} firm={brokerName} />
+            ) : (
+              <>
+                <div className="grid gap-3 sm:grid-cols-2">
+                  <div className="space-y-1.5">
+                    <Label htmlFor="mt5-login">MT5 account number</Label>
+                    <Input
+                      id="mt5-login"
+                      inputMode="numeric"
+                      autoComplete="off"
+                      placeholder="e.g. 53168878"
+                      value={login}
+                      onChange={(e) => setLogin(e.target.value.replace(/\s/g, ""))}
+                    />
+                  </div>
+                  <div className="space-y-1.5">
+                    <Label htmlFor="mt5-password">MT5 trading password</Label>
+                    <Input
+                      id="mt5-password"
+                      type="password"
+                      autoComplete="off"
+                      value={password}
+                      onChange={(e) => setPassword(e.target.value)}
+                    />
+                  </div>
+                </div>
 
-            {propRisk ? (
-              <div className="rounded-lg border border-amber-500/40 bg-amber-500/10 p-3 text-sm">
-                <p className="flex items-center gap-2 font-medium">
-                  <TriangleAlert className="size-4 shrink-0 text-amber-600" aria-hidden />
-                  Prop-firm account? Check your firm&apos;s rules before connecting.
+                {propRisk ? (
+                  <div className="rounded-lg border border-amber-500/40 bg-amber-500/10 p-3 text-sm">
+                    <p className="flex items-center gap-2 font-medium">
+                      <TriangleAlert className="size-4 shrink-0 text-amber-600" aria-hidden />
+                      Prop-firm account? Check your firm&apos;s rules before connecting.
+                    </p>
+                    <p className="mt-1 text-muted-foreground">
+                      Nearly every prop firm requires that you place your own trades, which rules out a
+                      hosted terminal because we would be holding your password. Many also restrict
+                      Expert Advisors or shared servers (VPS). Breaking those rules can cost you the
+                      account and any payout already earned.
+                    </p>
+                    <p className="mt-2 text-muted-foreground">
+                      If this is a funded or challenge account, don&apos;t connect it here — download the
+                      EA and run it on your own MetaTrader instead. It keeps your rules and keeps you
+                      inside your agreement.{" "}
+                      <a className="underline underline-offset-2" href={EA_DOWNLOAD_PATH} download>
+                        Download TradeForce.ex5
+                      </a>
+                    </p>
+                    <label className="mt-2 flex items-start gap-2">
+                      <input
+                        type="checkbox"
+                        className="mt-0.5"
+                        checked={propConfirmed}
+                        onChange={(e) => setPropConfirmed(e.target.checked)}
+                      />
+                      <span>I&apos;ve checked: my firm allows an EA and a hosted terminal on this account.</span>
+                    </label>
+                  </div>
+                ) : null}
+
+                <p className="text-xs text-muted-foreground">
+                  Your password is encrypted before it is stored and is only ever used to sign this
+                  terminal in to your broker. Use your <strong>trading</strong> password — never your
+                  investor or website password. We can never withdraw funds.
                 </p>
-                <p className="mt-1 text-muted-foreground">
-                  Many prop firms don&apos;t allow Expert Advisors, hosted or shared servers (VPS),
-                  or someone else signing in to your account — on challenge and funded accounts
-                  alike. FundedNext, for example, bans all of these on larger accounts and on free
-                  trials. Breaking your firm&apos;s rules can cost you the account, so if you&apos;re
-                  not sure, ask your firm first or use an ordinary broker account.
-                </p>
-                <label className="mt-2 flex items-start gap-2">
-                  <input
-                    type="checkbox"
-                    className="mt-0.5"
-                    checked={propConfirmed}
-                    onChange={(e) => setPropConfirmed(e.target.checked)}
-                  />
-                  <span>I&apos;ve checked: my firm allows an EA and a hosted terminal on this account.</span>
-                </label>
-              </div>
-            ) : null}
 
-            <p className="text-xs text-muted-foreground">
-              Your password is encrypted before it is stored and is only ever used to sign this
-              terminal in to your broker. Use your <strong>trading</strong> password — never your
-              investor or website password. We can never withdraw funds.
-            </p>
+                {initial.status === "login_failed" ? <ConnectionLog steps={initial.log} /> : null}
 
-            {initial.status === "login_failed" ? <ConnectionLog steps={initial.log} /> : null}
-
-            <Button
-              onClick={handleEnable}
-              disabled={pending || !login || !password || !effectiveServer || (propRisk && !propConfirmed)}
-            >
-              {pending ? "Connecting…" : "Connect my account"}
-            </Button>
+                <Button
+                  onClick={handleEnable}
+                  disabled={pending || !login || !password || !effectiveServer || (propRisk && !propConfirmed)}
+                >
+                  {pending ? "Connecting…" : "Connect my account"}
+                </Button>
+              </>
+            )}
           </div>
         )}
       </CardContent>

@@ -8,7 +8,7 @@ import { getAuthedUser } from "@/lib/data/auth";
 import { createServiceClient } from "@/lib/supabase/service";
 import { API_KEY_PREFIX, hashApiKey } from "@/lib/ea-auth";
 import { sealSecret } from "@/lib/mt5-crypto";
-import { isAcceptableServer, brokerLabel } from "@/lib/mt5-brokers";
+import { isAcceptableServer, brokerLabel, brokerOf, eaPolicyFor } from "@/lib/mt5-brokers";
 import { getPickerServers } from "@/lib/data/brokers";
 import { isCustomAddress, reachable } from "@/lib/mt5-reachable";
 import { logConnection } from "@/lib/connection-log";
@@ -65,6 +65,32 @@ export async function enableCloudEaAction(
     // SSRF primitive, so it is never reachable anonymously, and reachable()
     // itself refuses anything that is not public unicast.
     const catalogue = await getPickerServers();
+
+    // A funded account never gets a hosted terminal. Not because of the shared
+    // IP - that is fixable - but because every prop firm checked requires the
+    // named account holder to place the trades, and hosting means we hold the
+    // password. The trader runs the downloadable EA on their own MetaTrader
+    // instead, which is both compliant and the only thing that keeps their
+    // payout safe. Enforced here and not only in the form: the picker can be
+    // sidestepped by typing the address into "Other broker".
+    //
+    // Matched on the catalogued address, never on looksLikePropFirm(): that
+    // heuristic matches bare words like "challenge" and exists to show a
+    // warning, so hard-refusing on it would lock real retail traders out.
+    const policy = eaPolicyFor(catalogue, server);
+    if (policy) {
+      const firm = brokerOf(catalogue, server) ?? "Your firm";
+      return {
+        error:
+          policy === "prohibited"
+            ? `${firm} does not allow Expert Advisors on any account, so we can't protect ` +
+              "this one. Connecting anyway would put your account and payout at risk."
+            : `${firm} is a funded-account provider, so your terminal has to run on your own ` +
+              "computer rather than ours. Download the EA from your dashboard and attach it " +
+              "to your own MetaTrader - your rules work exactly the same.",
+      };
+    }
+
     if (isCustomAddress(server, catalogue) && !(await reachable(server))) {
       return {
         error:

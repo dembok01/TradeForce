@@ -301,6 +301,8 @@ export interface Database {
           kind: "demo" | "live";
           enabled: boolean;
           help: string | null;
+          /** Null for an ordinary broker; non-null marks a prop firm. */
+          ea_policy: "allowed" | "approval_required" | "prohibited" | null;
           verified_at: string | null;
           verified_server: string | null;
           source: "seed" | "admin" | "trader";

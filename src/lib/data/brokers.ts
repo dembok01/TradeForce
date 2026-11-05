@@ -24,9 +24,9 @@ export type BrokerRow = Mt5Server & {
   updated_at: string;
 };
 
-const PICKER_COLUMNS = "broker,label,address,kind,help";
+const PICKER_COLUMNS = "broker,label,address,kind,help,ea_policy";
 const ADMIN_COLUMNS =
-  "id,broker,label,address,kind,help,enabled,verified_at,verified_server,source,note,updated_at";
+  "id,broker,label,address,kind,help,ea_policy,enabled,verified_at,verified_server,source,note,updated_at";
 
 /** What the picker offers: enabled rows, plus Exness's generated servers. */
 export const getPickerServers = cache(async (): Promise<Mt5Server[]> => {

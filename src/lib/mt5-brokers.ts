@@ -33,6 +33,14 @@
  * servers are different addresses, and big brokers run several live servers.
  */
 
+/**
+ * What a prop firm's contract says about Expert Advisors. Null (absent) is an
+ * ordinary broker; any value marks a funded-account provider, which never gets
+ * a hosted terminal because every one of them requires the named account holder
+ * to place the trades. See 20261105000000_broker_ea_policy.sql for the readings.
+ */
+export type EaPolicy = "allowed" | "approval_required" | "prohibited";
+
 export type Mt5Server = {
   /** Broker as a trader would name it. */
   broker: string;
@@ -43,7 +51,24 @@ export type Mt5Server = {
   kind: "demo" | "live";
   /** Where the trader finds which server their account is on. */
   help?: string | null;
+  /** Set only for prop firms. Absent on Exness's generated rows. */
+  ea_policy?: EaPolicy | null;
 };
+
+/**
+ * The firm's EA policy for a stored address, or null if it is not a prop firm.
+ *
+ * Exact, unlike looksLikePropFirm(): this one decides whether a trader is
+ * refused, so it matches a catalogued address and never a fuzzy name. A firm we
+ * have not catalogued falls through to the heuristic warning instead.
+ */
+export function eaPolicyFor(
+  servers: Mt5Server[],
+  address: string | null | undefined
+): EaPolicy | null {
+  if (!address) return null;
+  return servers.find((s) => s.address === address)?.ea_policy ?? null;
+}
 
 /**
  * Exness runs dozens of MT5 servers and publishes no addresses, so these are

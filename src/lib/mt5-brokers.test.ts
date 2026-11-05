@@ -7,6 +7,7 @@ import {
   brokerNames,
   serversForBroker,
   brokerOf,
+  eaPolicyFor,
   helpFor,
   exnessServers,
   normaliseDomain,
@@ -193,5 +194,41 @@ describe("finding a broker's servers from its domain", () => {
     const got = candidateAddresses("icmarkets.com");
     expect(got).toContain("mt5-demo.icmarkets.com:443");
     expect(got).toContain("mt5.icmarkets.com:443");
+  });
+});
+
+describe("eaPolicyFor", () => {
+  // A funded account must never reach the hosted pool: every prop firm checked
+  // requires the named holder to place the trades, and hosting means we hold
+  // the password. This is the exact check the server action refuses on, so a
+  // false positive locks a real retail trader out - it matches an address, not
+  // a name, unlike the deliberately fuzzy looksLikePropFirm().
+  const catalogue: Mt5Server[] = [
+    { broker: "Maven Trading", label: "Main", address: "mt5.maventrading.com:443", kind: "live", ea_policy: "prohibited" },
+    { broker: "E8 Markets", label: "Main", address: "mt5.e8markets.com:443", kind: "live", ea_policy: "approval_required" },
+    { broker: "IC Markets", label: "Demo", address: "mt5-demo.icmarkets.com:443", kind: "demo" },
+  ];
+
+  it("reports the firm's policy for a catalogued prop firm", () => {
+    expect(eaPolicyFor(catalogue, "mt5.maventrading.com:443")).toBe("prohibited");
+    expect(eaPolicyFor(catalogue, "mt5.e8markets.com:443")).toBe("approval_required");
+  });
+
+  it("leaves an ordinary broker alone", () => {
+    expect(eaPolicyFor(catalogue, "mt5-demo.icmarkets.com:443")).toBeNull();
+  });
+
+  it("does not refuse an address it has never seen", () => {
+    // The hosted path must stay open for the many brokers we have not
+    // catalogued; an unknown address falls through to the fuzzy warning.
+    expect(eaPolicyFor(catalogue, "live.someotherbroker.com:443")).toBeNull();
+    expect(eaPolicyFor(catalogue, null)).toBeNull();
+    expect(eaPolicyFor(catalogue, undefined)).toBeNull();
+  });
+
+  it("does not match a prop firm by name, only by address", () => {
+    // "Maven Trading" typed into Other broker is not an address and must not
+    // hard-refuse; looksLikePropFirm shows the warning for that case instead.
+    expect(eaPolicyFor(catalogue, "Maven Trading")).toBeNull();
   });
 });

@@ -5,7 +5,11 @@
 //+------------------------------------------------------------------+
 #property copyright "TradeForce"
 #property link      "https://trade-force-rouge.vercel.app"
-#property version   "1.26"
+// Keep in step with EA_VERSION below: this is what MetaTrader shows in the
+// Navigator and the EA properties dialog, EA_VERSION is what gets reported to
+// the dashboard. They drifted five releases apart, so a trader read 1.26 in
+// their terminal while support saw 1.31 in the database.
+#property version   "1.31"
 #property description "Enforces your TradeForce charter: daily loss limit, max trades/day, max open positions, risk per trade, session windows. Blocked states are announced on the chart before you trade; violating pending orders are deleted free; missing or oversized stop-losses are repaired in place; anything else is closed immediately and reported."
 
 #include <Trade/Trade.mqh>
