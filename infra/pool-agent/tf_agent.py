@@ -23,6 +23,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 import requests
+from cryptography.exceptions import InvalidTag
 from cryptography.hazmat.primitives.ciphers.aead import AESGCM
 
 # Installed as a symlink in /usr/local/bin; tf_bridge.py and tf_prefixes.py sit
@@ -60,7 +61,7 @@ POLL = int(os.environ.get("TF_POLL", "15"))
 # Which hosted EAs use the file bridge: "off", "all", or account ids, comma-separated.
 BRIDGE = os.environ.get("TF_BRIDGE", "off")
 
-AGENT_VERSION = "1.6.2"
+AGENT_VERSION = "1.6.4"
 TELEMETRY_EVERY = int(os.environ.get("TF_TELEMETRY_EVERY", "4"))  # passes; 4 x 15s = 60s
 
 REST = f"{SUPABASE}/rest/v1/mt5_instances"
@@ -910,7 +911,15 @@ def check_one(acc: str, name: str):
         _missing[acc] = 0
         return
     _missing[acc] = _missing.get(acc, 0) + 1
-    if _missing[acc] < 2 or time.monotonic() - _restarted.get(acc, 0) < RESTART_COOLDOWN:
+    # "Never restarted" has to be None, not 0: time.monotonic() counts from
+    # boot, so a default of 0 reads as "restarted the moment this box started"
+    # and silences the watchdog for the first 15 minutes of every boot - which
+    # is exactly the window where terminals are coming up and a dead one is
+    # most likely. It also made the tests pass only on a host with more than 15
+    # minutes of uptime, which is why they went green for a year and failed on
+    # a freshly rebuilt box.
+    last = _restarted.get(acc)
+    if _missing[acc] < 2 or (last is not None and time.monotonic() - last < RESTART_COOLDOWN):
         return  # one miss can be MT5 restarting into an update; give it a minute
     _missing[acc] = 0
     _restarted[acc] = time.monotonic()
@@ -1030,6 +1039,8 @@ def reconcile():
                 print(f"removed {name}", flush=True)
                 event(acc, "removed", "info", "Your terminal was turned off and removed.")
                 forget(acc)
+        except InvalidTag:
+            credentials_unreadable(acc)
         except subprocess.CalledProcessError as e:
             detail = (e.stderr or str(e))[:400]
             setup_failed(acc, detail)
@@ -1049,6 +1060,35 @@ def setup_failed(acc: str, detail: str):
     report(acc, status="error", status_detail=SETUP_FAILED)
     if changed(acc, "setup", "failed", action=True):
         event(acc, "setup_failed", "error", SETUP_FAILED, {"error": detail, "host": HOST})
+
+
+CREDS_UNREADABLE = (
+    "We rebuilt the server your terminal runs on, and your saved MT5 password can "
+    "no longer be read. Please enter it once more to reconnect - your rules, limits "
+    "and trade history are untouched."
+)
+
+
+def credentials_unreadable(acc: str):
+    """The stored cipher will not open, so only the trader can replace it.
+
+    login_failed deliberately, not error: the dashboard card re-shows the
+    credential form on login_failed and prints status_detail beside it, whereas
+    error renders "our team has been alerted, you don't need to do anything" -
+    the one thing that must not be said when the trader is the only one who can
+    fix it. AES-GCM is authenticated, so InvalidTag means a key mismatch and
+    never a corrupted-but-recoverable value; retrying cannot help.
+
+    Gated on changed(), unlike setup_failed: a failed setup is transient and
+    worth re-asserting every pass, but this state holds until the trader enters
+    a password, and re-reporting it would be 12 rows x 4 passes a minute - some
+    69k identical PATCHes and journal lines a day, for no new information.
+    """
+    if not changed(acc, "setup", "creds_unreadable", action=True):
+        return
+    report(acc, status="login_failed", status_detail=CREDS_UNREADABLE)
+    event(acc, "credentials_unreadable", "warn", CREDS_UNREADABLE, {"host": HOST})
+    print(f"CREDS {acc}: sealed with a key this box does not have", flush=True)
 
 
 def selftest():

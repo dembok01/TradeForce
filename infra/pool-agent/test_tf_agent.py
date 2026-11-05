@@ -250,6 +250,24 @@ class LockAndWatchdogTest(CheckOneTest):
             a.check_one(ACC, NAME)
         self.assertEqual(len(self.restarts), 1)
 
+    def test_the_watchdog_works_in_the_first_minutes_after_a_reboot(self):
+        # time.monotonic() counts from boot, so "last restarted" defaulting to 0
+        # read as "restarted just now" on a fresh box and the cooldown swallowed
+        # the first restart. The three tests above only caught it on a host with
+        # under 15 minutes of uptime - this one catches it anywhere, which is
+        # the point: a pool box reboots for kernel updates, and the minutes
+        # right after are when a terminal is most likely to come up dead.
+        self.journal(*SIGNED_IN)
+        a.mt5_running = lambda name: False
+        real = a.time.monotonic
+        a.time.monotonic = lambda: 12.0        # twelve seconds since boot
+        try:
+            a.check_one(ACC, NAME)
+            a.check_one(ACC, NAME)
+        finally:
+            a.time.monotonic = real
+        self.assertEqual(self.restarts, [("docker", "restart", "-t", "30", NAME)])
+
 
 @unittest.skipIf(a is None, "agent dependencies not installed")
 class CanClaimTest(unittest.TestCase):
@@ -453,3 +471,64 @@ class ProbeVerdictMessageTest(unittest.TestCase):
     def test_an_unknown_verdict_falls_back_rather_than_raising(self):
         self.assertEqual(a.PROBE_VERDICT.get("nonsense", a.PROBE_VERDICT["error"]),
                          a.PROBE_VERDICT["error"])
+
+
+@unittest.skipIf(a is None, "agent dependencies not installed")
+class CredentialsUnreadableTest(unittest.TestCase):
+    """A cipher sealed under a key this box does not have is the trader's to fix.
+
+    The pool box was rebuilt from scratch after the host deleted it, and the
+    sealing key could not be recovered - Vercel's sensitive env vars are
+    write-only. Every stored password therefore has to be re-entered, and the
+    agent's job is to say so rather than to report a fault it can fix itself.
+    """
+
+    def setUp(self):
+        self.reported = []
+        self.events = []
+        self._report, self._event = a.report, a.event
+        a.report = lambda acc, **f: self.reported.append((acc, f))
+        a.event = lambda acc, kind, level, msg, detail=None: self.events.append(
+            (kind, level, msg)
+        )
+        a._said.clear()
+        a._owners[ACC] = "00000000-0000-4000-8000-0000000000u1"
+
+    def tearDown(self):
+        a.report, a.event = self._report, self._event
+        a._said.clear()
+        a._owners.pop(ACC, None)
+
+    def test_a_cipher_from_another_key_raises_invalid_tag(self):
+        """What the agent detects on, so it must be a real exception not a guess."""
+        iv = os.urandom(12)
+        blob = a.AESGCM(b"X" * 32).encrypt(iv, b"hunter2", None)  # not MT5_CRED_KEY
+        sealed = ".".join(
+            base64.b64encode(x).decode() for x in (iv, blob[-16:], blob[:-16])
+        )
+        with self.assertRaises(a.InvalidTag):
+            a.unseal(sealed)
+
+    def test_it_asks_the_trader_to_reconnect_rather_than_to_sit_tight(self):
+        a.credentials_unreadable(ACC)
+        acc, fields = self.reported[0]
+        self.assertEqual(acc, ACC)
+        # login_failed is the status the dashboard card re-shows the credential
+        # form on; error renders "you don't need to do anything" instead.
+        self.assertEqual(fields["status"], "login_failed")
+        self.assertIn("enter it once more", fields["status_detail"])
+        self.assertNotIn("don't need to do anything", fields["status_detail"])
+
+    def test_it_reports_once_however_many_passes_hit_the_same_row(self):
+        for _ in range(10):  # 15s poll, state unchanged until the trader acts
+            a.credentials_unreadable(ACC)
+        self.assertEqual(len(self.reported), 1, "re-PATCHing tells Supabase nothing new")
+        self.assertEqual(len(self.events), 1)
+
+    def test_it_logs_one_warning_the_trader_can_read(self):
+        a.credentials_unreadable(ACC)
+        self.assertEqual(len(self.events), 1)
+        kind, level, message = self.events[0]
+        self.assertEqual(kind, "credentials_unreadable")
+        self.assertEqual(level, "warn")
+        self.assertIn("reconnect", message)
