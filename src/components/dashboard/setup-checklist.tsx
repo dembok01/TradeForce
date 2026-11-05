@@ -153,6 +153,16 @@ export function SetupChecklistPanel({
           <code className="break-all">{siteUrl}</code>. Without this, MT5 silently blocks every
           request the EA makes.
         </p>
+        {/* The EA sends these by default (PushAlerts), but SendNotification needs a
+            MetaQuotes ID that only the trader can set. Without this step the feature
+            ships switched off and nothing says so except one journal line. */}
+        <p>
+          While you&apos;re there: <strong>Tools → Options → Notifications</strong> — tick{" "}
+          <strong>Enable Push Notifications</strong> and paste your <strong>MetaQuotes ID</strong>{" "}
+          (the MetaTrader phone app shows it under <strong>Settings → Messages</strong>). TradeForce
+          then sends breach and block alerts to your phone, which is what matters when you&apos;re
+          away from your desk — an alert box on a screen you aren&apos;t looking at protects nothing.
+        </p>
       </div>
     ),
     "first-checkin": (

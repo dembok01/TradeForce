@@ -9,7 +9,7 @@
 // Navigator and the EA properties dialog, EA_VERSION is what gets reported to
 // the dashboard. They drifted five releases apart, so a trader read 1.26 in
 // their terminal while support saw 1.31 in the database.
-#property version   "1.31"
+#property version   "1.32"
 #property description "Enforces your TradeForce charter: daily loss limit, max trades/day, max open positions, risk per trade, session windows. Blocked states are announced on the chart before you trade; violating pending orders are deleted free; missing or oversized stop-losses are repaired in place; anything else is closed immediately and reported."
 
 #include <Trade/Trade.mqh>
@@ -25,6 +25,7 @@ input int    ReopenGraceSeconds   = 20;   // notice when MT5 is reopened during 
 input bool   HardLockOnLossBreach = true; // false = lock the day on-chart only, never close MT5
 input bool   CloudMode            = false; // hosted terminal: no chart drawing, one chart, lean Market Watch
 input bool   BridgeMode           = false; // hosted terminal: trade files with the pool agent, no web requests
+input bool   PushAlerts           = true;  // phone alerts via the MetaTrader app (needs your MetaQuotes ID)
 
 //--- config mirrored from GET /api/ea/config ------------------------
 struct TfConfig {
@@ -95,7 +96,7 @@ datetime g_realizedTodayCacheAt = 0;
 
 // Failed POSTs are retried on later timer ticks (lost on EA restart - the
 // server is the durable record, this just smooths transient network drops).
-#define EA_VERSION  "1.31"
+#define EA_VERSION  "1.32"
 #define PENDING_MAX 64
 string g_pendingPath[PENDING_MAX];
 string g_pendingBody[PENDING_MAX];
@@ -120,12 +121,83 @@ enum ENUM_TF_DELIVERY { TF_DELIVERED, TF_DELIVERY_RETRY, TF_DELIVERY_REJECTED };
 //+------------------------------------------------------------------+
 //| HTTP                                                              |
 //+------------------------------------------------------------------+
+//+------------------------------------------------------------------+
+//| Phone alerts                                                      |
+//+------------------------------------------------------------------+
+// SendNotification() reaches the MetaTrader mobile app the trader already has.
+// It is the only alerting channel that needs no infrastructure whatsoever - no
+// API key, no server, no mail provider, no spam folder - which makes it the
+// right first channel for a trader running the EA on their own machine, where
+// an Alert() box in front of an empty chair protects nobody.
+//
+// MetaQuotes enforces hard limits: 255 characters, no more than 2 calls per
+// second and 10 per minute (documented, and the terminal is reported to switch
+// the function off if they are broken). Notify()'s eleven call sites are all
+// edge-triggered - a block state change behind a 10s debounce, or OnInit - so
+// ordinary operation is nowhere near the ceiling. The budget is enforced anyway
+// because a daily-loss breach fires three messages within seconds, and a
+// flapping broker connection can toggle the block state repeatedly.
+#define TF_PUSH_MAX_LEN    255
+#define TF_PUSH_MIN_GAP_MS 500   // 2 per second
+#define TF_PUSH_PER_MINUTE 10
+
+ulong  g_pushAt[TF_PUSH_PER_MINUTE];  // send times, oldest first
+int    g_pushN      = 0;
+bool   g_pushOff    = false;          // no MetaQuotes ID: stop trying
+string g_pushLast   = "";
+ulong  g_pushLastAt = 0;
+
+void Push(const string message) {
+  if (!PushAlerts || g_pushOff) return;
+  // A hosted terminal has no MetaQuotes ID and the trader has no way to set
+  // one, so there is nobody on the other end; they have the dashboard instead.
+  if (CloudMode) return;
+  if (MQLInfoInteger(MQL_TESTER)) return;  // never sent from the tester anyway
+
+  const ulong now = GetTickCount64();
+
+  // The same sentence twice in a minute is a flap, not news.
+  if (message == g_pushLast && now - g_pushLastAt < 60000) return;
+
+  // Spend from the budget: forget sends older than a minute, then both limits.
+  int kept = 0;
+  for (int i = 0; i < g_pushN; i++)
+    if (now - g_pushAt[i] < 60000) g_pushAt[kept++] = g_pushAt[i];
+  g_pushN = kept;
+  if (g_pushN >= TF_PUSH_PER_MINUTE) return;
+  if (g_pushN > 0 && now - g_pushAt[g_pushN - 1] < TF_PUSH_MIN_GAP_MS) return;
+
+  string text = message;
+  if (StringLen(text) > TF_PUSH_MAX_LEN) text = StringSubstr(text, 0, TF_PUSH_MAX_LEN);
+
+  ResetLastError();
+  if (SendNotification(text)) {
+    g_pushAt[g_pushN++] = now;
+    g_pushLast = message;
+    g_pushLastAt = now;
+    return;
+  }
+
+  // 4517 is ERR_NOTIFICATION_WRONG_SETTINGS: no MetaQuotes ID configured. That
+  // is the trader's own terminal setting and will not fix itself, so say how to
+  // fix it once and stop - retrying every alert would bury the journal.
+  const int err = GetLastError();
+  if (err == 4517) {
+    g_pushOff = true;
+    Print("TradeForce: phone alerts are off. Paste your MetaQuotes ID into ",
+          "Tools -> Options -> Notifications; the app shows it under Settings -> Messages.");
+  } else {
+    Print("TradeForce: phone alert failed (error ", err, ").");
+  }
+}
+
 // On a hosted terminal nobody sees the window or hears the sound an Alert makes,
 // and under Wine each one costs window-system round trips. The journal line is
 // the part that matters there.
 void Notify(const string message) {
   if (CloudMode) Print(message);
   else Alert(message);
+  Push(message);
 }
 
 // Hosted terminals keep Market Watch to the chart symbol, so a traded symbol may
