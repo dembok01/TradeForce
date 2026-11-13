@@ -1,8 +1,10 @@
 import type { Metadata } from "next";
-import { Inter, Fraunces, IBM_Plex_Mono } from "next/font/google";
+import { Inter, Fraunces, Manrope, IBM_Plex_Mono } from "next/font/google";
 import { Toaster } from "sonner";
 import "./globals.css";
 
+// Inter and Fraunces remain the app-wide faces: the dashboard, admin, auth and
+// onboarding screens are unchanged by the landing-page rework.
 const inter = Inter({
   variable: "--font-inter",
   subsets: ["latin"],
@@ -14,6 +16,14 @@ const fraunces = Fraunces({
   subsets: ["latin"],
   weight: ["500", "600", "700"],
   style: ["normal", "italic"],
+  display: "swap",
+});
+
+// Manrope is loaded for the landing page alone, applied through the `.landing`
+// class rather than the global --font-sans token, so nothing else inherits it.
+const manrope = Manrope({
+  variable: "--font-manrope",
+  subsets: ["latin"],
   display: "swap",
 });
 
@@ -38,7 +48,7 @@ export default function RootLayout({
   return (
     <html
       lang="en"
-      className={`${inter.variable} ${fraunces.variable} ${plexMono.variable} h-full antialiased dark`}
+      className={`${inter.variable} ${fraunces.variable} ${manrope.variable} ${plexMono.variable} h-full antialiased dark`}
     >
       <body className="min-h-full flex flex-col bg-obsidian font-sans">
         {children}

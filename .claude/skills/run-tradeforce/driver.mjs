@@ -33,13 +33,16 @@ function log(msg) {
 
 async function launch() {
   const browser = await chromium.launch({ channel: "chrome", headless: true });
-  const page = await browser.newPage({ viewport: { width: 1440, height: 900 } });
+  const page = await browser.newPage({
+    viewport: { width: Number(flag("width") ?? 1440), height: Number(flag("height") ?? 900) },
+    reducedMotion: args.includes("--reduced-motion") ? "reduce" : "no-preference",
+  });
   return { browser, page };
 }
 
 async function shoot(page, name) {
   const file = join(SHOTS_DIR, name);
-  await page.screenshot({ path: file, fullPage: false });
+  await page.screenshot({ path: file, fullPage: args.includes("--full") });
   log(`screenshot → ${file}`);
 }
 
@@ -272,7 +275,7 @@ try {
   if (cmd === "smoke") await smoke();
   else if (cmd === "shot" && args[1]) await shot(args[1]);
   else {
-    console.log("usage: driver.mjs smoke [--keep-user] | shot <route> [--email E --password P] [--out f.png] [--base URL]");
+    console.log("usage: driver.mjs smoke [--keep-user] | shot <route> [--email E --password P] [--out f.png] [--base URL] [--width N] [--height N] [--full] [--reduced-motion]");
     process.exit(2);
   }
 } catch (err) {

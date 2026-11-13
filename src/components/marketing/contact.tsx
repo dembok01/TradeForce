@@ -7,6 +7,14 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 
+/**
+ * Restyle only. The server action, the useActionState wiring and the success
+ * state are untouched — this form writes to `contact_messages`, which is the
+ * admin inbox and the channel cloud-EA requests arrive on, so it is the only
+ * public inbound channel the app has. The reference has no contact section;
+ * dropping ours would have been a functional change dressed as a visual one.
+ */
+
 const initialState: ContactActionState = { error: null };
 
 export function Contact() {
@@ -20,26 +28,21 @@ export function Contact() {
   }, [state.success]);
 
   return (
-    <section id="contact" className="border-t border-border/60 bg-obsidian py-24">
+    <section id="contact" className="border-t border-border/60 bg-obsidian py-20 sm:py-28">
       <div className="mx-auto grid max-w-6xl gap-12 px-6 lg:grid-cols-2 lg:gap-20">
         <div>
-          <p className="mb-3 font-mono text-[11px] uppercase tracking-[0.2em] text-primary/80">
-            Enquiries
-          </p>
-          <h2 className="font-display text-3xl font-semibold tracking-tight sm:text-4xl">
-            Running a prop firm? Managing a cohort of traders?
-          </h2>
-          <p className="mt-4 max-w-md text-muted-foreground">
+          <p className="eyebrow">Enquiries</p>
+          <h2 className="type-h2 mt-5">Running a prop firm? Managing a cohort of traders?</h2>
+          <p className="mt-5 max-w-md text-base leading-relaxed text-muted-foreground sm:text-lg">
             Tell us what you&apos;re trying to enforce and how many accounts are involved.
-            We reply within one business day.
           </p>
         </div>
 
         <form ref={formRef} action={formAction} className="space-y-5">
           {state.success ? (
-            <div className="rounded-lg border border-primary/30 bg-primary/10 p-6">
-              <p className="font-display text-lg text-foreground">Message sent.</p>
-              <p className="mt-1 text-sm text-muted-foreground">
+            <div className="rounded-card border border-primary/30 bg-primary/10 p-7">
+              <p className="text-lg font-medium">Message sent.</p>
+              <p className="mt-1.5 text-sm text-muted-foreground">
                 We&apos;ll get back to you shortly.
               </p>
             </div>
@@ -48,23 +51,23 @@ export function Contact() {
               <div className="grid gap-5 sm:grid-cols-2">
                 <div className="space-y-2">
                   <Label htmlFor="name">Name</Label>
-                  <Input id="name" name="name" required autoComplete="name" />
+                  <Input id="name" name="name" required autoComplete="name" className="rounded-tile" />
                 </div>
                 <div className="space-y-2">
                   <Label htmlFor="email">Email</Label>
-                  <Input id="email" name="email" type="email" required autoComplete="email" />
+                  <Input id="email" name="email" type="email" required autoComplete="email" className="rounded-tile" />
                 </div>
               </div>
               <div className="space-y-2">
                 <Label htmlFor="message">Message</Label>
-                <Textarea id="message" name="message" required rows={5} />
+                <Textarea id="message" name="message" required rows={5} className="rounded-tile" />
               </div>
               {state.error && (
                 <p role="alert" className="text-sm text-destructive">
                   {state.error}
                 </p>
               )}
-              <Button type="submit" variant="gold" size="lg" disabled={pending}>
+              <Button type="submit" variant="gold" size="lg" className="rounded-full" disabled={pending}>
                 {pending ? "Sending…" : "Send message"}
               </Button>
             </>

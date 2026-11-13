@@ -1,7 +1,7 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
-import { AnimatePresence, motion, useInView, useReducedMotion } from "motion/react";
+import { useEffect, useRef, useState, useSyncExternalStore } from "react";
+import { AnimatePresence, motion, useInView } from "motion/react";
 import { ShieldCheck } from "lucide-react";
 import { FeedRowView, type FeedRowTone } from "@/components/dashboard/enforcement-feed";
 
@@ -40,10 +40,36 @@ const SCRIPT: DemoEvent[] = [
   },
 ];
 
+function subscribeToReducedMotion(callback: () => void) {
+  const mq = window.matchMedia("(prefers-reduced-motion: reduce)");
+  mq.addEventListener("change", callback);
+  return () => mq.removeEventListener("change", callback);
+}
+
+/**
+ * The server cannot know whether a visitor prefers reduced motion, and motion's
+ * own `useReducedMotion()` reports the real value on the very first client
+ * render — so the server rendered 0 rows while a reduced-motion client rendered
+ * all 8, and React threw a hydration mismatch on the landing page for exactly
+ * the visitors least able to tolerate a full re-render.
+ *
+ * `useSyncExternalStore` fixes it properly: the third argument is the server
+ * snapshot, which React also uses for the first hydration render, so SSR and
+ * hydration agree and the real preference is applied on the pass after. This is
+ * the same pattern `three/governor-scene.tsx` already uses.
+ */
+function usePrefersReducedMotion() {
+  return useSyncExternalStore(
+    subscribeToReducedMotion,
+    () => window.matchMedia("(prefers-reduced-motion: reduce)").matches,
+    () => false
+  );
+}
+
 function DemoFeed() {
   const containerRef = useRef<HTMLDivElement>(null);
   const inView = useInView(containerRef, { margin: "-80px" });
-  const reduceMotion = useReducedMotion();
+  const reduceMotion = usePrefersReducedMotion();
   const [count, setCount] = useState(0);
 
   useEffect(() => {
@@ -59,17 +85,20 @@ function DemoFeed() {
   const visible = SCRIPT.slice(0, reduceMotion ? SCRIPT.length : count);
 
   return (
-    <div ref={containerRef} className="overflow-hidden rounded-xl border border-border bg-card shadow-lg">
-      <div className="flex items-center gap-2 border-b border-border px-4 py-3">
+    <div
+      ref={containerRef}
+      className="overflow-hidden rounded-card border border-border bg-card shadow-2xl"
+    >
+      <div className="flex items-center gap-2 border-b border-border px-5 py-3.5">
         <span className="relative flex size-2">
           <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-success opacity-60" />
           <span className="relative inline-flex size-2 rounded-full bg-success" />
         </span>
-        <span className="font-mono text-xs text-muted-foreground">
+        <span className="text-xs text-muted-foreground">
           TradeForce EA — enforcement feed (demo)
         </span>
       </div>
-      <div className="flex h-[300px] flex-col justify-end px-4 pb-2">
+      <div className="flex h-[320px] flex-col justify-end px-5 pb-3">
         <ul>
           <AnimatePresence initial={false}>
             {visible.map((event, i) => (
@@ -96,36 +125,32 @@ function DemoFeed() {
   );
 }
 
+const POINTS = [
+  "Enforced in the terminal, not in a journal you fill in later.",
+  "Every block explained with the numbers that triggered it.",
+  "Rule changes reach the terminal in seconds, not on restart.",
+];
+
 export function LiveDemo() {
   return (
-    <section id="demo" className="border-t border-border/60 bg-obsidian py-24">
-      <div className="mx-auto grid max-w-6xl items-center gap-12 px-6 lg:grid-cols-2">
+    <section id="proof" className="border-t border-border/60 bg-obsidian py-20 sm:py-28">
+      <div className="mx-auto grid max-w-6xl items-center gap-12 px-6 lg:grid-cols-2 lg:gap-16">
         <div>
-          <p className="mb-3 font-mono text-[11px] uppercase tracking-[0.2em] text-primary/80">
-            The moment that matters
+          <p className="eyebrow">The moment that matters</p>
+          <h2 className="type-h2 mt-5">Watch trade #6 not happen.</h2>
+          <p className="mt-5 text-base leading-relaxed text-muted-foreground sm:text-lg">
+            You set a five-trade daily cap. At 14:43, after a losing streak, the sixth order
+            goes in anyway — that&apos;s the moment every funded account dies. TradeForce&apos;s
+            EA closes it the instant it fills, logs the violation with the exact numbers, and
+            your record stays intact.
           </p>
-          <h2 className="font-display text-3xl font-semibold tracking-tight sm:text-4xl">
-            Watch trade #6 not happen.
-          </h2>
-          <p className="mt-4 leading-relaxed text-muted-foreground">
-            You set a five-trade daily cap. At 14:43, after a losing streak, the sixth order goes
-            in anyway — that&apos;s the moment every funded account dies. TradeForce&apos;s EA
-            closes it the instant it fills, logs the violation with the exact numbers, and your
-            record stays intact.
-          </p>
-          <ul className="mt-6 space-y-3 text-sm text-muted-foreground">
-            <li className="flex items-start gap-2.5">
-              <ShieldCheck className="mt-0.5 size-4 shrink-0 text-primary" strokeWidth={2} />
-              Enforced in the terminal, not in a journal you fill in later.
-            </li>
-            <li className="flex items-start gap-2.5">
-              <ShieldCheck className="mt-0.5 size-4 shrink-0 text-primary" strokeWidth={2} />
-              Every block explained with the numbers that triggered it.
-            </li>
-            <li className="flex items-start gap-2.5">
-              <ShieldCheck className="mt-0.5 size-4 shrink-0 text-primary" strokeWidth={2} />
-              Rule changes reach the terminal in seconds, not on restart.
-            </li>
+          <ul className="mt-8 space-y-3.5 text-sm text-muted-foreground">
+            {POINTS.map((point) => (
+              <li key={point} className="flex items-start gap-3">
+                <ShieldCheck className="mt-0.5 size-4 shrink-0 text-primary" strokeWidth={2} />
+                {point}
+              </li>
+            ))}
           </ul>
         </div>
         <DemoFeed />

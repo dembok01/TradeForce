@@ -1,90 +1,67 @@
-"use client";
-
-import { useEffect, useState } from "react";
 import Link from "next/link";
-import { motion } from "motion/react";
-import { Check } from "lucide-react";
+import { Play } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { HeroScene } from "@/components/three/hero-scene";
+import { Reveal } from "@/components/motion/reveal";
+import { HeroFrame } from "@/components/marketing/hero-frame";
 
-const PROVISIONS = [
-  "Daily loss limit",
-  "Max trades per day",
-  "Max open positions",
-  "Risk per trade",
-  "Session window",
-];
-
+/**
+ * Centred, as the reference is: eyebrow pill, display headline, lead, two CTAs,
+ * then the product frame under a gold bloom.
+ *
+ * The old left-hand "Live enforcement ledger" aside and its hairline rows are
+ * gone — that was the retired grammar, and the frame does the same job better
+ * by showing the product rather than listing it. The 3D governor ring moved to
+ * the bento, where it no longer competes with the frame for the same attention.
+ *
+ * Above-the-fold content animates with the CSS `.rise-in` class rather than
+ * `Reveal`: Reveal writes opacity:0 into the server HTML and only animates once
+ * motion hydrates, which would leave the headline — the LCP element — blank
+ * until JS arrives. The frame, lower down, uses Reveal as every other section
+ * does.
+ */
 export function Hero() {
-  const [active, setActive] = useState(0);
-
-  useEffect(() => {
-    const id = setInterval(() => setActive((v) => (v + 1) % PROVISIONS.length), 1900);
-    return () => clearInterval(id);
-  }, []);
-
   return (
     <section className="relative overflow-hidden bg-obsidian">
-      <div className="mx-auto grid max-w-6xl gap-12 px-6 pb-20 pt-16 lg:grid-cols-[280px_1fr] lg:gap-8 lg:pb-28 lg:pt-24">
-        {/* The ledger — signature element. A live-reading audit trail of the rules TradeForce enforces. */}
-        <aside className="order-2 lg:order-1">
-          <p className="mb-4 font-mono text-[11px] uppercase tracking-[0.2em] text-muted-foreground">
-            Live enforcement ledger
+      <div className="mx-auto max-w-6xl px-6 pb-20 pt-16 sm:pb-28 sm:pt-24">
+        <div className="mx-auto max-w-3xl text-center">
+          <p className="eyebrow rise-in">For funded &amp; evaluation accounts</p>
+
+          <h1 className="type-h1 rise-in mt-7" style={{ animationDelay: "60ms" }}>
+            {/* Explicit {" "} — JSX trims each text line, so a space sitting at
+                the start of a wrapped line after </em> is silently dropped. */}
+            Discipline,{" "}
+            <em className="text-gradient-gold not-italic">enforced</em>{" "}
+            before it&apos;s broken.
+          </h1>
+
+          <p
+            className="rise-in mx-auto mt-7 max-w-xl text-base leading-relaxed text-muted-foreground sm:text-lg"
+            style={{ animationDelay: "120ms" }}
+          >
+            TradeForce runs on your account and holds the line your plan sets — daily loss,
+            trade count, exposure and session hours — the moment a rule would be broken, not
+            after the damage is done.
           </p>
-          <ol className="space-y-0">
-            {PROVISIONS.map((label, i) => (
-              <li key={label} className="ledger-row flex items-center gap-3 py-3">
-                <span className="font-mono text-[11px] text-muted-foreground">
-                  {String(i + 1).padStart(2, "0")}
-                </span>
-                <span
-                  className={`flex-1 text-sm transition-colors duration-500 ${
-                    active === i ? "text-foreground" : "text-muted-foreground"
-                  }`}
-                >
-                  {label}
-                </span>
-                <motion.span
-                  animate={{ opacity: active === i ? 1 : 0, scale: active === i ? 1 : 0.6 }}
-                  transition={{ duration: 0.3 }}
-                  className="flex size-4 items-center justify-center rounded-full bg-primary/20 text-primary"
-                >
-                  <Check className="size-2.5" strokeWidth={3} />
-                </motion.span>
-              </li>
-            ))}
-          </ol>
-        </aside>
 
-        <div className="order-1 grid items-center gap-10 lg:order-2 lg:grid-cols-[1.1fr_0.9fr]">
-          <div>
-            <p className="mb-5 font-mono text-[11px] uppercase tracking-[0.2em] text-primary/80">
-              For funded &amp; evaluation accounts
-            </p>
-            <h1 className="font-display text-4xl font-semibold leading-[1.08] tracking-tight sm:text-5xl lg:text-6xl">
-              Discipline, <em className="text-gradient-gold not-italic">enforced</em>
-              <br />
-              before it&apos;s broken.
-            </h1>
-            <p className="mt-6 max-w-md text-base leading-relaxed text-muted-foreground">
-              TradeForce runs on your account and holds the line your plan sets — daily
-              loss, trade count, exposure, and session hours — the moment a rule would
-              be broken, not after the damage is done.
-            </p>
-            <div className="mt-9 flex flex-wrap items-center gap-4">
-              <Button variant="gold" size="lg" asChild>
-                <Link href="/signup">Start enforcing discipline</Link>
-              </Button>
-              <Button variant="ghost" size="lg" asChild>
-                <a href="#charter">Read the charter →</a>
-              </Button>
-            </div>
-          </div>
-
-          <div className="relative">
-            <HeroScene />
+          <div
+            className="rise-in mt-10 flex flex-wrap items-center justify-center gap-3"
+            style={{ animationDelay: "180ms" }}
+          >
+            <Button variant="gold" size="lg" className="rounded-full" asChild>
+              <Link href="/signup">Start free</Link>
+            </Button>
+            <Button variant="secondary" size="lg" className="rounded-full" asChild>
+              <a href="#proof">
+                <Play />
+                Watch it block trade #6
+              </a>
+            </Button>
           </div>
         </div>
+
+        <Reveal y={48} delay={0.1} className="mt-16 sm:mt-20">
+          <HeroFrame />
+        </Reveal>
       </div>
     </section>
   );

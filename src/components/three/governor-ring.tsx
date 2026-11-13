@@ -70,8 +70,13 @@ export function GovernorRing({ reducedMotion }: { reducedMotion: boolean }) {
 
   return (
     <group ref={groupRef} rotation={[0.15, 0.3, 0]}>
-      {/* Outer regulator ring — faceted, low-poly for a machined, not organic, feel */}
-      <mesh rotation={[Math.PI / 2, 0, 0]}>
+      {/* Outer regulator ring — faceted, low-poly for a machined, not organic, feel.
+          No X rotation: torusGeometry is built in the XY plane, which is the
+          same plane the spokes and rim ticks below are positioned in. Rotating
+          it by π/2 laid the rim flat while its own spokes stayed upright, so it
+          rendered as a gold bar with twelve ticks floating around it rather
+          than as the valve wheel this comment describes. */}
+      <mesh>
         <torusGeometry args={[2.1, 0.09, 6, 48]} />
         <meshStandardMaterial
           color="#d9b65c"
@@ -83,7 +88,7 @@ export function GovernorRing({ reducedMotion }: { reducedMotion: boolean }) {
       </mesh>
 
       {/* Inner counter-rotating ring */}
-      <mesh ref={innerRingRef} rotation={[Math.PI / 2, 0, 0]}>
+      <mesh ref={innerRingRef}>
         <torusGeometry args={[1.35, 0.045, 6, 36]} />
         <meshStandardMaterial
           color="#8a6a2f"
@@ -112,14 +117,16 @@ export function GovernorRing({ reducedMotion }: { reducedMotion: boolean }) {
         </mesh>
       ))}
 
-      {/* Rule ticks around the rim — one illuminates at a time */}
+      {/* Rule ticks around the rim — one illuminates at a time. Sat at 2.1 they
+          were inside the rim tube (radius 2.1, thickness 0.09) and invisible
+          now that the wheel faces the camera; 2.34 puts them just clear of it. */}
       {tickAngles.map((angle, i) => (
         <mesh
           key={i}
           ref={(el) => {
             if (el) tickMeshesRef.current[i] = el;
           }}
-          position={[Math.cos(angle) * 2.1, Math.sin(angle) * 2.1, 0]}
+          position={[Math.cos(angle) * 2.34, Math.sin(angle) * 2.34, 0]}
         >
           <boxGeometry args={[0.07, 0.07, 0.07]} />
           <meshStandardMaterial

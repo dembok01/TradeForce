@@ -1,38 +1,45 @@
+import { CalendarClock, FileWarning, NotebookPen, ShieldCheck, Target, TrendingUp } from "lucide-react";
+import { Section } from "@/components/marketing/section";
 import { Reveal } from "@/components/motion/reveal";
 
+/**
+ * The six charter provisions. Titles and descriptions are unchanged from the
+ * hairline-ledger version — the spec keeps the content and changes only the
+ * presentation, from Roman-numeral rules to the reference's icon-card grid.
+ */
 const PROVISIONS = [
   {
-    numeral: "I",
+    icon: ShieldCheck,
     title: "Real-time rule enforcement",
     description:
       "Set a daily loss limit, a max trade count, a position cap, and a risk-per-trade ceiling. TradeForce checks every order against them before it's allowed to stand.",
   },
   {
-    numeral: "II",
+    icon: CalendarClock,
     title: "Session control",
     description:
       "Restrict trading to London, New York, Asian, or the London/NY overlap — or draw a custom window in your own timezone. Outside it, the account stays flat.",
   },
   {
-    numeral: "III",
+    icon: FileWarning,
     title: "Violation centre",
     description:
       "Every breach is logged with a timestamp and the trade that caused it — overtrading, outside-session attempts, loss and exposure breaches — tallied weekly and monthly.",
   },
   {
-    numeral: "IV",
+    icon: Target,
     title: "Discipline score",
     description:
       "A single number out of 100, recomputed daily from four factors: rule adherence, session adherence, overtrading prevention, and risk management.",
   },
   {
-    numeral: "V",
+    icon: NotebookPen,
     title: "Trade journal",
     description:
       "Every trade — symbol, direction, entry, exit, P/L, time — with a notes field for what actually happened. Filter by date range in seconds.",
   },
   {
-    numeral: "VI",
+    icon: TrendingUp,
     title: "Performance analytics",
     description:
       "Win rate, trade volume by week and month, and P/L charted daily, weekly, and monthly — the record your discipline is actually producing.",
@@ -41,35 +48,27 @@ const PROVISIONS = [
 
 export function CharterFeatures() {
   return (
-    <section id="charter" className="border-t border-border/60 bg-obsidian py-24">
-      <div className="mx-auto max-w-6xl px-6">
-        <div className="mb-14 max-w-2xl">
-          <p className="mb-3 font-mono text-[11px] uppercase tracking-[0.2em] text-primary/80">
-            The Charter
-          </p>
-          <h2 className="font-display text-3xl font-semibold tracking-tight sm:text-4xl">
-            Six provisions. No exceptions.
-          </h2>
-          <p className="mt-4 text-muted-foreground">
-            Everything TradeForce does for a funded account, written down the way a
-            trading plan should be — plainly, and in order.
-          </p>
-        </div>
-
-        <div>
-          {PROVISIONS.map((p, i) => (
-            <Reveal key={p.numeral} delay={0.04 * i} y={10}>
-              <div className="ledger-row grid grid-cols-[3rem_1fr] gap-6 py-7 transition-colors hover:bg-card/40 sm:grid-cols-[4rem_1fr] sm:gap-10 md:grid-cols-[4rem_16rem_1fr]">
-                <span className="font-display text-2xl text-primary/70">{p.numeral}</span>
-                <h3 className="font-display text-lg font-medium">{p.title}</h3>
-                <p className="text-sm leading-relaxed text-muted-foreground md:max-w-md">
-                  {p.description}
-                </p>
-              </div>
-            </Reveal>
-          ))}
-        </div>
+    <Section
+      id="features"
+      eyebrow="The Charter"
+      title="Six provisions. No exceptions."
+      description="Everything TradeForce does for a funded account, written down the way a trading plan should be — plainly, and in order."
+    >
+      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+        {PROVISIONS.map((provision, i) => (
+          <Reveal key={provision.title} y={48} delay={0.05 * i}>
+            <div className="flex h-full flex-col rounded-card border border-border bg-card p-7">
+              <span className="flex size-11 shrink-0 items-center justify-center rounded-tile bg-primary/10 text-primary">
+                <provision.icon className="size-5" strokeWidth={1.75} />
+              </span>
+              <h3 className="mt-6 text-lg font-medium tracking-[-0.03em]">{provision.title}</h3>
+              <p className="mt-3 text-sm leading-relaxed text-muted-foreground">
+                {provision.description}
+              </p>
+            </div>
+          </Reveal>
+        ))}
       </div>
-    </section>
+    </Section>
   );
 }

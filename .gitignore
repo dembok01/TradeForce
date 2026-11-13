@@ -42,3 +42,6 @@ next-env.d.ts
 
 # Supabase CLI scratch state
 supabase/.temp/
+
+# Superpowers plan workspace (scratch: ledger, briefs, review packages)
+.superpowers/

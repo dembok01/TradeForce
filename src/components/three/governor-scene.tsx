@@ -22,9 +22,12 @@ function usePrefersReducedMotion() {
 export function GovernorScene() {
   const reducedMotion = usePrefersReducedMotion();
 
+  // Camera at z=7, not 6: with the rim ticks at radius 2.34 the wheel is 4.68
+  // across, and at z=6 the 42° vertical FOV shows only 4.60 — it cropped top
+  // and bottom in a landscape cell.
   return (
     <Canvas
-      camera={{ position: [0, 0, 6], fov: 42 }}
+      camera={{ position: [0, 0, 7], fov: 42 }}
       dpr={[1, 1.75]}
       gl={{ antialias: true, alpha: true }}
     >
