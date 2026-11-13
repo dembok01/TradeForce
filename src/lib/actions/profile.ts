@@ -20,7 +20,6 @@ export async function updateProfileAction(
 ): Promise<ProfileActionState> {
   const parsed = profileDetailsSchema.safeParse({
     full_name: formData.get("full_name") ?? "",
-    experience_level: formData.get("experience_level") ?? "",
     markets_traded: formData.getAll("markets_traded"),
     prop_firm: formData.get("prop_firm") ?? "",
   });
@@ -37,7 +36,6 @@ export async function updateProfileAction(
       .from("profiles")
       .update({
         full_name: parsed.data.full_name,
-        experience_level: parsed.data.experience_level,
         markets_traded: parsed.data.markets_traded,
         prop_firm: parsed.data.prop_firm,
       })

@@ -5,12 +5,28 @@ import { RULE_BOUNDS, customWindowError, customWindowOk, timeOrBlank, timezoneFi
 // Option lists live here (not in the wizard) so the zod enums and the UI can
 // never drift apart. Client-safe: no server-only imports.
 
-export const EXPERIENCE_LEVELS = [
-  { value: "first_evaluation", label: "On my first evaluation", hint: "Working toward a funded account" },
-  { value: "funded", label: "Trading a funded account", hint: "Passed — now protecting it" },
-  { value: "multiple_firms", label: "Funded with multiple firms", hint: "Managing several accounts" },
-  { value: "exploring", label: "Still exploring", hint: "Comparing prop firms" },
+/**
+ * The one thing onboarding needs to know to send a trader somewhere useful:
+ * whose MetaTrader the EA is going to run on.
+ *
+ * This replaced "where are you in the prop-firm journey", which was interesting
+ * but changed nothing - the two setups are genuinely different products and a
+ * funded trader following the hosted instructions can lose their account.
+ */
+export const CONNECTION_ROUTES = [
+  {
+    value: "broker",
+    label: "A normal broker account",
+    hint: "We run a terminal for you in the cloud. Protected day and night, with your own computer switched off.",
+  },
+  {
+    value: "funded",
+    label: "A funded or challenge account",
+    hint: "Your firm requires that you place your own trades, so the EA runs on your MetaTrader instead of ours.",
+  },
 ] as const;
+
+export type ConnectionRoute = (typeof CONNECTION_ROUTES)[number]["value"];
 
 export const MARKET_OPTIONS = [
   { value: "forex", label: "Forex" },
@@ -21,8 +37,8 @@ export const MARKET_OPTIONS = [
   { value: "stocks", label: "Stocks" },
 ] as const;
 
-const experienceEnum = z.enum(
-  EXPERIENCE_LEVELS.map((e) => e.value) as [string, ...string[]]
+const connectionRouteEnum = z.enum(
+  CONNECTION_ROUTES.map((r) => r.value) as [string, ...string[]]
 );
 const marketEnum = z.enum(MARKET_OPTIONS.map((m) => m.value) as [string, ...string[]]);
 
@@ -38,7 +54,7 @@ const optionalText = z
 // loss limit. The action activates the charter only if something is set.
 const onboardingFields = z.object({
   full_name: optionalText,
-  experience_level: experienceEnum,
+  connection_route: connectionRouteEnum,
   markets_traded: z.array(marketEnum).min(1, "Pick at least one market."),
   prop_firm: optionalText,
 
@@ -77,11 +93,12 @@ export const onboardingSchema = onboardingFields.refine(customWindowOk, customWi
 export type OnboardingInput = z.input<typeof onboardingSchema>;
 export type OnboardingValues = z.output<typeof onboardingSchema>;
 
-// The Settings page's Profile card edits the same four "about you" fields the
-// wizard collects — one schema so they can't drift.
+// The Settings page's Profile card edits the "about you" fields the wizard
+// collects — one schema so they can't drift. connection_route is not among
+// them: it is answered once, only steers the post-onboarding redirect, and
+// both routes open up anyway once a terminal has reported in.
 export const profileDetailsSchema = onboardingFields.pick({
   full_name: true,
-  experience_level: true,
   markets_traded: true,
   prop_firm: true,
 });
@@ -91,7 +108,7 @@ export const profileDetailsSchema = onboardingFields.pick({
 export const ONBOARDING_STEP_SCHEMAS = {
   about: onboardingFields.pick({
     full_name: true,
-    experience_level: true,
+    connection_route: true,
     markets_traded: true,
     prop_firm: true,
   }),

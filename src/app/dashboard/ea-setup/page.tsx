@@ -54,6 +54,32 @@ export default async function EaSetupPage() {
         }
       />
 
+      {/* They told onboarding this is a funded account, so they were sent to the
+          funded guide - this is them arriving here anyway. Say what the page is
+          rather than letting them type a password their firm forbids sharing.
+          Dropped once a terminal reports: by then both routes are theirs. */}
+      {profile?.connection_route === "funded" && !lastSeenAt && (
+        <Reveal y={8} className="mb-4">
+          <Card className="border-amber-500/40 bg-amber-500/5">
+            <CardHeader>
+              <CardTitle className="text-base">This page hosts the terminal for you</CardTitle>
+              <CardDescription>
+                You told us you&apos;re connecting a funded account, and those can&apos;t go
+                through our hosted terminal — your firm requires that you place your own trades,
+                which means we must not hold your password.{" "}
+                <Link
+                  href="/dashboard/ea-setup/funded"
+                  className="text-primary hover:underline"
+                >
+                  Set up your funded account instead
+                </Link>
+                .
+              </CardDescription>
+            </CardHeader>
+          </Card>
+        </Reveal>
+      )}
+
       {connected && account.ea_trade_block && (
         <Reveal y={8} className="mb-4">
           <TradeBlockAlert code={account.ea_trade_block} />
@@ -103,6 +129,20 @@ export default async function EaSetupPage() {
           </div>
         </details>
       </Reveal>
+
+      {/* Same rule as the funded guide: the other route appears once one of
+          them is working, not while the trader is still mid-setup. */}
+      {lastSeenAt && (
+        <Reveal delay={0.3}>
+          <p className="mt-6 text-sm text-muted-foreground">
+            Trading a funded or challenge account as well?{" "}
+            <Link href="/dashboard/ea-setup/funded" className="text-primary hover:underline">
+              Set that one up here
+            </Link>{" "}
+            — it runs on your own MetaTrader, which is what prop firms require.
+          </p>
+        </Reveal>
+      )}
     </div>
   );
 }

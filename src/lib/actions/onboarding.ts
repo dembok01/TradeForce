@@ -75,7 +75,7 @@ export async function completeOnboardingAction(input: unknown): Promise<Onboardi
       .update({
         full_name: values.full_name,
         timezone: values.timezone,
-        experience_level: values.experience_level,
+        connection_route: values.connection_route,
         markets_traded: values.markets_traded,
         prop_firm: values.prop_firm,
         onboarded_at: new Date().toISOString(),
@@ -92,7 +92,12 @@ export async function completeOnboardingAction(input: unknown): Promise<Onboardi
   }
 
   // Outside the try so the redirect control-flow error can't be swallowed.
-  // New users land on EA Setup: enforcement doesn't exist until the terminal
-  // is connected, so that's the one next step that matters.
-  redirect("/dashboard/ea-setup");
+  //
+  // Enforcement doesn't exist until a terminal is connected, so that is the one
+  // next step that matters - but it is a different page per route, and sending a
+  // funded trader to the hosted form is how they end up handing us a password
+  // their firm forbids them to share.
+  redirect(
+    values.connection_route === "funded" ? "/dashboard/ea-setup/funded" : "/dashboard/ea-setup"
+  );
 }

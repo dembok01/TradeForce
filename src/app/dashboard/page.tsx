@@ -92,16 +92,29 @@ export default async function DashboardHomePage() {
         </Reveal>
       )}
 
+      {/* Two routes, two different next steps. Promising a funded trader that we
+          will run their terminal sends them at a setup their firm forbids. */}
       {!eaIsLive && (
         <Reveal y={8} className="mb-8">
-          <CharterCallout
-            title="Your rules aren't being enforced yet."
-            href="/dashboard/ea-setup"
-            cta="Connect your account"
-          >
-            Connect your MetaTrader account and we run your terminal for you, day and night.
-            Until then nothing is watching your trades.
-          </CharterCallout>
+          {profile?.connection_route === "funded" ? (
+            <CharterCallout
+              title="Your rules aren't being enforced yet."
+              href="/dashboard/ea-setup/funded"
+              cta="Set up the EA"
+            >
+              Your firm needs you to place your own trades, so TradeForce runs on your own
+              MetaTrader. Until the EA is attached, nothing is watching your trades.
+            </CharterCallout>
+          ) : (
+            <CharterCallout
+              title="Your rules aren't being enforced yet."
+              href="/dashboard/ea-setup"
+              cta="Connect your account"
+            >
+              Connect your MetaTrader account and we run your terminal for you, day and night.
+              Until then nothing is watching your trades.
+            </CharterCallout>
+          )}
         </Reveal>
       )}
 

@@ -3,20 +3,13 @@
 import { useActionState, useEffect, useState } from "react";
 import { toast } from "sonner";
 import { updateProfileAction, type ProfileActionState } from "@/lib/actions/profile";
-import { EXPERIENCE_LEVELS, MARKET_OPTIONS } from "@/lib/schemas/onboarding";
+import { MARKET_OPTIONS } from "@/lib/schemas/onboarding";
 import type { Profile } from "@/lib/data/profile";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Button } from "@/components/ui/button";
 import { FieldError } from "@/components/ui/field-error";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
 import { cn } from "@/lib/utils";
 
 const initialState: ProfileActionState = { error: null };
@@ -75,23 +68,6 @@ export function ProfileForm({ profile }: { profile: Profile }) {
               />
               <FieldError id="prop_firm-error" message={errors?.prop_firm} />
             </div>
-          </div>
-
-          <div className="space-y-2">
-            <Label htmlFor="experience_level">Where you are</Label>
-            <Select name="experience_level" defaultValue={profile.experience_level ?? undefined}>
-              <SelectTrigger id="experience_level" className="max-w-xs">
-                <SelectValue placeholder="Select your stage" />
-              </SelectTrigger>
-              <SelectContent>
-                {EXPERIENCE_LEVELS.map((level) => (
-                  <SelectItem key={level.value} value={level.value}>
-                    {level.label}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-            <FieldError id="experience_level-error" message={errors?.experience_level} />
           </div>
 
           <div className="space-y-2">

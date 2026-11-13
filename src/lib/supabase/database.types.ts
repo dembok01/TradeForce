@@ -36,6 +36,7 @@ export interface Database {
           onboarded_at: string | null;
           tour_completed_at: string | null;
           experience_level: string | null;
+          connection_route: string | null;
           markets_traded: string[] | null;
           prop_firm: string | null;
           created_at: string;

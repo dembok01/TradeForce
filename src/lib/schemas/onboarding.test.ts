@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
 import {
-  EXPERIENCE_LEVELS,
+  CONNECTION_ROUTES,
   MARKET_OPTIONS,
   ONBOARDING_STEP_SCHEMAS,
   onboardingSchema,
@@ -8,7 +8,7 @@ import {
 
 const validInput = {
   full_name: " Alex Trader ",
-  experience_level: "funded",
+  connection_route: "funded",
   markets_traded: ["forex", "indices"],
   prop_firm: "",
   daily_loss_limit: "500",
@@ -39,9 +39,14 @@ describe("onboardingSchema", () => {
     expect(onboardingSchema.safeParse({ ...validInput, markets_traded: [] }).success).toBe(false);
   });
 
-  it("rejects unknown experience levels and markets", () => {
+  it("rejects unknown connection routes and markets", () => {
+    // The route decides which setup page a new trader is sent to, and the two
+    // are not interchangeable: anything but these two values has no page.
     expect(
-      onboardingSchema.safeParse({ ...validInput, experience_level: "guru" }).success
+      onboardingSchema.safeParse({ ...validInput, connection_route: "hybrid" }).success
+    ).toBe(false);
+    expect(
+      onboardingSchema.safeParse({ ...validInput, connection_route: "" }).success
     ).toBe(false);
     expect(
       onboardingSchema.safeParse({ ...validInput, markets_traded: ["forex", "beanie-babies"] })
@@ -139,8 +144,8 @@ describe("onboarding step schemas", () => {
   });
 
   it("keeps the enum vocabulary in sync with the option lists", () => {
-    expect(onboardingSchema.shape.experience_level.options).toEqual(
-      EXPERIENCE_LEVELS.map((e) => e.value)
+    expect(onboardingSchema.shape.connection_route.options).toEqual(
+      CONNECTION_ROUTES.map((r) => r.value)
     );
     expect(onboardingSchema.shape.markets_traded.element.options).toEqual(
       MARKET_OPTIONS.map((m) => m.value)

@@ -7,7 +7,7 @@ import { Check } from "lucide-react";
 import { toast } from "sonner";
 import { completeOnboardingAction } from "@/lib/actions/onboarding";
 import {
-  EXPERIENCE_LEVELS,
+  CONNECTION_ROUTES,
   MARKET_OPTIONS,
   ONBOARDING_STEP_SCHEMAS,
 } from "@/lib/schemas/onboarding";
@@ -47,7 +47,7 @@ const SESSION_TOGGLES = [
 
 type WizardValues = {
   full_name: string;
-  experience_level: string;
+  connection_route: string;
   markets_traded: string[];
   prop_firm: string;
   daily_loss_limit: string;
@@ -75,7 +75,7 @@ const FIELD_STEP: Record<string, number> = {};
 export function OnboardingWizard({ defaultFullName = "" }: { defaultFullName?: string }) {
   const [values, setValues] = useState<WizardValues>({
     full_name: defaultFullName,
-    experience_level: "",
+    connection_route: "",
     markets_traded: [],
     prop_firm: "",
     daily_loss_limit: "",
@@ -312,16 +312,21 @@ export function OnboardingWizard({ defaultFullName = "" }: { defaultFullName?: s
                       </div>
 
                       <div className="space-y-2">
-                        <Label>Where are you in the prop-firm journey?</Label>
+                        <Label>Which account are you protecting?</Label>
                         <div className="grid gap-3 sm:grid-cols-2">
-                          {EXPERIENCE_LEVELS.map((option) => {
-                            const selected = values.experience_level === option.value;
+                          {CONNECTION_ROUTES.map((option) => {
+                            const selected = values.connection_route === option.value;
                             return (
                               <button
                                 key={option.value}
                                 type="button"
                                 aria-pressed={selected}
-                                onClick={() => set("experience_level", option.value)}
+                                onClick={() => {
+                                  set("connection_route", option.value);
+                                  // The firm field hides on the broker route;
+                                  // don't save what they can no longer see.
+                                  if (option.value !== "funded") set("prop_firm", "");
+                                }}
                                 className={cn(
                                   "rounded-lg border p-4 text-left transition-colors",
                                   selected
@@ -335,9 +340,13 @@ export function OnboardingWizard({ defaultFullName = "" }: { defaultFullName?: s
                             );
                           })}
                         </div>
+                        <p className="text-xs text-muted-foreground">
+                          Pick the one you&apos;re connecting first. Once a terminal is reporting,
+                          the other method opens up too — plenty of traders end up running both.
+                        </p>
                         <FieldError
-                          id="experience_level-error"
-                          message={fieldErrors.experience_level && "Choose the option that fits you."}
+                          id="connection_route-error"
+                          message={fieldErrors.connection_route && "Choose the option that fits you."}
                         />
                       </div>
 
@@ -377,17 +386,24 @@ export function OnboardingWizard({ defaultFullName = "" }: { defaultFullName?: s
                         />
                       </div>
 
-                      <div className="space-y-2">
-                        <Label htmlFor="prop_firm">
-                          Prop firm <span className="text-muted-foreground">(optional)</span>
-                        </Label>
-                        <Input
-                          id="prop_firm"
-                          value={values.prop_firm}
-                          onChange={(e) => set("prop_firm", e.target.value)}
-                          placeholder="e.g. FTMO, Topstep"
-                        />
-                      </div>
+                      {values.connection_route === "funded" && (
+                        <div className="space-y-2">
+                          <Label htmlFor="prop_firm">
+                            Which firm? <span className="text-muted-foreground">(optional)</span>
+                          </Label>
+                          <Input
+                            id="prop_firm"
+                            value={values.prop_firm}
+                            onChange={(e) => set("prop_firm", e.target.value)}
+                            placeholder="e.g. FTMO, Topstep"
+                          />
+                          <p className="text-xs text-muted-foreground">
+                            Tell us and we&apos;ll show you what their contract actually says about
+                            Expert Advisors — some require written approval first, one bans them
+                            outright.
+                          </p>
+                        </div>
+                      )}
                     </div>
                   </StepShell>
                 )}
