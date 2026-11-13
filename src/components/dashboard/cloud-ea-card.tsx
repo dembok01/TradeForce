@@ -1,8 +1,9 @@
 "use client";
 
 import { useState, useTransition } from "react";
+import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { ShieldCheck, Loader2, TriangleAlert, ChevronDown, Download, Ban } from "lucide-react";
+import { ShieldCheck, Loader2, TriangleAlert, ChevronDown, Ban } from "lucide-react";
 import { toast } from "sonner";
 import { enableCloudEaAction, disableCloudEaAction, requestBrokerAction } from "@/lib/actions/cloud-ea";
 import {
@@ -133,7 +134,7 @@ function startingBlurb(c: CloudEa): string | null {
   return null;
 }
 
-const EA_DOWNLOAD_PATH = "/downloads/TradeForce.ex5";
+const FUNDED_GUIDE_PATH = "/dashboard/ea-setup/funded";
 
 /**
  * What a funded trader sees instead of the password form.
@@ -182,30 +183,19 @@ function FundedAccountNotice({ policy, firm }: { policy: EaPolicy; firm: string 
         <p className="mt-1 text-muted-foreground">
           {who} requires that you place your own trades, so we don&apos;t host funded accounts: a
           hosted terminal means we hold your trading password, and that is the clause that costs
-          traders their accounts. Download the EA and attach it to your own MetaTrader instead —
-          your rules, limits and dashboard all work exactly the same.
+          traders their accounts. Everything else is identical: your rules, your limits, your
+          dashboard, your violation record.
         </p>
       </div>
 
-      <ol className="list-decimal space-y-1 pl-5 text-muted-foreground">
-        <li>Download the EA and drop it into your MetaTrader&apos;s Experts folder.</li>
-        <li>Attach it to any chart, then paste your EA key from Rule Settings.</li>
-        {policy === "approval_required" ? (
-          <li>
-            <strong>Get {who}&apos;s written approval first.</strong> They review and approve EAs in
-            advance — keep their reply, it is what protects your payout if you are ever asked.
-          </li>
-        ) : null}
-      </ol>
-
       <Button asChild variant="outline" size="sm">
-        <a href={EA_DOWNLOAD_PATH} download>
-          <Download className="size-4" aria-hidden />
-          Download TradeForce.ex5
-        </a>
+        <Link href={FUNDED_GUIDE_PATH}>Set up my funded account</Link>
       </Button>
 
       <p className="text-xs text-muted-foreground">
+        {policy === "approval_required"
+          ? `The guide covers the download, the MetaTrader settings, and getting ${who}'s written approval first.`
+          : "The guide covers the download, the MetaTrader settings, and your first enforced trade."}{" "}
         One honest difference: the EA protects you only while your computer is running. We&apos;ll
         tell you if it stops reporting, so you are never unprotected without knowing.
       </p>
@@ -534,12 +524,12 @@ export function CloudEaCard({
                       account and any payout already earned.
                     </p>
                     <p className="mt-2 text-muted-foreground">
-                      If this is a funded or challenge account, don&apos;t connect it here — download the
-                      EA and run it on your own MetaTrader instead. It keeps your rules and keeps you
-                      inside your agreement.{" "}
-                      <a className="underline underline-offset-2" href={EA_DOWNLOAD_PATH} download>
-                        Download TradeForce.ex5
-                      </a>
+                      If this is a funded or challenge account, don&apos;t connect it here — run the
+                      EA on your own MetaTrader instead. It keeps your rules and keeps you inside
+                      your agreement.{" "}
+                      <Link className="underline underline-offset-2" href={FUNDED_GUIDE_PATH}>
+                        How to set that up
+                      </Link>
                     </p>
                     <label className="mt-2 flex items-start gap-2">
                       <input

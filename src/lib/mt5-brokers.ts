@@ -71,6 +71,35 @@ export function eaPolicyFor(
 }
 
 /**
+ * The same policy found by the firm's NAME, for the funded-account guide.
+ *
+ * Advisory only. It decides which paragraph a trader reads on a page they
+ * reached on purpose - never whether anyone is refused. The refusal stays with
+ * eaPolicyFor() above, which matches an exact catalogued address, because the
+ * name here is free text the trader typed at onboarding and a false positive
+ * on the hosted path would lock a real retail trader out.
+ *
+ * Prefixes in both directions, on alphanumerics only, so onboarding's free
+ * text reaches the catalogue's own spelling: "E8" -> "E8 Markets", "Alpha
+ * Capital Group" -> "Alpha Capital". Two characters minimum because "E8" is a
+ * real firm; prefixes rather than containment so a short fragment cannot match
+ * in the middle of an unrelated name.
+ */
+export function advisoryPolicyForFirm(
+  servers: Mt5Server[],
+  firm: string | null | undefined
+): EaPolicy | null {
+  const typed = (firm ?? "").toLowerCase().replace(/[^a-z0-9]/g, "");
+  if (typed.length < 2) return null;
+  for (const s of servers) {
+    if (!s.ea_policy) continue;
+    const name = s.broker.toLowerCase().replace(/[^a-z0-9]/g, "");
+    if (name.startsWith(typed) || typed.startsWith(name)) return s.ea_policy;
+  }
+  return null;
+}
+
+/**
  * Exness runs dozens of MT5 servers and publishes no addresses, so these are
  * connected by NAME. That works only because the image's Config/servers.dat was
  * seeded by a one-off "Open an Account -> Exness" search (see

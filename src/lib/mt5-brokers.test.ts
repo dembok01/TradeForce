@@ -8,6 +8,7 @@ import {
   serversForBroker,
   brokerOf,
   eaPolicyFor,
+  advisoryPolicyForFirm,
   helpFor,
   exnessServers,
   normaliseDomain,
@@ -230,5 +231,43 @@ describe("eaPolicyFor", () => {
     // "Maven Trading" typed into Other broker is not an address and must not
     // hard-refuse; looksLikePropFirm shows the warning for that case instead.
     expect(eaPolicyFor(catalogue, "Maven Trading")).toBeNull();
+  });
+});
+
+describe("advisoryPolicyForFirm", () => {
+  // Advisory: it picks which paragraph the funded guide shows, so it may match
+  // a hand-typed name. It must never be wired into the hosted-pool refusal.
+  const catalogue: Mt5Server[] = [
+    { broker: "Maven Trading", label: "Main", address: "mt5.maventrading.com:443", kind: "live", ea_policy: "prohibited" },
+    { broker: "E8 Markets", label: "Main", address: "mt5.e8markets.com:443", kind: "live", ea_policy: "approval_required" },
+    { broker: "Alpha Capital", label: "Main", address: "mt5.alphacapitalgroup.uk:443", kind: "live", ea_policy: "approval_required" },
+    { broker: "IC Markets", label: "Demo", address: "mt5-demo.icmarkets.com:443", kind: "demo" },
+  ];
+
+  it("reaches the catalogue from what onboarding actually collects", () => {
+    expect(advisoryPolicyForFirm(catalogue, "Maven Trading")).toBe("prohibited");
+    expect(advisoryPolicyForFirm(catalogue, "maven")).toBe("prohibited");
+    // Two characters, and a real firm: the reason the floor is not three.
+    expect(advisoryPolicyForFirm(catalogue, "E8")).toBe("approval_required");
+    // Longer than the catalogue's own spelling.
+    expect(advisoryPolicyForFirm(catalogue, "Alpha Capital Group")).toBe("approval_required");
+  });
+
+  it("says nothing about an ordinary broker or a firm we have not read", () => {
+    // IC Markets is catalogued but carries no policy; FTMO is not catalogued at
+    // all. Both fall through to the generic advice, never to a claim we cannot
+    // support from a contract we have actually read.
+    expect(advisoryPolicyForFirm(catalogue, "IC Markets")).toBeNull();
+    expect(advisoryPolicyForFirm(catalogue, "FTMO")).toBeNull();
+    expect(advisoryPolicyForFirm(catalogue, "")).toBeNull();
+    expect(advisoryPolicyForFirm(catalogue, null)).toBeNull();
+    expect(advisoryPolicyForFirm(catalogue, undefined)).toBeNull();
+  });
+
+  it("will not match on a fragment buried inside another firm's name", () => {
+    // "apital" sits inside "Alpha Capital" but starts neither name: a prefix
+    // match in either direction, not containment.
+    expect(advisoryPolicyForFirm(catalogue, "apital")).toBeNull();
+    expect(advisoryPolicyForFirm(catalogue, "8 Markets")).toBeNull();
   });
 });
