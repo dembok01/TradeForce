@@ -24,14 +24,14 @@ export function Hero() {
     <section className="relative overflow-hidden bg-obsidian">
       <div className="mx-auto max-w-6xl px-6 pb-20 pt-16 sm:pb-28 sm:pt-24">
         <div className="mx-auto max-w-3xl text-center">
-          <p className="eyebrow rise-in">For funded &amp; evaluation accounts</p>
+          <p className="eyebrow rise-in">For all traders and trading accounts</p>
 
           <h1 className="type-h1 rise-in mt-7" style={{ animationDelay: "60ms" }}>
             {/* Explicit {" "} — JSX trims each text line, so a space sitting at
                 the start of a wrapped line after </em> is silently dropped. */}
-            Discipline,{" "}
-            <em className="text-gradient-gold not-italic">enforced</em>{" "}
-            before it&apos;s broken.
+            No more{" "}
+            <em className="text-gradient-gold not-italic">Emotional Trading</em>{" "}
+            or trades out of the plan.
           </h1>
 
           <p
