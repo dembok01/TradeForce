@@ -45,3 +45,6 @@ supabase/.temp/
 
 # Superpowers plan workspace (scratch: ledger, briefs, review packages)
 .superpowers/
+
+# Playwright MCP screenshot/snapshot output
+.playwright-mcp/

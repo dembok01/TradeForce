@@ -55,9 +55,14 @@ export function RunsOn() {
             </ul>
           </div>
 
-          <p className="max-w-3xl border-t border-border/60 pt-6 text-xs leading-relaxed text-muted-foreground">
-            {RUNS_ON_DISCLAIMER}
-          </p>
+          {/* The rule spans the card; the text keeps a readable measure. Putting
+              max-w on the <p> that carries border-t made the rule stop short of
+              the card edge, which reads as an unfinished element. */}
+          <div className="border-t border-border/60 pt-6">
+            <p className="max-w-3xl text-xs leading-relaxed text-muted-foreground">
+              {RUNS_ON_DISCLAIMER}
+            </p>
+          </div>
         </div>
       </Reveal>
     </Section>
