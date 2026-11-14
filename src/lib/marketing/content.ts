@@ -20,6 +20,7 @@ export type Stat = { value: string; label: string };
 export type Step = { n: string; title: string; body: string };
 export type Faq = { n: string; question: string; answer: string };
 export type ComparisonRow = { them: string; us: string };
+export type MobileRoute = { id: "cloud" | "own"; title: string; badge: string; body: string };
 
 /** Needs real quotes with real attribution. See the spec's "Open" section. */
 export const TESTIMONIALS: Testimonial[] = [];
@@ -30,11 +31,40 @@ export const POSTS: Post[] = [];
 /** Needs real figures — accounts protected, violations blocked. */
 export const STAT_STRIP: Stat[] = [];
 
+/**
+ * Where the terminal lives, which is the whole difference between the two
+ * routes and the reason the mobile claim is true at all.
+ *
+ * The split is enforced in code, not merely described here: `enableCloudEaAction`
+ * refuses a hosted terminal for an address catalogued as a funded-account
+ * provider (FUNDED-ACCOUNTS.md §5.1 — every firm checked requires the named
+ * account holder to place the trades, and hosting means we hold the password).
+ *
+ * The asymmetry in this copy is deliberate and guarded by tests. Only the
+ * hosted route survives a closed laptop; only the trader's own terminal can
+ * send a phone alert, because `Push()` in the EA returns early under
+ * `CloudMode` — a pool terminal has no MetaQuotes ID to send to.
+ */
+export const MOBILE_ROUTES: MobileRoute[] = [
+  {
+    id: "cloud",
+    title: "Broker account",
+    badge: "Nothing to install",
+    body: "Hand the dashboard your MetaTrader 5 login and we start a terminal for that account in our own cloud. Your charter is enforced on the account itself, so it holds while you place orders from the MetaTrader app on your phone — and it keeps holding with your own machine shut down. Every breach lands in your dashboard with the trade that caused it.",
+  },
+  {
+    id: "own",
+    title: "Funded or evaluation account",
+    badge: "You run the EA",
+    body: "Every firm we have checked requires the named account holder to place the trades, so a hosted terminal is off the table. You download the EA from your dashboard and attach it to your own MetaTrader 5 instead — same charter, same rules — and a breach arrives as a MetaTrader push notification on the phone you already trade on. It holds the line while that terminal is running.",
+  },
+];
+
 export const STEPS: Step[] = [
   {
     n: "01",
-    title: "Connect your terminal",
-    body: "Install the TradeForce Expert Advisor in MetaTrader 5 and authorise it with an API key from your dashboard. It reports trades, violations and equity back as it runs.",
+    title: "Connect your account",
+    body: "Hand the dashboard your MetaTrader 5 login and we run the terminal for you, or install the Expert Advisor in your own MetaTrader and authorise it with an API key. Either way it reports trades, violations and equity back as it runs.",
   },
   {
     n: "02",
@@ -82,7 +112,7 @@ export const FAQS: Faq[] = [
     n: "02",
     question: "What do I need to run it?",
     answer:
-      "MetaTrader 5, on a machine you control. You install the TradeForce Expert Advisor in your own terminal and authorise it with an API key issued from the dashboard. Because it runs in your terminal, it protects you while that terminal is open — not from a phone or a second machine.",
+      "A MetaTrader 5 account, and a decision about where the terminal lives. On a broker account you can hand us the login and we run the terminal in our own cloud — nothing to install, nothing to leave switched on, and your rules hold whichever device you trade from. On a funded or evaluation account the terminal has to be your own: you install the Expert Advisor in your MetaTrader 5, authorise it with an API key from the dashboard, and it protects you while that terminal is open.",
   },
   {
     n: "03",

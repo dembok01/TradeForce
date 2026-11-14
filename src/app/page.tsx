@@ -1,5 +1,6 @@
 import { Nav } from "@/components/marketing/nav";
 import { Hero } from "@/components/marketing/hero";
+import { MobileSpotlight } from "@/components/marketing/mobile-spotlight";
 import { HowItWorks } from "@/components/marketing/how-it-works";
 import { Bento } from "@/components/marketing/bento";
 import { StatStrip } from "@/components/marketing/stat-strip";
@@ -40,6 +41,7 @@ export default function Home() {
         <Nav />
         <main className="flex-1">
           <Hero />
+          <MobileSpotlight />
           <HowItWorks />
           <Bento />
           <StatStrip />

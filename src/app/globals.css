@@ -315,6 +315,45 @@ body {
   animation: breathe 4s ease-in-out infinite;
 }
 
+/* The mobile spotlight's push-alert loop: two banners dropping onto a phone
+   screen in turn. CSS keyframes rather than motion, for three reasons — the
+   section needs no client JS at all, the reduced-motion block below neutralises
+   it for free, and with fill-mode left at the default `none` each banner then
+   settles into its own stylesheet state (fully visible, untransformed) instead
+   of being stranded at the 0% keyframe's opacity 0.
+
+   The banners sit in normal flow inside a flex column, not stacked on top of
+   each other, so the reduced-motion rendering is two legible notifications
+   rather than one on top of the other.
+
+   The second banner's delay is NEGATIVE on purpose: it starts already mid-cycle
+   instead of waiting. A positive 4.5s delay would show it at its base state —
+   visible — for the whole delay before the first run, and the reduced-motion
+   block does not zero `animation-delay`, so it would sit out that delay there
+   too. */
+@keyframes push-alert {
+  0% {
+    opacity: 0;
+    transform: translateY(-140%) scale(0.96);
+  }
+  7%,
+  44% {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+  52%,
+  100% {
+    opacity: 0;
+    transform: translateY(-140%) scale(0.96);
+  }
+}
+.push-alert {
+  animation: push-alert 9s cubic-bezier(0.16, 1, 0.3, 1) infinite;
+}
+.push-alert-late {
+  animation-delay: -4.5s;
+}
+
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after {
     animation-duration: 0.01ms !important;

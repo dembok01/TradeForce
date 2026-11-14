@@ -1,5 +1,13 @@
 import { describe, expect, it } from "vitest";
-import { COMPARISON, FAQS, POSTS, STAT_STRIP, STEPS, TESTIMONIALS } from "./content";
+import {
+  COMPARISON,
+  FAQS,
+  MOBILE_ROUTES,
+  POSTS,
+  STAT_STRIP,
+  STEPS,
+  TESTIMONIALS,
+} from "./content";
 
 // Guards the spec's anti-goal: no fabricated proof on a live commercial
 // product. The reference template fills these sections with invented customers
@@ -65,5 +73,54 @@ describe("steps and comparison", () => {
       expect(row.them.trim()).not.toBe("");
       expect(row.us.trim()).not.toBe("");
     }
+  });
+});
+
+// The mobile spotlight makes the page's boldest claim, so its copy is the copy
+// most able to overstate. Three repo facts bound it, and each gets a guard:
+//
+//  1. `ea/TradeForce.mq5` Push(): `if (CloudMode) return;` — a hosted terminal
+//     has no MetaQuotes ID and the trader has no way to set one, so the cloud
+//     route can never send a phone alert. Only the EA on the trader's own
+//     MetaTrader does.
+//  2. FUNDED-ACCOUNTS.md §5.2: the trader's own terminal protects them "only
+//     while their PC is on and MetaTrader is open". Computer-off protection is
+//     the hosted route's property and must not be borrowed by the other.
+//  3. FUNDED-ACCOUNTS.md §7.1: MQL5 gives an EA no pre-broker veto on a manual
+//     order — settled, and not to be re-litigated in marketing copy. Neither
+//     route prevents a trade; both correct one.
+describe("mobile route copy", () => {
+  it("describes exactly the two routes the product has", () => {
+    expect(MOBILE_ROUTES.map((r) => r.id)).toEqual(["cloud", "own"]);
+    for (const route of MOBILE_ROUTES) {
+      expect(route.title.trim()).not.toBe("");
+      expect(route.badge.trim()).not.toBe("");
+      expect(route.body.trim()).not.toBe("");
+    }
+  });
+
+  it("promises no phone alert on the hosted route", () => {
+    const cloud = MOBILE_ROUTES.find((r) => r.id === "cloud");
+    expect(`${cloud?.title} ${cloud?.badge} ${cloud?.body}`).not.toMatch(
+      /push|notif|alert/i
+    );
+  });
+
+  it("promises no computer-off protection on the trader's own terminal", () => {
+    const own = MOBILE_ROUTES.find((r) => r.id === "own");
+    expect(`${own?.title} ${own?.badge} ${own?.body}`).not.toMatch(
+      /computer (is )?(off|shut|closed)|switched off|laptop (shut|closed)|while you sleep|24\s*\/?\s*7/i
+    );
+  });
+
+  it("claims correction, never prevention, of an order already placed", () => {
+    for (const route of MOBILE_ROUTES) {
+      expect(route.body).not.toMatch(/\b(prevents?|vetoe?s?|refuses?)\b|before it reaches/i);
+    }
+  });
+
+  it.each(UNSUPPORTED_CLAIMS)("makes no %s claim", (_label, pattern) => {
+    const offenders = MOBILE_ROUTES.filter((r) => pattern.test(r.body)).map((r) => r.id);
+    expect(offenders).toEqual([]);
   });
 });
