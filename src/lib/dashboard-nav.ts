@@ -6,6 +6,7 @@ import {
   BookText,
   Settings,
   Cable,
+  CreditCard,
   type LucideIcon,
 } from "lucide-react";
 
@@ -19,4 +20,5 @@ export const DASHBOARD_NAV_ITEMS: NavItem[] = [
   { href: "/dashboard/journal", label: "Journal & Analytics", icon: BookText },
   { href: "/dashboard/ea-setup", label: "EA Setup", icon: Cable },
   { href: "/dashboard/settings", label: "Rule Settings", icon: Settings },
+  { href: "/dashboard/billing", label: "Billing", icon: CreditCard },
 ];

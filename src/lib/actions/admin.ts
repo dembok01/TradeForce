@@ -14,6 +14,8 @@ import {
   normaliseDomain,
 } from "@/lib/mt5-brokers";
 import { reachable } from "@/lib/mt5-reachable";
+import { extendedExpiry } from "@/lib/billing/entitlement";
+import { PAID_PLAN } from "@/lib/billing/plans";
 
 export type AdminActionResult = { ok?: true; pending?: string; error?: string };
 
@@ -370,4 +372,101 @@ export async function adminFindBrokerServersAction(domain: string): Promise<Admi
       `${toCheck.length}. Each takes a couple of minutes on a pool box, and the answers appear ` +
       "under Recent checks.",
   };
+}
+
+/**
+ * Approve or reject a UPI payment a trader says they made.
+ *
+ * This is the whole verification step the missing gateway would have done, and
+ * it is the one place in the product where a click grants paid access. Two
+ * things therefore matter more than brevity:
+ *
+ * 1. The payment row is claimed FIRST, as a compare-and-set on its status. Two
+ *    operators clicking Approve on the same claim would otherwise both reach
+ *    the grant and extend the trader's plan twice.
+ * 2. If the grant then fails, the decision is rolled back so the claim returns
+ *    to the queue. An "approved" payment that granted nothing is invisible,
+ *    and the trader has paid.
+ */
+export async function adminDecidePaymentAction(
+  paymentId: string,
+  decision: "approve" | "reject",
+  note?: string | null
+): Promise<AdminActionResult> {
+  const g = await guard();
+  if ("error" in g) return g;
+
+  const parsed = z.enum(["approve", "reject"]).safeParse(decision);
+  if (!parsed.success) return { error: "Unknown decision." };
+
+  const user = await getAuthedUser();
+  const supabase = createServiceClient();
+  const now = new Date();
+  const reason = (note ?? "").trim() || null;
+
+  if (decision === "reject" && !reason) {
+    return { error: "Say why, so the trader is told something more useful than \u201cno\u201d." };
+  }
+
+  const { data: claim, error } = await supabase
+    .from("payments")
+    .update({
+      status: decision === "approve" ? "approved" : "rejected",
+      note: reason,
+      decided_at: now.toISOString(),
+      decided_by: user?.email ?? g.adminId,
+    })
+    .eq("id", paymentId)
+    // awaiting_payment is allowed: sometimes the credit shows up in GPay before
+    // the trader gets round to submitting the transaction ID, and refusing to
+    // act on money we can already see would be absurd.
+    .in("status", ["claimed", "awaiting_payment"])
+    .select("user_id, months, reference")
+    .maybeSingle();
+
+  if (error) {
+    log.error("payment decision failed", { detail: error.message, paymentId });
+    return { error: "Could not record that decision." };
+  }
+  if (!claim) return { error: "That payment has already been decided." };
+
+  if (decision === "approve") {
+    const { data: profile } = await supabase
+      .from("profiles")
+      .select("plan_expires_at")
+      .eq("id", claim.user_id)
+      .maybeSingle();
+
+    const current = profile?.plan_expires_at ? new Date(profile.plan_expires_at) : null;
+    const expiry = extendedExpiry(current, claim.months, now);
+
+    const { error: grantError } = await supabase
+      .from("profiles")
+      .update({ plan: PAID_PLAN, plan_expires_at: expiry.toISOString() })
+      .eq("id", claim.user_id);
+
+    if (grantError) {
+      log.error("plan grant failed, rolling the decision back", {
+        detail: grantError.message,
+        paymentId,
+      });
+      await supabase
+        .from("payments")
+        .update({ status: "claimed", decided_at: null, decided_by: null })
+        .eq("id", paymentId);
+      return { error: "Couldn't extend their plan — the payment is back in the queue. Try again." };
+    }
+
+    log.info("payment approved", {
+      detail: `ref=${claim.reference} user=${claim.user_id} months=${claim.months} until=${expiry.toISOString()} by=${user?.email ?? g.adminId}`,
+    });
+  } else {
+    log.warn("payment rejected", {
+      detail: `ref=${claim.reference} user=${claim.user_id} by=${user?.email ?? g.adminId} reason=${reason}`,
+    });
+  }
+
+  revalidatePath("/admin/payments");
+  revalidatePath("/dashboard/billing");
+  return { ok: true };
 }

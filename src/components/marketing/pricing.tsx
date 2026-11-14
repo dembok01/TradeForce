@@ -6,10 +6,16 @@ import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 
 /**
- * No monthly/yearly toggle. The reference has one, but there is no yearly price
- * and no Stripe — both CTAs link to /signup — so a toggle implying an annual
- * discount would be an invented commercial term. Dropped on the client's call
- * and recorded as a deliberate deviation in the spec.
+ * No monthly/yearly toggle. The reference has one; the period chooser lives on
+ * the billing page instead, where it can show the rupee amounts that are
+ * actually charged (₹1,249 / ₹3,399 / ₹11,999). A toggle here would have to
+ * restate them in dollars and the two would drift.
+ *
+ * Prices are in dollars because the brand is, and charged in rupees because
+ * UPI is: see lib/billing/plans.ts, which holds both so they cannot disagree.
+ *
+ * The paid tier's list is what the plan is FOR, not what is currently withheld
+ * from the free tier — nothing is gated yet. See the payments design doc.
  */
 const PLANS = [
   {
@@ -29,12 +35,12 @@ const PLANS = [
   },
   {
     name: "Funded",
-    price: "$29",
+    price: "$13",
     period: "/month",
     description: "For evaluation and funded accounts where a breach costs a payout.",
     features: [
-      "Up to 5 trading accounts",
-      "All rule enforcement provisions",
+      "Everything in Discipline",
+      "Hosted cloud terminal — enforced with your computer off",
       "Full violation centre & history",
       "Discipline score & analytics",
       "EA API key issuance",
@@ -51,7 +57,7 @@ export function Pricing() {
       id="pricing"
       eyebrow="Pricing"
       title="One rule set. Two ways to run it."
-      description="Card payments are not connected yet, so both buttons take you to sign-up and nothing is charged today."
+      description="Paid by UPI from your dashboard — ₹1,249 a month, less on a longer period. Cards are coming; until then each payment is confirmed by a human before your plan starts."
     >
       <div className="grid gap-4 md:grid-cols-2">
         {PLANS.map((plan, i) => (

@@ -37,6 +37,8 @@ export interface Database {
           tour_completed_at: string | null;
           experience_level: string | null;
           connection_route: string | null;
+          plan: string | null;
+          plan_expires_at: string | null;
           markets_traded: string[] | null;
           prop_firm: string | null;
           created_at: string;
@@ -342,6 +344,31 @@ export interface Database {
           message: string;
         };
         Update: Partial<Database["public"]["Tables"]["connection_events"]["Row"]>;
+        Relationships: [];
+      };
+      payments: {
+        Row: {
+          id: string;
+          user_id: string;
+          reference: string;
+          months: number;
+          amount_inr: number;
+          status: "awaiting_payment" | "claimed" | "approved" | "rejected";
+          utr: string | null;
+          proof_path: string | null;
+          note: string | null;
+          claimed_at: string | null;
+          decided_at: string | null;
+          decided_by: string | null;
+          created_at: string;
+        };
+        Insert: Partial<Database["public"]["Tables"]["payments"]["Row"]> & {
+          user_id: string;
+          reference: string;
+          months: number;
+          amount_inr: number;
+        };
+        Update: Partial<Database["public"]["Tables"]["payments"]["Row"]>;
         Relationships: [];
       };
       contact_messages: {

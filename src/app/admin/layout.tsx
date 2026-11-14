@@ -11,6 +11,7 @@ const NAV = [
   ["/admin/users", "Users"],
   ["/admin/trades", "Trades"],
   ["/admin/inbox", "Inbox"],
+  ["/admin/payments", "Payments"],
   ["/admin/instances", "EAs"],
   ["/admin/servers", "Servers"],
   ["/admin/brokers", "Brokers"],
