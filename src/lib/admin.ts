@@ -22,3 +22,22 @@ export async function isAdmin(): Promise<boolean> {
   if (!email) return false;
   return adminEmails().includes(email);
 }
+
+/**
+ * Throws unless the caller is an operator. Belongs next to a service-role read,
+ * not only in the /admin layout.
+ *
+ * A layout is not a barrier its page waits behind: React Server Components
+ * render a layout and its children concurrently, so a page's data fetching can
+ * already be in flight while the layout is still deciding. Everywhere else in
+ * this app authorization is RLS on a session-scoped client, which no mistake in
+ * a guard can bypass. The ops console reads with the service role and therefore
+ * has no such floor underneath it. This is that floor.
+ *
+ * It throws rather than calling notFound() so it stays usable from a data
+ * module with no opinion about routing; the layout is what renders a 404 for a
+ * signed-in customer who guessed the URL.
+ */
+export async function assertAdmin(): Promise<void> {
+  if (!(await isAdmin())) throw new Error("Forbidden: operator access required.");
+}

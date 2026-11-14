@@ -9,6 +9,7 @@ export const dynamic = "force-dynamic";
 const NAV = [
   ["/admin", "Overview"],
   ["/admin/users", "Users"],
+  ["/admin/trades", "Trades"],
   ["/admin/inbox", "Inbox"],
   ["/admin/instances", "EAs"],
   ["/admin/servers", "Servers"],
@@ -34,7 +35,7 @@ export default async function AdminLayout({ children }: { children: React.ReactN
 
   return (
     <div className="min-h-screen bg-background">
-      <header className="border-b">
+      <header className="border-b print:hidden">
         <div className="mx-auto flex max-w-7xl flex-wrap items-center gap-x-6 gap-y-2 px-4 py-3 md:px-8">
           <span className="text-sm font-semibold">TradeForce ops</span>
           <nav className="flex gap-4 text-sm">
@@ -47,7 +48,7 @@ export default async function AdminLayout({ children }: { children: React.ReactN
           <span className="ml-auto text-xs text-muted-foreground">{user.email}</span>
         </div>
       </header>
-      <main className="mx-auto max-w-7xl p-4 md:p-8">{children}</main>
+      <main className="mx-auto max-w-7xl p-4 md:p-8 print:max-w-none print:p-0">{children}</main>
     </div>
   );
 }
