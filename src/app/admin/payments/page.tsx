@@ -122,7 +122,12 @@ export default async function AdminPaymentsPage() {
                 )}
               </td>
               <td className="px-4 py-2 align-top">
-                <PaymentDecision id={p.id} reference={p.reference} />
+                <PaymentDecision
+                  id={p.id}
+                  reference={p.reference}
+                  months={p.months}
+                  amountInr={Number(p.amount_inr)}
+                />
               </td>
             </tr>
           ))}
@@ -153,7 +158,12 @@ export default async function AdminPaymentsPage() {
               <td className="px-4 py-2 align-top text-xs text-muted-foreground">not submitted</td>
               <td className="px-4 py-2 align-top text-xs text-muted-foreground">—</td>
               <td className="px-4 py-2 align-top">
-                <PaymentDecision id={p.id} reference={p.reference} />
+                <PaymentDecision
+                  id={p.id}
+                  reference={p.reference}
+                  months={p.months}
+                  amountInr={Number(p.amount_inr)}
+                />
               </td>
             </tr>
           ))}

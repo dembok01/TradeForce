@@ -15,7 +15,7 @@ import {
 } from "@/lib/mt5-brokers";
 import { reachable } from "@/lib/mt5-reachable";
 import { extendedExpiry } from "@/lib/billing/entitlement";
-import { PAID_PLAN } from "@/lib/billing/plans";
+import { PAID_PLAN, formatInr } from "@/lib/billing/plans";
 
 export type AdminActionResult = { ok?: true; pending?: string; error?: string };
 
@@ -391,6 +391,10 @@ export async function adminFindBrokerServersAction(domain: string): Promise<Admi
 export async function adminDecidePaymentAction(
   paymentId: string,
   decision: "approve" | "reject",
+  // What the operator had in front of them when they clicked. A trader can
+  // still repoint an awaiting_payment row to a different period, so without
+  // this the operator could verify ₹1,249 in GPay and grant twelve months.
+  expected: { months: number; amountInr: number },
   note?: string | null
 ): Promise<AdminActionResult> {
   const g = await guard();
@@ -417,6 +421,10 @@ export async function adminDecidePaymentAction(
       decided_by: user?.email ?? g.adminId,
     })
     .eq("id", paymentId)
+    // The period and price the operator checked against GPay, not whatever the
+    // row says by the time the click lands.
+    .eq("months", expected.months)
+    .eq("amount_inr", expected.amountInr)
     // awaiting_payment is allowed: sometimes the credit shows up in GPay before
     // the trader gets round to submitting the transaction ID, and refusing to
     // act on money we can already see would be absurd.
@@ -428,7 +436,26 @@ export async function adminDecidePaymentAction(
     log.error("payment decision failed", { detail: error.message, paymentId });
     return { error: "Could not record that decision." };
   }
-  if (!claim) return { error: "That payment has already been decided." };
+  if (!claim) {
+    // Either it was decided already, or it moved under the operator. Those
+    // need different words: one is a shrug, the other means look again.
+    const { data: current } = await supabase
+      .from("payments")
+      .select("status, months, amount_inr")
+      .eq("id", paymentId)
+      .maybeSingle();
+
+    if (!current) return { error: "That payment no longer exists." };
+    if (current.status === "approved" || current.status === "rejected") {
+      return { error: "That payment has already been decided." };
+    }
+    return {
+      error:
+        `That payment changed while it was on your screen — it now reads ` +
+        `${current.months} month${current.months === 1 ? "" : "s"} at ` +
+        `${formatInr(Number(current.amount_inr))}. Reload and check it against GPay again.`,
+    };
+  }
 
   if (decision === "approve") {
     const { data: profile } = await supabase

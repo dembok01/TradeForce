@@ -217,6 +217,21 @@ export async function claimPaymentAction(
       .eq("status", "awaiting_payment");
 
     if (error) {
+      // payments_utr_live_idx: this transaction ID is already on a payment we
+      // are checking or have already honoured. Usually a copy-paste slip;
+      // occasionally someone trying to buy two plans with one payment. Either
+      // way the operator should know it happened.
+      if (error.code === "23505") {
+        log.warn("duplicate UPI transaction ID", {
+          detail: `utr=${utr} ref=${open.reference} user=${user.id}`,
+        });
+        return {
+          error:
+            "That transaction ID is already recorded against another payment. Check you've " +
+            "copied the right one from your receipt — if you're sure it's correct, get in " +
+            "touch and we'll sort it out.",
+        };
+      }
       log.error("claim payment failed", { detail: error.message, userId: user.id });
       return { error: "Couldn't record that. Try again in a moment." };
     }

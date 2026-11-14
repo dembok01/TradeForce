@@ -13,7 +13,18 @@ import { adminDecidePaymentAction } from "@/lib/actions/admin";
  * sentence is a support ticket waiting to happen — and a native dialog blocks
  * the page while someone types one.
  */
-export function PaymentDecision({ id, reference }: { id: string; reference: string }) {
+export function PaymentDecision({
+  id,
+  reference,
+  months,
+  amountInr,
+}: {
+  id: string;
+  reference: string;
+  /** Carried back to the server so the decision applies to the row as shown. */
+  months: number;
+  amountInr: number;
+}) {
   const router = useRouter();
   const [pending, startTransition] = useTransition();
   const [rejecting, setRejecting] = useState(false);
@@ -21,7 +32,7 @@ export function PaymentDecision({ id, reference }: { id: string; reference: stri
 
   function decide(decision: "approve" | "reject", note?: string) {
     startTransition(async () => {
-      const r = await adminDecidePaymentAction(id, decision, note);
+      const r = await adminDecidePaymentAction(id, decision, { months, amountInr }, note);
       if (r.error) toast.error(r.error);
       else toast.success(decision === "approve" ? `${reference} approved` : `${reference} rejected`);
       setRejecting(false);
