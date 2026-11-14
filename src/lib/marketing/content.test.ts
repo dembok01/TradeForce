@@ -4,6 +4,9 @@ import {
   FAQS,
   MOBILE_ROUTES,
   POSTS,
+  RUNS_ON,
+  RUNS_ON_DISCLAIMER,
+  RUNS_ON_LEAD,
   STAT_STRIP,
   STEPS,
   TESTIMONIALS,
@@ -122,5 +125,51 @@ describe("mobile route copy", () => {
   it.each(UNSUPPORTED_CLAIMS)("makes no %s claim", (_label, pattern) => {
     const offenders = MOBILE_ROUTES.filter((r) => pattern.test(r.body)).map((r) => r.id);
     expect(offenders).toEqual([]);
+  });
+});
+
+// Naming a prop firm on a landing page is the page's highest-risk copy: it is
+// the one place a reader could reasonably infer a commercial relationship that
+// does not exist. FUNDED-ACCOUNTS.md §6 lists the three clauses that decide
+// whether a funded account can use this at all - third-party access, VPS and
+// hosting, accounts per IP - and says they must be answered "before the service
+// is marketed for funded accounts". None has a written ruling yet. So the strip
+// may state what the EA runs on and who issues MetaTrader 5 accounts, and must
+// not imply endorsement.
+describe("runs-on strip", () => {
+  const ENDORSEMENT = /partner|endorsed by|approved by|certified by|official|authoris|authoriz|verified|accredited|trusted by/i;
+
+  it("names one platform, and it is the one the EA is written for", () => {
+    const platforms = RUNS_ON.filter((m) => m.kind === "platform");
+    expect(platforms.map((m) => m.name)).toEqual(["MetaTrader 5"]);
+  });
+
+  it("names at least one firm, each with a real name", () => {
+    const firms = RUNS_ON.filter((m) => m.kind === "firm");
+    expect(firms.length).toBeGreaterThan(0);
+    for (const firm of firms) expect(firm.name.trim()).not.toBe("");
+  });
+
+  it("claims no endorsement in the headline copy or the marks", () => {
+    // The disclaimer is exempt: it is the one place these words belong, as a
+    // denial. Everything a reader skims must be clean of them.
+    const skimmed = [RUNS_ON_LEAD, ...RUNS_ON.map((m) => m.name)].join(" ");
+    expect(skimmed).not.toMatch(ENDORSEMENT);
+  });
+
+  it("says plainly that there is no affiliation and no endorsement", () => {
+    expect(RUNS_ON_DISCLAIMER).toMatch(/not affiliated/i);
+    expect(RUNS_ON_DISCLAIMER).toMatch(/not endorsed/i);
+  });
+
+  it("sends the reader to their own firm's rules", () => {
+    expect(RUNS_ON_DISCLAIMER).toMatch(/read yours|your (own )?firm|check yours/i);
+    expect(RUNS_ON_DISCLAIMER).toMatch(/in writing/i);
+  });
+
+  it.each(UNSUPPORTED_CLAIMS)("makes no %s claim", (_label, pattern) => {
+    for (const copy of [RUNS_ON_LEAD, RUNS_ON_DISCLAIMER]) {
+      expect(copy).not.toMatch(pattern);
+    }
   });
 });

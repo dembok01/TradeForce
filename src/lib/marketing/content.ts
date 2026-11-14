@@ -21,6 +21,7 @@ export type Step = { n: string; title: string; body: string };
 export type Faq = { n: string; question: string; answer: string };
 export type ComparisonRow = { them: string; us: string };
 export type MobileRoute = { id: "cloud" | "own"; title: string; badge: string; body: string };
+export type RunsOnMark = { name: string; kind: "platform" | "firm" };
 
 /** Needs real quotes with real attribution. See the spec's "Open" section. */
 export const TESTIMONIALS: Testimonial[] = [];
@@ -139,3 +140,43 @@ export const FAQS: Faq[] = [
       "There is a free tier covering one account with the full rule set, and a paid tier at $13 a month for evaluation and funded accounts where a breach costs a payout. It is charged in rupees by UPI: ₹1,249 for a month, ₹3,399 for three, ₹11,999 for a year. Your dashboard shows a QR with the amount and a reference already in it, you pay from Google Pay or any UPI app, and we match it against the account before your plan starts. Card payments are not connected yet.",
   },
 ];
+
+/**
+ * What the EA actually runs on, and which firms issue accounts it attaches to.
+ *
+ * Deliberately a platform claim, not a partnership claim. No firm has given
+ * TradeForce a written ruling (see the open items in FUNDED-ACCOUNTS.md §6),
+ * and three of the clauses that decide the matter - third-party access, VPS
+ * and hosting, multiple accounts per IP - are per-firm contract questions that
+ * §6 says must be answered "before the service is marketed for funded
+ * accounts". So this names the firms as issuers of MetaTrader 5 accounts, which
+ * is a fact about them, and says nothing about their endorsement, which is not.
+ *
+ * What makes it true is §5.2: the trader attaches the EA to their own
+ * MetaTrader, which is "almost always within the firm's rules if EAs are
+ * allowed" because it involves no credential sharing, no third-party hosting
+ * and no shared IP.
+ *
+ * Rendered as wordmarks in our own typeface rather than the firms' logo files:
+ * a logo carries an implication of endorsement that a name in running text
+ * does not, and we hold no licence to redistribute their marks.
+ *
+ * Checked 15 Nov 2026 - each firm's own rulebook is the authority and each has
+ * a clause worth knowing: Funding Pips permits a third-party EA only as a trade
+ * or risk-management tool (which is what this is), FTMO caps allocated capital
+ * per strategy across traders, and The 5%ers asks that the trader own the EA's
+ * source. None of that is settled in our favour, which is exactly why the
+ * disclaimer below sends people to their own firm.
+ */
+export const RUNS_ON: RunsOnMark[] = [
+  { name: "MetaTrader 5", kind: "platform" },
+  { name: "FTMO", kind: "firm" },
+  { name: "Funding Pips", kind: "firm" },
+  { name: "The 5%ers", kind: "firm" },
+];
+
+export const RUNS_ON_LEAD =
+  "TradeForce is an Expert Advisor. You attach it to the MetaTrader 5 terminal your broker or prop firm already gave you, and your charter is enforced on the account itself.";
+
+export const RUNS_ON_DISCLAIMER =
+  "These firms are named because they issue MetaTrader 5 accounts the EA attaches to. TradeForce is not affiliated with them and is not endorsed or certified by them. Each one sets its own rules on Expert Advisors, third-party access and VPS use \u2014 read yours before you attach anything, and keep the answer in writing.";
