@@ -67,17 +67,35 @@ export async function signUpAction(
 
     // With email confirmation ON, signUp on an address that already exists
     // succeeds with an obfuscated user rather than erroring, so that the form
-    // cannot be used to enumerate customers. Writing the profile in that case
-    // would let a stranger overwrite the real account holder's name and phone
-    // number. An empty `identities` array is how that case is identified; a
-    // live session means this really is a new account.
+    // cannot be used to enumerate customers. With it OFF — the current project
+    // setting — the same attempt is a 422 and we returned above. So this code
+    // is only reachable for an existing account if that dashboard toggle is
+    // flipped, which is not something this repo can see or hold still.
+    //
+    // An empty `identities` array is how the obfuscated case is identified,
+    // and a live session means this really is a new account. Both are kept,
+    // but neither is load-bearing: see the `.is()` below.
     const isNewAccount = Boolean(data.session) || (data.user?.identities?.length ?? 0) > 0;
 
     if (data.user && isNewAccount) {
       // Service role, not their own client: handle_new_user() creates the row
       // with id and email only, and the profiles guard refuses owner writes to
       // the terms columns precisely so that this record is ours, not theirs.
-      const { error: profileError } = await createServiceClient()
+      //
+      // `.is("terms_accepted_at", null)` is what actually makes this safe, and
+      // it is here rather than in the condition above on purpose. The service
+      // role bypasses the profiles guard, so this is the one write in the app
+      // that could overwrite somebody's acceptance record — and the record is
+      // only worth keeping if nothing can reset it. Conditioning the UPDATE on
+      // the row never having recorded an acceptance means it can only ever
+      // land on a freshly inserted profile, whatever GoTrue chose to return
+      // and whichever way the confirmation toggle is set.
+      //
+      // Deliberately NOT done by passing these through signUp's options.data
+      // for handle_new_user() to copy: user metadata is supplied by whoever
+      // posted the form, and the moment the acceptance timestamp comes from
+      // there it stops being our evidence and becomes their claim.
+      const { data: written, error: profileError } = await createServiceClient()
         .from("profiles")
         .update({
           full_name: fullName,
@@ -85,7 +103,9 @@ export async function signUpAction(
           terms_accepted_at: new Date().toISOString(),
           terms_version: TERMS_VERSION,
         })
-        .eq("id", data.user.id);
+        .eq("id", data.user.id)
+        .is("terms_accepted_at", null)
+        .select("id");
 
       // Not fatal. The account exists and they can sign in; losing the name
       // and phone number is a support inconvenience, while refusing the signup
@@ -93,6 +113,14 @@ export async function signUpAction(
       if (profileError) {
         log.error("signup profile details write failed", {
           detail: profileError.message,
+          userId: data.user.id,
+        });
+      } else if (!written?.length) {
+        // No row matched: this address already had an acceptance on file. A
+        // re-submitted signup for an unconfirmed account reaches here
+        // legitimately; so would an attempt to overwrite someone else's
+        // details. Either way nothing was changed, and we want to know.
+        log.warn("signup details not written: profile already has an acceptance on file", {
           userId: data.user.id,
         });
       }
