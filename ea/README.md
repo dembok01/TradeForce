@@ -74,7 +74,7 @@ whenever `TradeForce.mq5` changes.
 
 1. **Whitelist the server**: MT5 → **Tools → Options → Expert Advisors** →
    tick *Allow WebRequest for listed URL* and add the exact server origin, e.g.
-   `https://trade-force-rouge.vercel.app`. Without this every request fails with
+   `https://www.tradeforce.in`. Without this every request fails with
    error 4014 (the EA prints a hint in the Journal when it detects this).
 2. **Get an API key**: in the web app, **Rule Settings → EA access keys →
    Generate**. The `tf_live_…` key is shown once — copy it immediately.
@@ -84,7 +84,7 @@ whenever `TradeForce.mq5` changes.
 
    | Input | Value |
    |---|---|
-   | `ServerUrl` | `https://trade-force-rouge.vercel.app` (no trailing slash) |
+   | `ServerUrl` | `https://www.tradeforce.in` (no trailing slash) |
    | `ApiKey` | the `tf_live_…` key |
    | `PingSeconds` | 5 (config-version check; rule changes apply within ~this) |
    | `FullSyncSeconds` | 60 (full config re-fetch) |

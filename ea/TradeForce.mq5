@@ -4,19 +4,24 @@
 //|        enforces the charter in the terminal, reports everything. |
 //+------------------------------------------------------------------+
 #property copyright "TradeForce"
-#property link      "https://trade-force-rouge.vercel.app"
+#property link      "https://www.tradeforce.in"
 // Keep in step with EA_VERSION below: this is what MetaTrader shows in the
 // Navigator and the EA properties dialog, EA_VERSION is what gets reported to
 // the dashboard. They drifted five releases apart, so a trader read 1.26 in
 // their terminal while support saw 1.31 in the database.
-#property version   "1.32"
+#property version   "1.33"
 #property description "Enforces your TradeForce charter: daily loss limit, max trades/day, max open positions, risk per trade, session windows. Blocked states are announced on the chart before you trade; violating pending orders are deleted free; missing or oversized stop-losses are repaired in place; anything else is closed immediately and reported."
 
 #include <Trade/Trade.mqh>
 #include <JAson.mqh>
 
 //--- inputs ---------------------------------------------------------
-input string ServerUrl            = "https://trade-force-rouge.vercel.app"; // TradeForce server (no trailing slash)
+// www, not the apex. tradeforce.in answers 308 -> www.tradeforce.in, and
+// MQL5's WebRequest reports a redirect's status instead of following it, so
+// the apex makes every call fail with no explanation. The old default was a
+// vercel.app alias: it still answers, but an alias can be detached at any
+// time, and every EA already installed would stop enforcing the moment it was.
+input string ServerUrl            = "https://www.tradeforce.in"; // TradeForce server (no trailing slash)
 input string ApiKey               = "";   // EA key from Rule Settings (tf_live_...)
 input int    SyncSeconds          = 60;   // one call: config check + equity report
 input int    SessionWarnSeconds   = 300;  // chart countdown before the session closes
@@ -96,7 +101,7 @@ datetime g_realizedTodayCacheAt = 0;
 
 // Failed POSTs are retried on later timer ticks (lost on EA restart - the
 // server is the durable record, this just smooths transient network drops).
-#define EA_VERSION  "1.32"
+#define EA_VERSION  "1.33"
 #define PENDING_MAX 64
 string g_pendingPath[PENDING_MAX];
 string g_pendingBody[PENDING_MAX];
