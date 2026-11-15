@@ -24,8 +24,8 @@ export function ClosingCta() {
             <div className="relative z-10 mx-auto max-w-2xl text-center">
               <h2 className="type-h2">The next breach is the one that costs you.</h2>
               <p className="mx-auto mt-6 max-w-lg text-base leading-relaxed text-muted-foreground sm:text-lg">
-                Write the charter once and let the terminal be the thing that keeps it. From{" "}
-                {perMonth} a month, paid {cheapest.label.toLowerCase()} at a time.
+                Set your rules once. From {perMonth} a month, paid{" "}
+                {cheapest.label.toLowerCase()} at a time.
               </p>
               <div className="mt-10 flex flex-wrap items-center justify-center gap-3">
                 <Button variant="gold" size="lg" className="rounded-full" asChild>

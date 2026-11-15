@@ -25,7 +25,7 @@ const FACTORS = [
 ];
 
 const BREACHES = [
-  { at: "14:43", kind: "Overtrading", detail: "Trade #6 of a 5-trade cap" },
+  { at: "14:43", kind: "Overtrading", detail: "Trade #6, cap is 5" },
   { at: "09:12", kind: "Outside session", detail: "Order 48m before London open" },
 ];
 
@@ -51,8 +51,7 @@ export function Bento() {
   return (
     <Section
       eyebrow="What you get"
-      title="See the account the way the rules see it."
-      description="The dashboard shows what the EA is enforcing right now — not a report you read once the month is over."
+      title="Your account, the way the rules see it."
     >
       <div className="grid gap-4 md:grid-cols-3">
         {/* Square cell: the ring fills it, the caption sits over a scrim. */}
@@ -67,10 +66,10 @@ export function Bento() {
             </div>
             <div className="relative p-7 pt-0">
               <h3 className="text-lg font-medium tracking-[-0.03em]">
-                Real-time rule enforcement
+                Live rule enforcement
               </h3>
               <p className="mt-2 text-sm leading-relaxed text-muted-foreground">
-                Every order checked against your charter before it is allowed to stand.
+                Every order checked against your rules.
               </p>
             </div>
           </div>
@@ -84,7 +83,7 @@ export function Bento() {
                 <Tile icon={Gauge} />
                 <h3 className="mt-6 text-lg font-medium tracking-[-0.03em]">Discipline score</h3>
                 <p className="mt-3 max-w-sm text-sm leading-relaxed text-muted-foreground">
-                  A single number out of 100, recomputed daily from four factors.
+                  Out of 100, updated daily.
                 </p>
               </div>
               <div className="shrink-0 text-right">
@@ -121,8 +120,7 @@ export function Bento() {
             <Tile icon={AlertTriangle} />
             <h3 className="mt-6 text-lg font-medium tracking-[-0.03em]">Violation centre</h3>
             <p className="mt-3 max-w-md text-sm leading-relaxed text-muted-foreground">
-              Every breach logged with a timestamp and the trade that caused it, tallied weekly
-              and monthly.
+              Every breach, timestamped.
             </p>
             <ul className="mt-auto pt-7">
               {BREACHES.map((breach) => (
@@ -149,8 +147,7 @@ export function Bento() {
             <Tile icon={Clock} />
             <h3 className="mt-6 text-lg font-medium tracking-[-0.03em]">Session control</h3>
             <p className="mt-3 text-sm leading-relaxed text-muted-foreground">
-              London, New York, Asian, the overlap — or a window you draw yourself. Outside it,
-              the account stays flat.
+              London, New York, Asia or your own window.
             </p>
             <div className="mt-auto pt-8">
               <div className="relative h-9 overflow-hidden rounded-tile bg-secondary">
@@ -161,7 +158,7 @@ export function Bento() {
               </div>
               <div className="font-mono-tabular mt-2 flex justify-between text-[11px] text-muted-foreground">
                 <span>00:00</span>
-                <span className="text-primary">08:00 — 17:00</span>
+                <span className="text-primary">08:00 to 17:00</span>
                 <span>24:00</span>
               </div>
             </div>

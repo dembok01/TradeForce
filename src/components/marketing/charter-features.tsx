@@ -10,39 +10,33 @@ import { Reveal } from "@/components/motion/reveal";
 const PROVISIONS = [
   {
     icon: ShieldCheck,
-    title: "Real-time rule enforcement",
-    description:
-      "Set a daily loss limit, a max trade count, a position cap, and a risk-per-trade ceiling. TradeForce checks every order against them before it's allowed to stand.",
+    title: "Live rule enforcement",
+    description: "Loss, trades, positions, risk.",
   },
   {
     icon: CalendarClock,
     title: "Session control",
-    description:
-      "Restrict trading to London, New York, Asian, or the London/NY overlap — or draw a custom window in your own timezone. Outside it, the account stays flat.",
+    description: "London, New York, Asia or custom.",
   },
   {
     icon: FileWarning,
     title: "Violation centre",
-    description:
-      "Every breach is logged with a timestamp and the trade that caused it — overtrading, outside-session attempts, loss and exposure breaches — tallied weekly and monthly.",
+    description: "Every breach, with the trade behind it.",
   },
   {
     icon: Target,
     title: "Discipline score",
-    description:
-      "A single number out of 100, recomputed daily from four factors: rule adherence, session adherence, overtrading prevention, and risk management.",
+    description: "One number out of 100, daily.",
   },
   {
     icon: NotebookPen,
     title: "Trade journal",
-    description:
-      "Every trade — symbol, direction, entry, exit, P/L, time — with a notes field for what actually happened. Filter by date range in seconds.",
+    description: "Every trade, with your notes.",
   },
   {
     icon: TrendingUp,
     title: "Performance analytics",
-    description:
-      "Win rate, trade volume by week and month, and P/L charted daily, weekly, and monthly — the record your discipline is actually producing.",
+    description: "Win rate and P/L, day to month.",
   },
 ];
 
@@ -52,7 +46,6 @@ export function CharterFeatures() {
       id="features"
       eyebrow="The Charter"
       title="Six provisions. No exceptions."
-      description="Everything TradeForce does for a funded account, written down the way a trading plan should be — plainly, and in order."
     >
       <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
         {PROVISIONS.map((provision, i) => (

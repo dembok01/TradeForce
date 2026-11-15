@@ -24,7 +24,7 @@ export function Hero() {
     <section className="relative overflow-hidden bg-obsidian">
       <div className="mx-auto max-w-6xl px-6 pb-20 pt-16 sm:pb-28 sm:pt-24">
         <div className="mx-auto max-w-3xl text-center">
-          <p className="eyebrow rise-in">For all traders and trading accounts</p>
+          <p className="eyebrow rise-in">Live on MetaTrader 5</p>
 
           <h1 className="type-h1 rise-in mt-7" style={{ animationDelay: "60ms" }}>
             {/* Explicit {" "} — JSX trims each text line, so a space sitting at
@@ -38,9 +38,7 @@ export function Hero() {
             className="rise-in mx-auto mt-7 max-w-xl text-base leading-relaxed text-muted-foreground sm:text-lg"
             style={{ animationDelay: "120ms" }}
           >
-            TradeForce runs on your account and holds the line your plan sets — daily loss,
-            trade count, exposure and session hours — the moment a rule would be broken, not
-            after the damage is done.
+            Your trading plan, enforced live inside MT5.
           </p>
 
           <div
@@ -53,7 +51,7 @@ export function Hero() {
             <Button variant="secondary" size="lg" className="rounded-full" asChild>
               <a href="#proof">
                 <Play />
-                Watch it block trade #6
+                Watch the demo
               </a>
             </Button>
           </div>

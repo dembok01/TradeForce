@@ -38,8 +38,7 @@ export function Footer() {
               Trade<span className="text-gradient-gold">Force</span>
             </span>
             <p className="mt-4 text-sm leading-relaxed text-muted-foreground">
-              Discipline enforced in the terminal, not recorded after the fact. Set the charter
-              once; the Expert Advisor is what holds you to it.
+              Discipline enforced in the terminal, not recorded after the fact.
             </p>
           </div>
 
@@ -93,14 +92,12 @@ export function Footer() {
               className="text-foreground underline underline-offset-4 hover:text-primary"
             >
               Start free
-            </Link>{" "}
-            — write your charter, log trades by hand and see the whole dashboard. Rule enforcement
-            in MetaTrader, the hosted terminal and your EA key start when you pay.
+            </Link>
+            : set your rules and log trades by hand. MT5 enforcement starts when you pay.
           </p>
           <p className="mt-6 text-xs text-muted-foreground">
-            TradeForce — discipline enforced, automatically. Trading carries risk; rule
-            enforcement reduces breaches, it does not produce profits, and it is best effort —
-            see the{" "}
+            Trading carries risk. Enforcement is best effort and does not produce profits. See
+            the{" "}
             <Link href="/terms" className="underline underline-offset-4 hover:text-foreground">
               Terms of Service
             </Link>

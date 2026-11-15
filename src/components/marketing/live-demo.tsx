@@ -14,27 +14,27 @@ type DemoEvent = {
   hold: number;
 };
 
-// A scripted afternoon: five trades, then the sixth gets blocked — the
-// product's whole argument in eight rows. Reuses the dashboard's real feed
-// row component, so the demo looks exactly like the thing you get.
+// A scripted afternoon: five trades for +$412.80, then a sixth over the cap,
+// closed on fill. The hero frame shows the same day. Reuses the dashboard's
+// real feed row component, so the demo looks exactly like the thing you get.
 const SCRIPT: DemoEvent[] = [
-  { time: "13:02", tone: "neutral", title: "EA connected — charter v14 enforced", amount: null, hold: 1200 },
-  { time: "13:18", tone: "gain", title: "EURUSD LONG closed", amount: "+$86.40", hold: 1100 },
-  { time: "13:37", tone: "loss", title: "XAUUSD SHORT closed", amount: "−$42.10", hold: 1100 },
+  { time: "13:02", tone: "neutral", title: "EA connected · charter v14", amount: null, hold: 1200 },
+  { time: "13:18", tone: "loss", title: "XAUUSD SHORT closed", amount: "−$42.10", hold: 1100 },
+  { time: "13:37", tone: "gain", title: "EURUSD LONG closed", amount: "+$86.40", hold: 1100 },
   { time: "14:05", tone: "gain", title: "GBPUSD LONG closed", amount: "+$114.75", hold: 1100 },
-  { time: "14:22", tone: "loss", title: "EURUSD LONG closed", amount: "−$67.30", hold: 1100 },
-  { time: "14:41", tone: "loss", title: "US30 SHORT closed", amount: "−$120.00", hold: 1400 },
+  { time: "14:22", tone: "gain", title: "XAUUSD LONG closed", amount: "+$168.20", hold: 1100 },
+  { time: "14:41", tone: "gain", title: "US30 LONG closed", amount: "+$85.55", hold: 1400 },
   {
     time: "14:43",
     tone: "violation",
-    title: "Blocked — this would've been trade #6 today; your limit is 5.",
+    title: "Trade #6 over your cap of 5",
     amount: "Overtrading",
     hold: 1600,
   },
   {
     time: "14:43",
     tone: "neutral",
-    title: "Position closed 0.4s after fill. Logged to the Violation Centre.",
+    title: "Closed 0.4s after fill. Logged.",
     amount: null,
     hold: 6000,
   },
@@ -95,7 +95,7 @@ function DemoFeed() {
           <span className="relative inline-flex size-2 rounded-full bg-success" />
         </span>
         <span className="text-xs text-muted-foreground">
-          TradeForce EA — enforcement feed (demo)
+          Enforcement feed · demo
         </span>
       </div>
       <div className="flex h-[320px] flex-col justify-end px-5 pb-3">
@@ -126,9 +126,9 @@ function DemoFeed() {
 }
 
 const POINTS = [
-  "Enforced in the terminal, not in a journal you fill in later.",
-  "Every block explained with the numbers that triggered it.",
-  "Rule changes reach the terminal in seconds, not on restart.",
+  "Enforced in the terminal",
+  "Every close logged with its numbers",
+  "Rule changes land in about a minute",
 ];
 
 export function LiveDemo() {
@@ -137,12 +137,9 @@ export function LiveDemo() {
       <div className="mx-auto grid max-w-6xl items-center gap-12 px-6 lg:grid-cols-2 lg:gap-16">
         <div>
           <p className="eyebrow">The moment that matters</p>
-          <h2 className="type-h2 mt-5">Watch trade #6 not happen.</h2>
+          <h2 className="type-h2 mt-5">Watch trade #6 get closed.</h2>
           <p className="mt-5 text-base leading-relaxed text-muted-foreground sm:text-lg">
-            You set a five-trade daily cap. At 14:43, after a losing streak, the sixth order
-            goes in anyway — that&apos;s the moment every funded account dies. TradeForce&apos;s
-            EA closes it the instant it fills, logs the violation with the exact numbers, and
-            your record stays intact.
+            Five trades, up $412.80. The sixth goes in anyway. Closed on fill.
           </p>
           <ul className="mt-8 space-y-3.5 text-sm text-muted-foreground">
             {POINTS.map((point) => (

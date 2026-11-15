@@ -19,12 +19,12 @@ import { cn } from "@/lib/utils";
  * number is the brand price; rupees are what moves.
  */
 const INCLUDED = [
-  "Rule enforcement inside MetaTrader — the trade is stopped, not logged after the fact",
-  "Hosted cloud terminal, so your charter holds with your computer switched off",
-  "Daily loss, trade count, open positions, risk per trade and session windows",
-  "Full violation centre, discipline score and analytics",
-  "Trade journal, session history and P/L record",
-  "EA API key for your own MetaTrader, for funded and challenge accounts",
+  "Rules enforced inside MetaTrader",
+  "Cloud terminal that runs with your PC off",
+  "Loss, trades, positions, risk, sessions",
+  "Violation centre, score and analytics",
+  "Trade journal and P/L history",
+  "EA key for funded and challenge accounts",
 ];
 
 // The 12-month card is the one to take, and the one that costs us least to
@@ -37,7 +37,7 @@ export function Pricing() {
       id="pricing"
       eyebrow="Pricing"
       title="One plan. Pick how long."
-      description={`$${DISPLAY_PRICE_USD} a month, charged in rupees by UPI — longer periods cost less per month. Cards are coming; until then each payment is confirmed by a person before your access starts.`}
+      description={`$${DISPLAY_PRICE_USD} a month by UPI. Longer plans cost less. Access starts once a person confirms your payment.`}
     >
       <div className="grid gap-4 md:grid-cols-3">
         {PERIODS.map((period, i) => {
@@ -98,8 +98,7 @@ export function Pricing() {
             ))}
           </ul>
           <p className="mt-7 text-xs leading-relaxed text-muted-foreground">
-            Periods are prepaid and don&apos;t auto-renew. Paying while a period is still running
-            adds to it rather than replacing it. Payments are non-refundable — see the{" "}
+            Prepaid, no auto renewal, not refundable. Paying early adds to your time. See the{" "}
             <Link href="/terms" className="text-primary hover:underline">
               Terms of Service
             </Link>

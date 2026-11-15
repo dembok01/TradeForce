@@ -17,7 +17,7 @@
 export type Testimonial = { quote: string; name: string; role: string };
 export type Post = { slug: string; category: string; title: string; excerpt: string };
 export type Stat = { value: string; label: string };
-export type Step = { n: string; title: string; body: string };
+export type Step = { n: string; title: string };
 export type Faq = { n: string; question: string; answer: string };
 export type ComparisonRow = { them: string; us: string };
 export type MobileRoute = { id: "cloud" | "own"; title: string; badge: string; body: string };
@@ -51,55 +51,28 @@ export const MOBILE_ROUTES: MobileRoute[] = [
     id: "cloud",
     title: "Broker account",
     badge: "Nothing to install",
-    body: "Hand the dashboard your MetaTrader 5 login and we start a terminal for that account in our own cloud. Your charter is enforced on the account itself, so it holds while you place orders from the MetaTrader app on your phone — and it keeps holding with your own machine shut down. Every breach lands in your dashboard with the trade that caused it.",
+    body: "We run MT5 for you in our cloud. Trade from your phone with your laptop shut, and your rules still hold.",
   },
   {
     id: "own",
     title: "Funded or evaluation account",
     badge: "You run the EA",
-    body: "Every firm we have checked requires the named account holder to place the trades, so a hosted terminal is off the table. You download the EA from your dashboard and attach it to your own MetaTrader 5 instead — same charter, same rules — and a breach arrives as a MetaTrader push notification on the phone you already trade on. It holds the line while that terminal is running.",
+    body: "Firms want the account holder placing trades, so the EA runs on your own MT5. Breaches reach your phone as MT5 push alerts while it runs.",
   },
 ];
 
 export const STEPS: Step[] = [
-  {
-    n: "01",
-    title: "Connect your account",
-    body: "Hand the dashboard your MetaTrader 5 login and we run the terminal for you, or install the Expert Advisor in your own MetaTrader and authorise it with an API key. Either way it reports trades, violations and equity back as it runs.",
-  },
-  {
-    n: "02",
-    title: "Write your charter",
-    body: "Set the daily loss limit, the maximum trades per day, the open position cap, the risk per trade, and the session window you are allowed to trade in.",
-  },
-  {
-    n: "03",
-    title: "Let it hold the line",
-    body: "The EA checks its configuration on a 60-second target and acts in the terminal the moment a rule would be broken — not in a journal you fill in afterwards.",
-  },
+  { n: "01", title: "Connect MT5" },
+  { n: "02", title: "Set your rules" },
+  { n: "03", title: "Trade. It enforces." },
 ];
 
 export const COMPARISON: ComparisonRow[] = [
-  {
-    them: "A journal you fill in after the damage is done",
-    us: "Enforcement in the terminal, at the moment of the order",
-  },
-  {
-    them: "Willpower, on the day it matters least",
-    us: "A rule set that does not renegotiate after three losses",
-  },
-  {
-    them: "A spreadsheet that never sees the trade",
-    us: "Every trade, violation and equity change reported by the EA itself",
-  },
-  {
-    them: "Limits you can quietly move mid-session",
-    us: "A charter version the terminal checks each order against",
-  },
-  {
-    them: "Finding out at the payout review",
-    us: "A violation logged with the numbers that triggered it",
-  },
+  { them: "A journal, after the damage", us: "Enforced at the order" },
+  { them: "Willpower after three losses", us: "Rules that never renegotiate" },
+  { them: "Spreadsheets that miss trades", us: "Every trade reported by the EA" },
+  { them: "Limits moved mid session", us: "Every order checked against your charter" },
+  { them: "Surprises at the payout review", us: "Every breach logged with its numbers" },
 ];
 
 export const FAQS: Faq[] = [
@@ -107,37 +80,37 @@ export const FAQS: Faq[] = [
     n: "01",
     question: "What does TradeForce actually do?",
     answer:
-      "It holds the trading rules you set — daily loss limit, maximum trades per day, open position cap, risk per trade, and a session window — and enforces them inside MetaTrader 5 rather than reporting on them after the fact. The dashboard is where you write the rules; the Expert Advisor is what makes them bind.",
+      "It enforces your trading rules inside MetaTrader 5: daily loss, trades per day, open positions, risk per trade and session hours. You set them in the dashboard. The EA makes them bind.",
   },
   {
     n: "02",
     question: "What do I need to run it?",
     answer:
-      "A MetaTrader 5 account, and a decision about where the terminal lives. On a broker account you can hand us the login and we run the terminal in our own cloud — nothing to install, nothing to leave switched on, and your rules hold whichever device you trade from. On a funded or evaluation account the terminal has to be your own: you install the Expert Advisor in your MetaTrader 5, authorise it with an API key from the dashboard, and it protects you while that terminal is open.",
+      "An MT5 account. On a broker account we can host the terminal for you, with nothing to install. On a funded account you attach the EA to your own MT5 with an API key, and it protects you while that terminal is open.",
   },
   {
     n: "03",
     question: "Can I use this on an evaluation or funded account?",
     answer:
-      "That depends on your firm's agreement, and it is worth reading closely before you rely on it. Permission to run Expert Advisors is necessary but not sufficient: separate clauses usually govern third-party access to the account, where the terminal may be hosted, and how multiple accounts sharing one address are treated. Running the EA yourself, in your own MetaTrader, involves no shared credentials and no third-party hosting — but check your own contract.",
+      "That depends on your firm. Allowing EAs is not enough: check its rules on third party access, hosting and shared IP addresses. Running the EA on your own MT5 shares no login and uses no outside host, but read your own contract.",
   },
   {
     n: "04",
     question: "How quickly does a rule change reach the terminal?",
     answer:
-      "The EA polls its configuration on a 60-second target, so a change you make in the dashboard takes effect on the next poll. You do not need to restart the terminal or reattach the EA.",
+      "The EA checks for changes about every 60 seconds. No restart, no reattaching.",
   },
   {
     n: "05",
     question: "What happens when I break a rule?",
     answer:
-      "The EA acts in the terminal rather than warning you. A trade over your daily cap is closed as soon as it fills; a daily-loss breach flattens the account and closes the terminal itself. Either way the breach is logged to the Violation Centre with the trade that caused it, the numbers that triggered it, and a timestamp.",
+      "The EA acts, it does not warn. A trade over your cap is closed as it fills. A daily loss breach flattens the account and closes the terminal. Every breach is logged with the trade and the numbers behind it.",
   },
   {
     n: "06",
     question: "What does it cost?",
     answer:
-      "One plan at $13 a month, charged in rupees by UPI: ₹1,249 for a month, ₹3,399 for three, or ₹11,999 for a year — the longer periods work out at ₹1,133 and ₹1,000 a month. You get a QR with the amount and a reference already in it, you pay from Google Pay or any UPI app, and we match it against the account before your access starts. Card payments are not connected yet, so every payment is confirmed by a person — usually the same day. Periods are prepaid, do not auto-renew, and are non-refundable.",
+      "$13 a month, paid in rupees by UPI: ₹1,249 for one month, ₹3,399 for three, ₹11,999 for a year. Scan the QR, pay from any UPI app, and a person confirms it, usually the same day. Prepaid, no auto renewal, not refundable.",
   },
 ];
 
@@ -176,7 +149,7 @@ export const RUNS_ON: RunsOnMark[] = [
 ];
 
 export const RUNS_ON_LEAD =
-  "TradeForce is an Expert Advisor. You attach it to the MetaTrader 5 terminal your broker or prop firm already gave you, and your charter is enforced on the account itself.";
+  "Attach it to the MT5 terminal your broker or prop firm already gave you.";
 
 export const RUNS_ON_DISCLAIMER =
-  "These firms are named because they issue MetaTrader 5 accounts the EA attaches to. TradeForce is not affiliated with them and is not endorsed or certified by them. Each one sets its own rules on Expert Advisors, third-party access and VPS use \u2014 read yours before you attach anything, and keep the answer in writing.";
+  "Named only as issuers of MT5 accounts. TradeForce is not affiliated with these firms and is not endorsed or certified by them. Each sets its own rules on EAs, third party access and VPS use: read your own firm's rules before you attach anything, and keep the answer in writing.";

@@ -15,8 +15,7 @@ export function Comparison() {
   return (
     <Section
       eyebrow="Why TradeForce"
-      title="There is a difference between recording a rule and enforcing one."
-      description="Everything else on a trader's desk finds out after the fact. This is the whole argument."
+      title="Recording a rule is not enforcing it."
     >
       <div className="grid gap-4 md:grid-cols-2">
         <Reveal y={48}>

@@ -19,7 +19,6 @@ export function Faq() {
       id="faq"
       eyebrow="Questions"
       title="Before you put it on a funded account."
-      description="The answers that decide whether this is right for you — including the one about whether your firm allows it."
     >
       <div className="space-y-3">
         {FAQS.map((faq, i) => (

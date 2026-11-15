@@ -34,7 +34,7 @@ export function Contact() {
           <p className="eyebrow">Enquiries</p>
           <h2 className="type-h2 mt-5">Running a prop firm? Managing a cohort of traders?</h2>
           <p className="mt-5 max-w-md text-base leading-relaxed text-muted-foreground sm:text-lg">
-            Tell us what you&apos;re trying to enforce and how many accounts are involved.
+            Tell us what to enforce, and on how many accounts.
           </p>
         </div>
 
