@@ -397,26 +397,38 @@ export async function adminFindBrokerServersAction(domain: string): Promise<Admi
  * and reject need the same lookup and the same indifference to failure: both
  * run inside after(), so a bounced email cannot roll back a granted plan.
  *
- * The address comes from the profile rather than the session, because the
- * person being told is the trader, not the operator who clicked.
+ * The address comes from auth.users, not from public.profiles. The profile row
+ * is writable by its owner, so profiles.email is a value the recipient chose;
+ * sending there would let a trader aim our mail at any address they liked,
+ * from our verified domain. The auth identity is the address they actually
+ * signed in with. A trigger also refuses owner writes to profiles.email, so
+ * this is the second of two locks rather than the only one.
+ *
+ * full_name still comes from the profile: it is only the greeting, and forging
+ * your own first name costs nobody anything.
  */
 async function notifyTrader(
   supabase: ReturnType<typeof createServiceClient>,
   userId: string,
-  build: (name: string | null, to: string) => { to: string; mail: Email; kind: string }
+  build: (name: string | null) => { mail: Email; kind: string }
 ): Promise<void> {
-  const { data } = await supabase
-    .from("profiles")
-    .select("email, full_name")
-    .eq("id", userId)
-    .maybeSingle();
+  const { data: identity, error } = await supabase.auth.admin.getUserById(userId);
+  const to = identity?.user?.email;
 
-  if (!data?.email) {
-    log.warn("cannot notify trader: no email on profile", { detail: `user=${userId}` });
+  if (!to) {
+    log.warn("cannot notify trader: no verified address", {
+      detail: `user=${userId}${error ? ` (${error.message})` : ""}`,
+    });
     return;
   }
 
-  const { to, mail, kind } = build(data.full_name ?? null, data.email);
+  const { data: profile } = await supabase
+    .from("profiles")
+    .select("full_name")
+    .eq("id", userId)
+    .maybeSingle();
+
+  const { mail, kind } = build(profile?.full_name ?? null);
   await sendEmail({
     to,
     subject: mail.subject,
@@ -530,7 +542,7 @@ export async function adminDecidePaymentAction(
     // The plan is granted and the row says so. Telling them is a side effect of
     // that, so it runs after the response and cannot undo it.
     after(() =>
-      notifyTrader(supabase, claim.user_id, (name, to) => {
+      notifyTrader(supabase, claim.user_id, (name) => {
         const mail = paymentApprovedEmail({
           name,
           reference: claim.reference,
@@ -539,7 +551,7 @@ export async function adminDecidePaymentAction(
           expiresAt: expiry,
           siteUrl: getSiteUrl(),
         });
-        return { to, mail, kind: "payment-approved" };
+        return { mail, kind: "payment-approved" };
       })
     );
   } else {
@@ -550,14 +562,14 @@ export async function adminDecidePaymentAction(
     // A rejection the trader never hears about is the worst outcome of this
     // whole flow: their money may have left and the page just says "no".
     after(() =>
-      notifyTrader(supabase, claim.user_id, (name, to) => {
+      notifyTrader(supabase, claim.user_id, (name) => {
         const mail = paymentRejectedEmail({
           name,
           reference: claim.reference,
           reason: reason ?? "We couldn't match it against our account.",
           siteUrl: getSiteUrl(),
         });
-        return { to, mail, kind: "payment-rejected" };
+        return { mail, kind: "payment-rejected" };
       })
     );
   }
