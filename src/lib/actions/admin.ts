@@ -1,6 +1,7 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
+import { after } from "next/server";
 import { z } from "zod";
 import { isAdmin } from "@/lib/admin";
 import { getAuthedUser } from "@/lib/data/auth";
@@ -16,6 +17,9 @@ import {
 import { reachable } from "@/lib/mt5-reachable";
 import { extendedExpiry } from "@/lib/billing/entitlement";
 import { PAID_PLAN, formatInr } from "@/lib/billing/plans";
+import { getSiteUrl } from "@/lib/site-url";
+import { sendEmail } from "@/lib/email/send";
+import { paymentApprovedEmail, paymentRejectedEmail, type Email } from "@/lib/email/templates";
 
 export type AdminActionResult = { ok?: true; pending?: string; error?: string };
 
@@ -388,6 +392,41 @@ export async function adminFindBrokerServersAction(domain: string): Promise<Admi
  *    to the queue. An "approved" payment that granted nothing is invisible,
  *    and the trader has paid.
  */
+/**
+ * Look up who to tell, build the email, send it. Factored out because approve
+ * and reject need the same lookup and the same indifference to failure: both
+ * run inside after(), so a bounced email cannot roll back a granted plan.
+ *
+ * The address comes from the profile rather than the session, because the
+ * person being told is the trader, not the operator who clicked.
+ */
+async function notifyTrader(
+  supabase: ReturnType<typeof createServiceClient>,
+  userId: string,
+  build: (name: string | null, to: string) => { to: string; mail: Email; kind: string }
+): Promise<void> {
+  const { data } = await supabase
+    .from("profiles")
+    .select("email, full_name")
+    .eq("id", userId)
+    .maybeSingle();
+
+  if (!data?.email) {
+    log.warn("cannot notify trader: no email on profile", { detail: `user=${userId}` });
+    return;
+  }
+
+  const { to, mail, kind } = build(data.full_name ?? null, data.email);
+  await sendEmail({
+    to,
+    subject: mail.subject,
+    html: mail.html,
+    text: mail.text,
+    kind,
+    userId,
+  });
+}
+
 export async function adminDecidePaymentAction(
   paymentId: string,
   decision: "approve" | "reject",
@@ -487,10 +526,40 @@ export async function adminDecidePaymentAction(
     log.info("payment approved", {
       detail: `ref=${claim.reference} user=${claim.user_id} months=${claim.months} until=${expiry.toISOString()} by=${user?.email ?? g.adminId}`,
     });
+
+    // The plan is granted and the row says so. Telling them is a side effect of
+    // that, so it runs after the response and cannot undo it.
+    after(() =>
+      notifyTrader(supabase, claim.user_id, (name, to) => {
+        const mail = paymentApprovedEmail({
+          name,
+          reference: claim.reference,
+          amountInr: expected.amountInr,
+          months: claim.months,
+          expiresAt: expiry,
+          siteUrl: getSiteUrl(),
+        });
+        return { to, mail, kind: "payment-approved" };
+      })
+    );
   } else {
     log.warn("payment rejected", {
       detail: `ref=${claim.reference} user=${claim.user_id} by=${user?.email ?? g.adminId} reason=${reason}`,
     });
+
+    // A rejection the trader never hears about is the worst outcome of this
+    // whole flow: their money may have left and the page just says "no".
+    after(() =>
+      notifyTrader(supabase, claim.user_id, (name, to) => {
+        const mail = paymentRejectedEmail({
+          name,
+          reference: claim.reference,
+          reason: reason ?? "We couldn't match it against our account.",
+          siteUrl: getSiteUrl(),
+        });
+        return { to, mail, kind: "payment-rejected" };
+      })
+    );
   }
 
   revalidatePath("/admin/payments");

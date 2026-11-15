@@ -1,6 +1,7 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
+import { after } from "next/server";
 import { getAuthedUser } from "@/lib/data/auth";
 import { createServiceClient } from "@/lib/supabase/service";
 import { periodFor } from "@/lib/billing/plans";
@@ -8,6 +9,9 @@ import { newReference } from "@/lib/billing/reference";
 import { OPEN_STATUSES, PROOF_BUCKET } from "@/lib/data/billing";
 import { toActionErrorMessage } from "@/lib/action-error";
 import { log } from "@/lib/log";
+import { getSiteUrl } from "@/lib/site-url";
+import { sendEmail } from "@/lib/email/send";
+import { paymentClaimedEmail } from "@/lib/email/templates";
 
 /**
  * Buying a paid period by UPI.
@@ -165,7 +169,7 @@ export async function claimPaymentAction(
     const supabase = createServiceClient();
     const { data: open } = await supabase
       .from("payments")
-      .select("id, reference, status")
+      .select("id, reference, status, months, amount_inr")
       .eq("user_id", user.id)
       .in("status", [...OPEN_STATUSES])
       .order("created_at", { ascending: false })
@@ -237,6 +241,33 @@ export async function claimPaymentAction(
     }
 
     log.info("payment claimed", { detail: `ref=${open.reference} user=${user.id}` });
+
+    // after(), not await: the trader has told us they paid and the row says so.
+    // Making them watch a spinner while Resend's API answers would add a way
+    // for this to appear to fail when it has already succeeded.
+    after(async () => {
+      const profile = await supabase
+        .from("profiles")
+        .select("full_name")
+        .eq("id", user.id)
+        .maybeSingle();
+      const mail = paymentClaimedEmail({
+        name: profile.data?.full_name ?? null,
+        reference: open.reference,
+        amountInr: Number(open.amount_inr),
+        months: open.months,
+        siteUrl: getSiteUrl(),
+      });
+      await sendEmail({
+        to: user.email ?? "",
+        subject: mail.subject,
+        html: mail.html,
+        text: mail.text,
+        kind: "payment-claimed",
+        userId: user.id,
+      });
+    });
+
     revalidatePath("/dashboard/billing");
     revalidatePath("/admin/payments");
     return { error: null, success: true };

@@ -33,7 +33,13 @@ export function serverEnv() {
   return cached;
 }
 
-/** Public site origin, with the deployed default. Safe on client and server. */
-export function siteUrl() {
-  return process.env.NEXT_PUBLIC_SITE_URL ?? "https://trade-force-rouge.vercel.app";
-}
+/**
+ * Public site origin. Safe on client and server.
+ *
+ * Kept as a re-export so existing callers need not change, but the value comes
+ * from one place now. It used to default to a stale preview domain while
+ * auth.ts defaulted to localhost, which meant a missing NEXT_PUBLIC_SITE_URL
+ * told traders to allowlist one host in MetaTrader while the auth emails
+ * pointed at another — and MT5 silently blocks a host that is not allowlisted.
+ */
+export { getSiteUrl as siteUrl } from "@/lib/site-url";

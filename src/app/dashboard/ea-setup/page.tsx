@@ -15,8 +15,9 @@ import { Card, CardHeader, CardTitle, CardDescription } from "@/components/ui/ca
 import { Badge } from "@/components/ui/badge";
 import { Reveal } from "@/components/motion/reveal";
 import { AutoRefresh } from "@/components/dashboard/auto-refresh";
+import { getSiteUrl } from "@/lib/site-url";
 
-const SITE_URL = process.env.NEXT_PUBLIC_SITE_URL ?? "https://trade-force-rouge.vercel.app";
+
 
 export default async function EaSetupPage() {
   const [{ checklist }, { lastSeenAt }, cloudEa, { account }, profile, brokerServers] = await Promise.all([
@@ -124,7 +125,7 @@ export default async function EaSetupPage() {
             <SetupChecklistPanel
               initialChecklist={checklist}
               initialLastSeenAt={lastSeenAt}
-              siteUrl={SITE_URL}
+              siteUrl={getSiteUrl()}
             />
           </div>
         </details>

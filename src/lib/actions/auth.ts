@@ -10,11 +10,7 @@ import {
   updatePasswordSchema,
 } from "@/lib/schemas/auth";
 import { fieldErrorsFrom, type FieldErrors } from "@/lib/schemas/form";
-
-function getSiteUrl() {
-  const url = process.env.NEXT_PUBLIC_SITE_URL ?? "http://localhost:3000";
-  return url.endsWith("/") ? url.slice(0, -1) : url;
-}
+import { getSiteUrl } from "@/lib/site-url";
 
 export type AuthActionState = {
   error: string | null;
