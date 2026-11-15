@@ -6,6 +6,9 @@ import { AnimatePresence, motion } from "motion/react";
 import { ArrowRight, Menu, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 
+/* No "Start free" here or in the mobile sheet. The free account still exists
+   and is still reachable — from the footer, which is as far down the page as
+   the client asked for it to be. Everything above it buys. */
 const LINKS = [
   { href: "#mobile", label: "Mobile" },
   { href: "#how", label: "How it works" },
@@ -45,8 +48,8 @@ export function Nav() {
             <Link href="/login">Sign in</Link>
           </Button>
           <Button variant="gold" size="sm" className="rounded-full" asChild>
-            <Link href="/signup">
-              Start free
+            <Link href="/pay">
+              Get access
               <ArrowRight />
             </Link>
           </Button>
@@ -88,8 +91,8 @@ export function Nav() {
                   <Link href="/login">Sign in</Link>
                 </Button>
                 <Button variant="gold" className="rounded-full" asChild>
-                  <Link href="/signup">
-                    Start free
+                  <Link href="/pay">
+                    Get access
                     <ArrowRight />
                   </Link>
                 </Button>

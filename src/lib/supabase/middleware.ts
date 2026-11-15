@@ -2,9 +2,31 @@ import { createServerClient } from "@supabase/ssr";
 import { NextResponse, type NextRequest } from "next/server";
 import type { Database } from "@/lib/supabase/database.types";
 
-const PUBLIC_PATHS = ["/", "/login", "/signup", "/reset-password", "/update-password", "/auth"];
+/**
+ * Paths a signed-out visitor may reach.
+ *
+ * /terms is here because the signup checkbox links to it: the one person who
+ * most needs to read the terms is the one who has not got an account yet.
+ *
+ * /pay is here although it needs a session, because the page itself sends a
+ * signed-out visitor to /signup — which is the flow the client asked for, buy
+ * then sign up then pay. Letting the middleware send them to /login instead
+ * would show a brand-new customer a password prompt for an account they do
+ * not have.
+ */
+const PUBLIC_PATHS = [
+  "/",
+  "/login",
+  "/signup",
+  "/reset-password",
+  "/update-password",
+  "/auth",
+  "/terms",
+  "/pay",
+];
 
-function isPublicPath(pathname: string) {
+/** Exported so the list can be tested without standing up a request. */
+export function isPublicPath(pathname: string) {
   if (PUBLIC_PATHS.includes(pathname)) return true;
   if (pathname.startsWith("/auth/")) return true;
   if (pathname.startsWith("/api/ea/")) return true; // Bearer-auth'd separately, not session-based

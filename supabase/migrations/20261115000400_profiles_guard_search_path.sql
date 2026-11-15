@@ -1,0 +1,13 @@
+-- Pin the profile guard's search_path.
+--
+-- Supabase's linter flags it as role-mutable. The function is SECURITY INVOKER
+-- and references no schema objects at all — only NEW, OLD and TG_OP — so there
+-- is nothing here to hijack today. It is pinned anyway because this function is
+-- the single thing standing between a trader and a free year, and "there is
+-- nothing to hijack *today*" is an argument that expires the moment somebody
+-- adds a table lookup to it.
+--
+-- ALTER rather than a fourth copy of the body: the body is already in three
+-- migrations and restating it here would make the next reader wonder which
+-- version is current.
+alter function public.profiles_block_self_granted_plan() set search_path = '';

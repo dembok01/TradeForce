@@ -68,6 +68,27 @@ export function ProfileForm({ profile }: { profile: Profile }) {
               />
               <FieldError id="prop_firm-error" message={errors?.prop_firm} />
             </div>
+            <div className="space-y-2">
+              <Label htmlFor="phone">Phone number</Label>
+              <Input
+                id="phone"
+                name="phone"
+                type="tel"
+                inputMode="tel"
+                autoComplete="tel"
+                defaultValue={profile.phone ?? ""}
+                placeholder="+91 98765 43210"
+                aria-invalid={Boolean(errors?.phone)}
+                aria-describedby={errors?.phone ? "phone-error" : "phone-hint"}
+              />
+              {errors?.phone ? (
+                <FieldError id="phone-error" message={errors.phone} />
+              ) : (
+                <p id="phone-hint" className="text-xs text-muted-foreground">
+                  Used only if there&apos;s a question about a payment.
+                </p>
+              )}
+            </div>
           </div>
 
           <div className="space-y-2">

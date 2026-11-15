@@ -10,6 +10,7 @@ import { API_KEY_PREFIX, hashApiKey } from "@/lib/ea-auth";
 import { sealSecret } from "@/lib/mt5-crypto";
 import { isAcceptableServer, brokerLabel, brokerOf, eaPolicyFor } from "@/lib/mt5-brokers";
 import { getPickerServers } from "@/lib/data/brokers";
+import { getEntitlement } from "@/lib/data/billing";
 import { isCustomAddress, reachable } from "@/lib/mt5-reachable";
 import { logConnection } from "@/lib/connection-log";
 import { toActionErrorMessage } from "@/lib/action-error";
@@ -53,6 +54,19 @@ export async function enableCloudEaAction(
     const ctx = await getAuthedActionContext();
     if (!ctx.ok) return { error: ctx.error };
     const { supabase, userId, account } = ctx;
+
+    // A hosted terminal is a container and half a gig of RAM per trader, for
+    // as long as it runs. It is the one thing here with a marginal cost, so it
+    // is behind the paywall before anything is provisioned — and before we
+    // take a broker password we would then have to hold.
+    const entitlement = await getEntitlement();
+    if (!entitlement.active) {
+      return {
+        error:
+          "The hosted terminal runs on a paid plan. Confirm a payment and this page will take " +
+          "your MetaTrader details.",
+      };
+    }
 
     // An address nobody answers on is the difference between a clear error now
     // and a trader sitting on "Connecting" all day: one trial account spent 19

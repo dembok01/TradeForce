@@ -3,7 +3,7 @@
 import { useState } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { X } from "lucide-react";
+import { Lock, X } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { signOutAction } from "@/lib/actions/auth";
 import { Button } from "@/components/ui/button";
@@ -13,16 +13,21 @@ import { EaStatusDot, type EaState } from "@/components/dashboard/ea-status";
 
 export type SetupProgress = { completed: number; total: number } | null;
 
+/** Null when a paid period is running — there is then nothing to say. */
+export type PlanPrompt = { expired: boolean } | null;
+
 export function Sidebar({
   name,
   email,
   setup,
+  plan,
   eaState,
   eaLastSeenAt,
 }: {
   name: string | null;
   email: string;
   setup: SetupProgress;
+  plan: PlanPrompt;
   eaState: EaState;
   eaLastSeenAt: string | null;
 }) {
@@ -96,6 +101,26 @@ export function Sidebar({
             />
           </div>
         </div>
+      )}
+
+      {/* Not dismissible, unlike the setup reminder. A trader whose rules are
+          not being enforced has to be able to tell at a glance, on every page,
+          for as long as that is true — hiding it is the one thing this panel
+          must not let them do. */}
+      {plan && (
+        <Link
+          href="/pay"
+          className="mx-3 mb-3 block rounded-lg border border-primary/25 bg-primary/5 p-3 transition-colors hover:border-primary/50"
+        >
+          <p className="flex items-center gap-1.5 text-xs font-medium text-sidebar-foreground">
+            <Lock className="size-3" aria-hidden />
+            {plan.expired ? "Plan expired" : "Free account"}
+          </p>
+          <p className="mt-0.5 text-[11px] leading-relaxed text-muted-foreground">
+            Enforcement is off. {plan.expired ? "Renew" : "Choose a plan"} to hold your charter in
+            MetaTrader.
+          </p>
+        </Link>
       )}
 
       <div className="border-t border-sidebar-border p-4">

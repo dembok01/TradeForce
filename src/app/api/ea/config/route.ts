@@ -12,6 +12,12 @@ export async function GET(request: Request) {
   const auth = await verifyEaRequest(request);
   if (!auth.ok) return eaFailureResponse(auth);
 
+  // No paid period, no charter to hand over. `configured: false` is the same
+  // answer the EA gets before a trader has written any rules, and it is the
+  // one response it treats as authoritative enough to stop enforcing — see
+  // the note on EaAuthSuccess.entitled.
+  if (!auth.entitled) return NextResponse.json({ configured: false });
+
   const supabase = createServiceClient();
   const { data: rules, error } = await supabase
     .from("trading_rules")

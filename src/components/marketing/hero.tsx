@@ -48,7 +48,7 @@ export function Hero() {
             style={{ animationDelay: "180ms" }}
           >
             <Button variant="gold" size="lg" className="rounded-full" asChild>
-              <Link href="/signup">Start free</Link>
+              <Link href="/pay">Get access</Link>
             </Button>
             <Button variant="secondary" size="lg" className="rounded-full" asChild>
               <a href="#proof">

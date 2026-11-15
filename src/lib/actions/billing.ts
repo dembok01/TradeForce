@@ -79,6 +79,7 @@ export async function startPaymentAction(months: number): Promise<BillingActionS
         return { error: "Couldn't update your payment. Try again in a moment." };
       }
       revalidatePath("/dashboard/billing");
+      revalidatePath("/pay");
       return { error: null, success: true };
     }
 
@@ -93,6 +94,7 @@ export async function startPaymentAction(months: number): Promise<BillingActionS
       });
       if (!error) {
         revalidatePath("/dashboard/billing");
+        revalidatePath("/pay");
         return { error: null, success: true };
       }
       if (error.code !== "23505") {
@@ -110,6 +112,7 @@ export async function startPaymentAction(months: number): Promise<BillingActionS
         .maybeSingle();
       if (now) {
         revalidatePath("/dashboard/billing");
+        revalidatePath("/pay");
         return { error: null, success: true };
       }
     }
@@ -135,6 +138,7 @@ export async function cancelPaymentAction(): Promise<BillingActionState> {
     if (error) return { error: "Couldn't cancel that. Try again in a moment." };
 
     revalidatePath("/dashboard/billing");
+    revalidatePath("/pay");
     return { error: null, success: true };
   } catch (err) {
     return { error: toActionErrorMessage(err, "cancel-payment") };
@@ -155,6 +159,18 @@ export async function claimPaymentAction(
   try {
     const user = await getAuthedUser();
     if (!user) return { error: "Not authenticated." };
+
+    // Checked before the transaction ID, because a claim submitted without it
+    // is a claim we have no record of consent for. A checkbox is simply absent
+    // from FormData when unticked, so this also catches a posted form that
+    // never rendered the disclaimer at all.
+    if (formData.get("disclaimer") !== "on") {
+      return {
+        error:
+          "Tick the box to confirm you've read what happens to this payment — we need that on " +
+          "record before an operator looks at it.",
+      };
+    }
 
     // Traders paste this with spaces in it more often than not.
     const utr = String(formData.get("utr") ?? "").replace(/\s+/g, "");
@@ -215,6 +231,9 @@ export async function claimPaymentAction(
         status: "claimed",
         utr,
         claimed_at: new Date().toISOString(),
+        // Stamped here rather than taken from the form: the moment the server
+        // accepted the tick is the fact worth keeping.
+        disclaimer_accepted_at: new Date().toISOString(),
         ...(proofPath ? { proof_path: proofPath } : {}),
       })
       .eq("id", open.id)
@@ -269,6 +288,7 @@ export async function claimPaymentAction(
     });
 
     revalidatePath("/dashboard/billing");
+    revalidatePath("/pay");
     revalidatePath("/admin/payments");
     return { error: null, success: true };
   } catch (err) {

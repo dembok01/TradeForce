@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { phoneField } from "@/lib/schemas/auth";
 import { optionalNumber } from "@/lib/schemas/form";
 import { RULE_BOUNDS, customWindowError, customWindowOk, timeOrBlank, timezoneField } from "@/lib/schemas/rules";
 
@@ -97,11 +98,17 @@ export type OnboardingValues = z.output<typeof onboardingSchema>;
 // collects — one schema so they can't drift. connection_route is not among
 // them: it is answered once, only steers the post-onboarding redirect, and
 // both routes open up anyway once a terminal has reported in.
-export const profileDetailsSchema = onboardingFields.pick({
-  full_name: true,
-  markets_traded: true,
-  prop_firm: true,
-});
+// Phone is not an onboarding field — it is collected at signup — but it is
+// editable here, because a trader who mistyped it cannot be reached about a
+// payment and would otherwise have no way to fix it. Same validator as signup,
+// imported rather than restated.
+export const profileDetailsSchema = onboardingFields
+  .pick({
+    full_name: true,
+    markets_traded: true,
+    prop_firm: true,
+  })
+  .extend({ phone: phoneField });
 
 // Per-step validation uses the exact same source of truth as the final parse.
 // (zod refuses .pick() on a refined object, hence onboardingFields.)

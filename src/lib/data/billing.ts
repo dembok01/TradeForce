@@ -61,7 +61,12 @@ export async function getMyPayments(limit = 12): Promise<Payment[]> {
   return data ?? [];
 }
 
-export type PaymentClaim = Payment & { email: string | null; fullName: string | null };
+export type PaymentClaim = Payment & {
+  email: string | null;
+  fullName: string | null;
+  /** Collected at signup. This is a manual process: sometimes it needs a call. */
+  phone: string | null;
+};
 
 /**
  * The ops queue. Service role, because the console spans every tenant — the
@@ -90,7 +95,7 @@ export async function getPaymentQueue(limit = 200): Promise<PaymentClaim[]> {
   const ids = [...new Set(payments.map((p) => p.user_id))];
   const { data: profiles } = await supabase
     .from("profiles")
-    .select("id, email, full_name")
+    .select("id, email, full_name, phone")
     .in("id", ids);
 
   const byId = new Map((profiles ?? []).map((p) => [p.id, p]));
@@ -98,6 +103,7 @@ export async function getPaymentQueue(limit = 200): Promise<PaymentClaim[]> {
     ...p,
     email: byId.get(p.user_id)?.email ?? null,
     fullName: byId.get(p.user_id)?.full_name ?? null,
+    phone: byId.get(p.user_id)?.phone ?? null,
   }));
 }
 

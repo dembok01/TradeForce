@@ -5,10 +5,12 @@ import { getEaConnection } from "@/lib/data/api-keys";
 import { getCloudEa } from "@/lib/data/cloud-ea";
 import { getAccountContext } from "@/lib/data/context";
 import { getProfile } from "@/lib/data/profile";
+import { getEntitlement } from "@/lib/data/billing";
 import { eaSeenWithin, EA_CONNECTED_WINDOW_MS } from "@/lib/ea-connection";
 import { PageHeader } from "@/components/dashboard/page-header";
 import { SetupChecklistPanel } from "@/components/dashboard/setup-checklist";
 import { CloudEaCard } from "@/components/dashboard/cloud-ea-card";
+import { PaywallNotice } from "@/components/billing/paywall-notice";
 import { getPickerServers } from "@/lib/data/brokers";
 import { TradeBlockAlert } from "@/components/dashboard/trade-block-alert";
 import { Card, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
@@ -20,14 +22,16 @@ import { getSiteUrl } from "@/lib/site-url";
 
 
 export default async function EaSetupPage() {
-  const [{ checklist }, { lastSeenAt }, cloudEa, { account }, profile, brokerServers] = await Promise.all([
-    getSetupStatus(),
-    getEaConnection(),
-    getCloudEa(),
-    getAccountContext(),
-    getProfile(),
-    getPickerServers(),
-  ]);
+  const [{ checklist }, { lastSeenAt }, cloudEa, { account }, profile, brokerServers, entitlement] =
+    await Promise.all([
+      getSetupStatus(),
+      getEaConnection(),
+      getCloudEa(),
+      getAccountContext(),
+      getProfile(),
+      getPickerServers(),
+      getEntitlement(),
+    ]);
   const connected = eaSeenWithin(lastSeenAt, EA_CONNECTED_WINDOW_MS);
 
   // Provisioning takes a few minutes and the card is server-rendered: without
@@ -87,9 +91,28 @@ export default async function EaSetupPage() {
         </Reveal>
       )}
 
-      <Reveal>
-        <CloudEaCard initial={cloudEa} propFirm={profile?.prop_firm} servers={brokerServers} />
-      </Reveal>
+      {/* The form is not rendered at all on a free account, rather than
+          rendered and refused. It asks for a broker password, and inviting
+          someone to type one into a form that is going to turn them away is
+          the worst of both: we would be holding a credential we cannot use
+          and they would have handed it over for nothing. */}
+      {entitlement.active ? (
+        <Reveal>
+          <CloudEaCard initial={cloudEa} propFirm={profile?.prop_firm} servers={brokerServers} />
+        </Reveal>
+      ) : (
+        <Reveal>
+          <PaywallNotice
+            title="Connecting a terminal needs a paid plan"
+            expired={Boolean(entitlement.expiresAt)}
+          >
+            Once a payment is confirmed this page takes your MetaTrader login and we run the
+            terminal for you, day and night, holding the charter you have set. Until then nothing
+            connects — but your rules, journal and analytics are open as usual, and what you set
+            now will be waiting.
+          </PaywallNotice>
+        </Reveal>
+      )}
 
       <Reveal delay={0.1}>
         <Card className="mt-4">

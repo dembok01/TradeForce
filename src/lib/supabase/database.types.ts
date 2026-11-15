@@ -37,8 +37,11 @@ export interface Database {
           tour_completed_at: string | null;
           experience_level: string | null;
           connection_route: string | null;
+          phone: string | null;
           plan: string | null;
           plan_expires_at: string | null;
+          terms_accepted_at: string | null;
+          terms_version: string | null;
           markets_traded: string[] | null;
           prop_firm: string | null;
           created_at: string;
@@ -358,6 +361,7 @@ export interface Database {
           proof_path: string | null;
           note: string | null;
           claimed_at: string | null;
+          disclaimer_accepted_at: string | null;
           decided_at: string | null;
           decided_by: string | null;
           created_at: string;

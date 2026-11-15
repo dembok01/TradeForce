@@ -2,18 +2,21 @@ import Link from "next/link";
 import { getTradingPlanStatus } from "@/lib/data/trading-plan";
 import { getApiKeys } from "@/lib/data/api-keys";
 import { getProfile } from "@/lib/data/profile";
+import { getEntitlement } from "@/lib/data/billing";
 import { PageHeader } from "@/components/dashboard/page-header";
 import { RuleSettingsForm } from "@/components/dashboard/rule-settings-form";
 import { ProfileForm } from "@/components/dashboard/profile-form";
 import { ApiKeyManager } from "@/components/dashboard/api-key-manager";
+import { PaywallNotice } from "@/components/billing/paywall-notice";
 import { Card, CardHeader, CardTitle, CardDescription, CardContent } from "@/components/ui/card";
 import { Reveal } from "@/components/motion/reveal";
 
 export default async function SettingsPage() {
-  const [{ rules }, apiKeys, profile] = await Promise.all([
+  const [{ rules }, apiKeys, profile, entitlement] = await Promise.all([
     getTradingPlanStatus(),
     getApiKeys(),
     getProfile(),
+    getEntitlement(),
   ]);
 
   return (
@@ -41,7 +44,18 @@ export default async function SettingsPage() {
             </CardDescription>
           </CardHeader>
           <CardContent>
-            <ApiKeyManager initialKeys={apiKeys} />
+            {entitlement.active ? (
+              <ApiKeyManager initialKeys={apiKeys} />
+            ) : (
+              <PaywallNotice
+                title="Keys are issued on a paid plan"
+                expired={Boolean(entitlement.expiresAt)}
+              >
+                A key is what lets your terminal talk to us, so it is the one thing we hold back.
+                Everything else on this page is yours now — set your rules and they will be
+                waiting.
+              </PaywallNotice>
+            )}
           </CardContent>
         </Card>
       </Reveal>

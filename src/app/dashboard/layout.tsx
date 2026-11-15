@@ -4,6 +4,7 @@ import { getProfile } from "@/lib/data/profile";
 import { getSetupStatus } from "@/lib/data/setup";
 import { getEaConnection } from "@/lib/data/api-keys";
 import { getEaIncident } from "@/lib/data/ea-events";
+import { getEntitlement } from "@/lib/data/billing";
 import { getRequestTimezone } from "@/lib/data/rules";
 import { eaSeenWithin, EA_CONNECTED_WINDOW_MS } from "@/lib/ea-connection";
 import type { EaState } from "@/components/dashboard/ea-status";
@@ -38,7 +39,17 @@ export default async function DashboardLayout({ children }: { children: React.Re
           total: setupStatus.checklist.total,
         };
 
-  const [{ lastSeenAt }, timezone] = await Promise.all([getEaConnection(), getRequestTimezone()]);
+  const [{ lastSeenAt }, timezone, entitlement] = await Promise.all([
+    getEaConnection(),
+    getRequestTimezone(),
+    getEntitlement(),
+  ]);
+
+  // Null while a paid period runs. The free dashboard is the whole product
+  // minus enforcement, so the one thing it owes a trader is to never let them
+  // believe the rules are being held when they are not.
+  const plan = entitlement.active ? null : { expired: Boolean(entitlement.expiresAt) };
+
   let eaState: EaState = eaSeenWithin(lastSeenAt, EA_CONNECTED_WINDOW_MS)
     ? "live"
     : lastSeenAt
@@ -68,6 +79,7 @@ export default async function DashboardLayout({ children }: { children: React.Re
           name={profile.full_name}
           email={user.email ?? ""}
           setup={setup}
+          plan={plan}
           eaState={eaState}
           eaLastSeenAt={lastSeenAt}
         />

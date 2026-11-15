@@ -94,6 +94,13 @@ export default async function AdminPaymentsPage() {
                 >
                   {p.email ?? "unknown"}
                 </a>
+                {p.phone ? (
+                  <div>
+                    <a href={`tel:${p.phone}`} className="text-xs text-muted-foreground hover:underline">
+                      {p.phone}
+                    </a>
+                  </div>
+                ) : null}
               </td>
               <td className="whitespace-nowrap px-4 py-2 align-top font-mono text-xs">
                 {p.reference}

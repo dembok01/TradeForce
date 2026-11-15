@@ -12,6 +12,14 @@ export async function GET(request: Request) {
   const auth = await verifyEaRequest(request);
   if (!auth.ok) return eaFailureResponse(auth);
 
+  if (!auth.entitled) {
+    return NextResponse.json({
+      configured: false,
+      configVersion: null,
+      serverTime: new Date().toISOString(),
+    });
+  }
+
   const supabase = createServiceClient();
   const { data: rules, error } = await supabase
     .from("trading_rules")

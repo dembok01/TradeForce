@@ -119,6 +119,14 @@ nothing to go wrong overnight.
 
 ## What this deliberately does not change
 
+> **Amended 2026-11-15.** This section said no existing feature would be put
+> behind the paywall. That is no longer true, and it was changed on the
+> client's instruction after the database was wiped of every test account —
+> which removed the reason for the caution: there was nobody left to
+> quietly revoke a feature from. What is now gated, and why, is below under
+> "The paywall, as built". The original reasoning is kept because it is still
+> the right default for a product with live users.
+
 No existing feature is placed behind the paywall. Entitlement is recorded,
 shown to the trader and shown in ops, and `getEntitlement()` is ready for
 whatever the client wants gated — but nothing changes behaviour today, because
@@ -130,18 +138,105 @@ costs real money per trader (~0.5 GB and a container each), and it already
 splits cleanly from the funded-account route, which costs nothing to serve.
 That is a commercial decision for the client, not the builder's.
 
+## The paywall, as built (2026-11-15)
+
+The client's instruction was that only paid users reach the dashboard, with a
+free option reachable "only if they scroll down enough". Offered the choice
+between locking the dashboard outright and a free-but-crippled dashboard, they
+chose the latter. So:
+
+**Free gets the whole product except the part that intervenes.** The charter,
+the journal, manual trade entry, sessions, analytics and every number on screen
+are real and stay. Three things are withheld:
+
+| Withheld | Enforced in | Why that one |
+| --- | --- | --- |
+| EA API key issuance | `generateApiKeyAction` | The key is what connects a terminal to us. Without it there is no enforcement, so it is the natural gate. |
+| Hosted cloud terminal | `enableCloudEaAction` | The only feature with a marginal cost per trader. Gated *before* the form is rendered, so nobody types a broker password into a page that is going to refuse them. |
+| Rule enforcement | `verifyEaRequest` → `entitled` | For an account whose paid period has lapsed with a key already installed. |
+
+**The failure mode is the design.** An unentitled EA is answered
+`configured: false` with a 200, not a 401 or a 402. The EA caches its charter
+on disk and treats any non-200 as a connectivity blip, so an error response
+would leave it enforcing yesterday's rules indefinitely. `configured: false` is
+the one answer it accepts as authoritative. **Unpaid must mean unenforced,
+never "every trade blocked"** — a paywall that locks a trader out of their own
+positions would be worse than no paywall.
+
+Entitlement is resolved once, in `verifyEaRequest`, so the seven EA routes
+cannot each form their own opinion about who has paid. A failure to *read* the
+plan returns 500, not "unpaid": reading unpaid off a DB blip would silently
+switch enforcement off for a paying trader.
+
+Equity reports from an unpaid EA are still recorded. Enforcement stops; the
+record does not. Losing equity history is not something a lapsed plan should
+cause, and the free dashboard has to stay honest.
+
+### Known gap: the hosted pool bypasses this
+
+`infra/pool-agent/tf_bridge.py` reads `trading_rules` straight from PostgREST
+with the service role rather than through `/api/ea/*`, so a hosted terminal
+provisioned while paid would keep enforcing after the plan lapsed — and keep
+costing a container. Not exploitable today: `mt5_instances` is empty and
+provisioning is now gated, so the only route in is pay → provision → lapse.
+The fix belongs in the agent (filter the rules fetch by the account owner's
+plan, as the website does) and needs a deploy to the pool box, which is why it
+is recorded here rather than half-built.
+
+## Signup, terms and the payment disclaimer (2026-11-15)
+
+Signup collects name, phone, email, password and confirmation, and requires the
+terms checkbox. Three facts about that:
+
+- **Phone is for the operator, not for marketing.** Payments are matched by
+  hand; when a reference does not match what arrived in the bank, a phone call
+  is the only way to resolve it without guessing.
+- **The terms version is recorded, not just the timestamp.** `terms_version`
+  holds `TERMS_VERSION` from `src/lib/legal/terms.ts`, the same constant the
+  `/terms` page renders. "They agreed on 15 November" is worthless unless we
+  can produce what they agreed to.
+- **The acceptance record is written by the service role and is not editable by
+  its subject.** `handle_new_user()` still writes only id and email; the signup
+  action fills the rest. A profile with `terms_accepted_at` null is therefore
+  visible evidence that the account was made some other way than through our
+  form — better than a column anyone holding the public anon key could set.
+
+The payment disclaimer is a separate, per-payment agreement
+(`payments.disclaimer_accepted_at`), because it is about *this* transfer: no
+gateway, confirmation by hand, access not instant, money not refundable. It is
+shown in full rather than linked, and the server refuses a claim without it.
+
+The terms themselves are deliberately strong, on the client's instruction, and
+**have not been reviewed by a lawyer**. Clause 16 carries the carve-out for
+rights that cannot lawfully be excluded, and `terms.test.ts` asserts it is
+still there: a blanket exclusion of all liability is void against an Indian
+consumer under the Consumer Protection Act 2019, and a clause a court strikes
+out protects nobody. `TERMS_SEAT` is the placeholder "India" because the city
+the business is registered in is not something this repo knows.
+
 The pricing card's feature list is corrected as part of this work. "Up to 5
 trading accounts" is not a thing the software can do — `getOrCreatePrimaryAccount`
 gives every user exactly one account and there is no UI to add a second.
 
 ## Open
 
-- The client's UPI handle, payee name and bank details, to put in the
-  environment. Nothing works until these are set.
+- **The client's UPI handle, payee name and bank details are still not set in
+  Vercel.** Checked 2026-11-15: production has `NEXT_PUBLIC_SITE_URL`,
+  `RESEND_API_KEY`, `EMAIL_FROM`, `ADMIN_EMAILS`, `MT5_CRED_KEY`, `CRON_SECRET`
+  and the three Supabase keys — and no `UPI_*` or `BANK_*` at all. Until they
+  are set, `payee()` returns null and both `/pay` and the billing page say
+  "payments aren't set up yet". **Nothing can be bought.** This is the single
+  blocker on taking money.
 - `ADMIN_EMAILS` is read by `src/lib/admin.ts` but is absent from
   `.env.example`, so a fresh deployment has no operator who can approve
   anything. Added to the example as part of this work; the real value is the
-  client's.
+  client's. (It *is* set in Vercel production.)
+- Leaked-password protection is disabled on the Supabase project. Now that
+  signup is a real form with a password field, it is one toggle worth turning
+  on (Auth → Policies).
+- No MX record on the apex, so `support@tradeforce.in` cannot receive replies —
+  including replies to the rejection email, which asks for them. No DMARC
+  record either.
 - Whether a personal UPI handle is the right instrument for business revenue.
   Collection volume, GST and the merchant/P2P distinction are a question for
   the client's accountant, not for this document.

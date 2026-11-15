@@ -126,7 +126,7 @@ ${p(`<strong>Your payment is confirmed and your account is open.</strong>`)}
 ${button(`${siteUrl}/dashboard`, "Open your dashboard")}
 ${p(`Sign in at <a href="${esc(siteUrl)}/login" style="color:${BRAND};">${esc(siteUrl.replace(/^https?:\/\//, ""))}/login</a> with the email address this was sent to.`)}
 ${p(`Next step: connect your trading account and set your rules. The EA won't enforce anything until you've told it what your limits are.`)}
-${p(`<span style="color:${MUTED};">We'll remind you before ${esc(until)}. Paying early adds to the time you have rather than replacing it.</span>`)}`,
+${p(`<span style="color:${MUTED};">Your billing page counts down the last week before ${esc(until)}. Paying early adds to the time you have rather than replacing it.</span>`)}`,
     siteUrl
   );
 
@@ -144,8 +144,8 @@ Sign in at ${siteUrl}/login with the email address this was sent to.
 Next step: connect your trading account and set your rules. The EA won't
 enforce anything until you've told it what your limits are.
 
-We'll remind you before ${until}. Paying early adds to the time you have
-rather than replacing it.
+Your billing page counts down the last week before ${until}. Paying early
+adds to the time you have rather than replacing it.
 
 ${siteUrl}`;
 

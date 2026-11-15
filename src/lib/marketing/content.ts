@@ -137,7 +137,7 @@ export const FAQS: Faq[] = [
     n: "06",
     question: "What does it cost?",
     answer:
-      "There is a free tier covering one account with the full rule set, and a paid tier at $13 a month for evaluation and funded accounts where a breach costs a payout. It is charged in rupees by UPI: ₹1,249 for a month, ₹3,399 for three, ₹11,999 for a year. Your dashboard shows a QR with the amount and a reference already in it, you pay from Google Pay or any UPI app, and we match it against the account before your plan starts. Card payments are not connected yet.",
+      "One plan at $13 a month, charged in rupees by UPI: ₹1,249 for a month, ₹3,399 for three, or ₹11,999 for a year — the longer periods work out at ₹1,133 and ₹1,000 a month. You get a QR with the amount and a reference already in it, you pay from Google Pay or any UPI app, and we match it against the account before your access starts. Card payments are not connected yet, so every payment is confirmed by a person — usually the same day. Periods are prepaid, do not auto-renew, and are non-refundable.",
   },
 ];
 

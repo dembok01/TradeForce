@@ -4,6 +4,7 @@ import { randomBytes } from "node:crypto";
 import { revalidatePath } from "next/cache";
 import { createClient } from "@/lib/supabase/server";
 import { getAuthedActionContext } from "@/lib/actions/_helpers";
+import { getEntitlement } from "@/lib/data/billing";
 import { API_KEY_PREFIX, hashApiKey } from "@/lib/ea-auth";
 import { toActionErrorMessage } from "@/lib/action-error";
 import { log } from "@/lib/log";
@@ -16,6 +17,18 @@ export async function generateApiKeyAction(
     const ctx = await getAuthedActionContext();
     if (!ctx.ok) return { error: ctx.error };
     const { supabase, userId, account } = ctx;
+
+    // The key is what connects a terminal to us, so it is the paywall. Checked
+    // here and not only in the UI: this is a server action, which means its
+    // URL is callable by anyone holding a session cookie.
+    const entitlement = await getEntitlement();
+    if (!entitlement.active) {
+      return {
+        error:
+          "EA keys are issued on a paid plan. Your dashboard and journal stay open — the key, " +
+          "the hosted terminal and rule enforcement start once a payment is confirmed.",
+      };
+    }
 
     const rawKey = `${API_KEY_PREFIX}${randomBytes(24).toString("hex")}`;
     const keyPrefix = rawKey.slice(0, API_KEY_PREFIX.length + 8);

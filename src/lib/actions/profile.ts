@@ -22,6 +22,7 @@ export async function updateProfileAction(
     full_name: formData.get("full_name") ?? "",
     markets_traded: formData.getAll("markets_traded"),
     prop_firm: formData.get("prop_firm") ?? "",
+    phone: formData.get("phone") ?? "",
   });
   if (!parsed.success) {
     return { error: "Please fix the highlighted fields.", fieldErrors: fieldErrorsFrom(parsed.error) };
@@ -38,6 +39,7 @@ export async function updateProfileAction(
         full_name: parsed.data.full_name,
         markets_traded: parsed.data.markets_traded,
         prop_firm: parsed.data.prop_firm,
+        phone: parsed.data.phone,
       })
       .eq("id", user.id);
 

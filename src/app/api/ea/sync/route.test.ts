@@ -12,7 +12,8 @@ import { POST } from "./route";
 import { verifyEaRequest } from "@/lib/ea-auth";
 import { createServiceClient } from "@/lib/supabase/service";
 
-const AUTH_OK = { ok: true, userId: "u1", accountId: "a1", apiKeyId: "k1" } as const;
+const AUTH_OK = { ok: true, userId: "u1", accountId: "a1", apiKeyId: "k1", entitled: true } as const;
+const AUTH_UNPAID = { ...AUTH_OK, entitled: false } as const;
 
 const RULES = {
   id: "r1", user_id: "u1", account_id: "a1",
@@ -72,6 +73,36 @@ describe("POST /api/ea/sync", () => {
       utcOffsetMinutes: 330, // Asia/Kolkata, sent even when the config is current
     });
     expect(json.config).toBeUndefined();
+  });
+
+  /**
+   * The paywall, from the EA's side.
+   *
+   * `configured: false` rather than a 401 or 402 on purpose: the EA caches its
+   * charter on disk and treats any non-200 as a connectivity blip, so an error
+   * would leave it enforcing yesterday's rules forever. This response is the
+   * one it accepts as authoritative, and it makes it stop blocking trades.
+   */
+  describe("when the plan has lapsed", () => {
+    it("hands back no charter, even though rules exist", async () => {
+      (verifyEaRequest as Mock).mockResolvedValue(AUTH_UNPAID);
+      const res = await post({ equity: 10_000, knownConfigVersion: -1 });
+      expect(res.status).toBe(200);
+      const json = await res.json();
+      expect(json.configured).toBe(false);
+      expect(json.configVersion).toBeNull();
+      expect(json.config).toBeUndefined();
+    });
+
+    // Enforcement stops; the record does not. Losing equity history is not
+    // something an expired plan should cause, and the dashboard a free account
+    // still has needs to stay honest.
+    it("still records the equity report", async () => {
+      (verifyEaRequest as Mock).mockResolvedValue(AUTH_UNPAID);
+      await post({ equity: 10_000 });
+      expect(from).toHaveBeenCalledWith("accounts");
+      expect(from).toHaveBeenCalledWith("account_snapshots");
+    });
   });
 
   it("sends the full config when the EA reports no version at all", async () => {

@@ -4,12 +4,14 @@ import { Ban, ShieldCheck, TriangleAlert } from "lucide-react";
 import { getSetupStatus } from "@/lib/data/setup";
 import { getEaConnection } from "@/lib/data/api-keys";
 import { getProfile } from "@/lib/data/profile";
+import { getEntitlement } from "@/lib/data/billing";
 import { getPickerServers } from "@/lib/data/brokers";
 import { advisoryPolicyForFirm } from "@/lib/mt5-brokers";
 import { eaSeenWithin, EA_CONNECTED_WINDOW_MS } from "@/lib/ea-connection";
 import { siteUrl } from "@/lib/env";
 import { PageHeader } from "@/components/dashboard/page-header";
 import { SetupChecklistPanel } from "@/components/dashboard/setup-checklist";
+import { PaywallNotice } from "@/components/billing/paywall-notice";
 import {
   Card,
   CardHeader,
@@ -33,11 +35,12 @@ import { Reveal } from "@/components/motion/reveal";
  * in enableCloudEaAction.
  */
 export default async function FundedEaSetupPage() {
-  const [{ checklist }, { lastSeenAt }, profile, catalogue] = await Promise.all([
+  const [{ checklist }, { lastSeenAt }, profile, catalogue, entitlement] = await Promise.all([
     getSetupStatus(),
     getEaConnection(),
     getProfile(),
     getPickerServers(),
+    getEntitlement(),
   ]);
 
   const connected = eaSeenWithin(lastSeenAt, EA_CONNECTED_WINDOW_MS);
@@ -67,6 +70,18 @@ export default async function FundedEaSetupPage() {
           )
         }
       />
+
+      {!entitlement.active && (
+        <Reveal y={8} className="mb-4">
+          <PaywallNotice
+            title="Running the EA on your own terminal needs a paid plan"
+            expired={Boolean(entitlement.expiresAt)}
+          >
+            The setup below is the whole of it, and it is yours to read now. The key it asks you
+            to paste into MetaTrader is issued once a payment is confirmed.
+          </PaywallNotice>
+        </Reveal>
+      )}
 
       <Reveal>
         <Card>

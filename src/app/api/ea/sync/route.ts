@@ -50,7 +50,11 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: "Failed to record account state." }, { status: 500 });
   }
 
-  const rules = rulesRes.data;
+  // The equity report above is still recorded for an unpaid account — the
+  // dashboard tiles stay honest, and losing equity history is not something a
+  // lapsed plan should cause. What stops is the charter: an unentitled EA is
+  // told there is nothing to enforce.
+  const rules = auth.entitled ? rulesRes.data : null;
   const serverTime = new Date().toISOString();
 
   if (!rules) {

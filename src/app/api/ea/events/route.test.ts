@@ -12,7 +12,7 @@ import { POST } from "./route";
 import { verifyEaRequest } from "@/lib/ea-auth";
 import { createServiceClient } from "@/lib/supabase/service";
 
-const AUTH_OK = { ok: true, userId: "u1", accountId: "a1", apiKeyId: "k1" } as const;
+const AUTH_OK = { ok: true, userId: "u1", accountId: "a1", apiKeyId: "k1", entitled: true } as const;
 let builder: MockBuilder;
 
 function post(body: unknown) {

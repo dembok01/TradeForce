@@ -3,6 +3,7 @@ import { createHash } from "node:crypto";
 import { NextResponse } from "next/server";
 import { createServiceClient } from "@/lib/supabase/service";
 import { createRateLimiter } from "@/lib/rate-limit";
+import { entitlementFrom } from "@/lib/billing/entitlement";
 import { log } from "@/lib/log";
 
 export const API_KEY_PREFIX = "tf_live_";
@@ -19,6 +20,21 @@ export type EaAuthSuccess = {
   userId: string;
   accountId: string;
   apiKeyId: string;
+  /**
+   * Whether this account has a paid period running right now.
+   *
+   * Resolved here, with the key, because this is the one place every EA
+   * request passes through — so there is exactly one answer to "is this
+   * trader entitled to enforcement", and no route can forget to ask.
+   *
+   * Deliberately NOT a 401 or a 402 when false. The EA caches its last good
+   * charter on disk and treats any non-200 as a connectivity blip, so an
+   * error response would leave it enforcing yesterday's rules forever. The
+   * config routes answer `configured: false` instead, which the EA treats as
+   * authoritative and which makes it stop blocking trades. Unpaid means
+   * unenforced, which is the intended state — never "every trade blocked".
+   */
+  entitled: boolean;
 };
 export type EaAuthFailure = {
   ok: false;
@@ -79,7 +95,30 @@ export async function verifyEaRequest(request: Request): Promise<EaAuthResult> {
     if (stampError) log.warn("ea-auth last_used_at stamp failed", { detail: stampError.message });
   }
 
-  return { ok: true, userId: keyRow.user_id, accountId: keyRow.account_id, apiKeyId: keyRow.id };
+  // One PK read. An EA syncs once a minute, so this is cheap next to the
+  // alternative — a plan flag copied onto api_keys, which would then need
+  // keeping in step with every approval, expiry and renewal.
+  const { data: plan, error: planError } = await supabase
+    .from("profiles")
+    .select("plan, plan_expires_at")
+    .eq("id", keyRow.user_id)
+    .maybeSingle();
+
+  if (planError) {
+    // A read failure must not read as "unpaid": that would silently switch
+    // enforcement off for a paying trader on a DB blip. 5xx instead, which the
+    // EA retries on its next tick while keeping the charter it already holds.
+    log.error("ea-auth entitlement read failed", { detail: planError.message });
+    return { ok: false, reason: "server_error" };
+  }
+
+  return {
+    ok: true,
+    userId: keyRow.user_id,
+    accountId: keyRow.account_id,
+    apiKeyId: keyRow.id,
+    entitled: entitlementFrom(plan?.plan ?? null, plan?.plan_expires_at ?? null).active,
+  };
 }
 
 export function eaFailureResponse(failure: EaAuthFailure): NextResponse {

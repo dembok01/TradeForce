@@ -1,6 +1,7 @@
 "use client";
 
 import { useActionState, useEffect, useTransition } from "react";
+import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { toast } from "sonner";
 import { Loader2, Upload } from "lucide-react";
@@ -11,6 +12,7 @@ import {
   type BillingActionState,
 } from "@/lib/actions/billing";
 import { formatInr, type Period } from "@/lib/billing/plans";
+import { PAYMENT_DISCLAIMER, TERMS_VERSION } from "@/lib/legal/terms";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -115,6 +117,43 @@ export function ClaimForm() {
         <p className="text-xs text-muted-foreground">
           The payment receipt, if you have it handy. JPEG, PNG or WebP, under 5MB.
         </p>
+      </div>
+
+      {/* Shown, not linked. The trader is one button away from handing over
+          money into a process with no gateway in it, and the things that can
+          go wrong with that are short enough to read in full. The checkbox
+          below is what the server requires; the list is why. */}
+      <div className="space-y-2.5 rounded-md border border-amber-500/30 bg-amber-500/5 p-4">
+        <p className="text-sm font-medium">Before you send this to us</p>
+        <ul className="space-y-2">
+          {PAYMENT_DISCLAIMER.map((line) => (
+            <li key={line} className="flex gap-2.5 text-xs leading-relaxed text-muted-foreground">
+              <span aria-hidden className="mt-1.5 size-1 shrink-0 rounded-full bg-amber-500" />
+              <span>{line}</span>
+            </li>
+          ))}
+        </ul>
+        <div className="flex items-start gap-2.5 border-t border-amber-500/20 pt-3">
+          <input
+            id="disclaimer"
+            name="disclaimer"
+            type="checkbox"
+            required
+            className="mt-0.5 size-4 shrink-0 cursor-pointer rounded border-border accent-primary"
+          />
+          <label htmlFor="disclaimer" className="cursor-pointer text-xs leading-relaxed">
+            I agree to all of the above and to the{" "}
+            <Link
+              href="/terms"
+              target="_blank"
+              rel="noopener"
+              className="text-primary underline underline-offset-2"
+            >
+              Terms of Service
+            </Link>{" "}
+            <span className="text-muted-foreground">(version {TERMS_VERSION})</span>.
+          </label>
+        </div>
       </div>
 
       {state.error ? (
