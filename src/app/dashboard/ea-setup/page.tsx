@@ -1,7 +1,9 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
 import { formatDistanceToNowStrict } from "date-fns";
-import { getEaConnection } from "@/lib/data/api-keys";
+import { getApiKeys, getEaConnection } from "@/lib/data/api-keys";
+import { disconnectOtherConnectionAction } from "@/lib/actions/profile";
+import { Button } from "@/components/ui/button";
 import { getCloudEa } from "@/lib/data/cloud-ea";
 import { getAccountContext } from "@/lib/data/context";
 import { getProfile } from "@/lib/data/profile";
@@ -24,7 +26,11 @@ import { AutoRefresh } from "@/components/dashboard/auto-refresh";
  * /dashboard/ea-setup/funded and shows only the downloadable EA; the switch at
  * the top moves between them.
  */
-export default async function EaSetupPage() {
+export default async function EaSetupPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ switch?: string }>;
+}) {
   // Locked before anything else is read: connecting asks for a broker password
   // or hands over the EA, and neither belongs in front of an account without a
   // plan. The EA file itself refuses to start without a paid account's key.
@@ -40,13 +46,18 @@ export default async function EaSetupPage() {
   const profile = await getProfile();
   if (profile?.connection_route === "funded") redirect("/dashboard/ea-setup/funded");
 
-  const [{ lastSeenAt }, cloudEa, { account }, brokerServers] = await Promise.all([
+  const [{ lastSeenAt }, cloudEa, { account }, brokerServers, keys, params] = await Promise.all([
     getEaConnection(),
     getCloudEa(),
     getAccountContext(),
     getPickerServers(),
+    getApiKeys(),
+    searchParams,
   ]);
   const connected = eaSeenWithin(lastSeenAt, EA_CONNECTED_WINDOW_MS);
+  const liveKeys = keys.filter((k) => !k.revoked_at);
+  // A downloaded EA still holding a key from before modes were exclusive.
+  const downloadedToo = liveKeys.some((k) => k.label !== "Cloud EA");
 
   // Provisioning takes a few minutes and the card is server-rendered: without
   // this the trader watches "Starting..." until they think to reload.
@@ -73,7 +84,26 @@ export default async function EaSetupPage() {
         }
       />
 
-      <AccountModeSwitch current="broker" />
+      <AccountModeSwitch
+        current="broker"
+        connected={cloudEa.enabled || liveKeys.length > 0}
+        confirming={params.switch}
+      />
+
+      {downloadedToo && (
+        <div className="mb-4 rounded-xl border border-amber-500/40 bg-amber-500/5 p-4">
+          <p className="text-sm font-medium">An EA on your own computer is also connected</p>
+          <p className="mt-1 text-sm text-muted-foreground">
+            One account takes one connection, and normal account mode uses the hosted terminal.
+            Disconnect the other EA, then remove it from your MT5 chart.
+          </p>
+          <form action={disconnectOtherConnectionAction} className="mt-3">
+            <Button type="submit" variant="destructive" size="sm">
+              Disconnect the downloaded EA
+            </Button>
+          </form>
+        </div>
+      )}
 
       {connected && account.ea_trade_block && (
         <Reveal y={8} className="mb-4">

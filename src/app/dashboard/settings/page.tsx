@@ -36,15 +36,27 @@ export default async function SettingsPage() {
           <CardHeader>
             <CardTitle>EA access keys</CardTitle>
             <CardDescription>
-              Generate a key, then follow the{" "}
+              For the downloadable EA in funded account mode. Generate a key, then follow the{" "}
               <Link href="/dashboard/ea-setup" className="text-primary hover:underline">
                 EA Setup guide
               </Link>{" "}
-              to connect your MetaTrader 5 terminal.
+              to connect your own MetaTrader 5.
             </CardDescription>
           </CardHeader>
           <CardContent>
-            {entitlement.active ? (
+            {entitlement.active && profile?.connection_route !== "funded" ? (
+              // One connection per account: keys are the downloadable EA's, and
+              // in normal mode the hosted terminal mints and holds its own.
+              <p className="text-sm text-muted-foreground">
+                You&apos;re in normal account mode, so the hosted terminal holds its own key and
+                there is nothing to manage here. Keys are for funded account mode, which you can
+                switch to on the{" "}
+                <Link href="/dashboard/ea-setup" className="text-primary hover:underline">
+                  EA setup
+                </Link>{" "}
+                page.
+              </p>
+            ) : entitlement.active ? (
               <ApiKeyManager initialKeys={apiKeys} />
             ) : (
               <PaywallNotice

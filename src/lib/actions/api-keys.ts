@@ -5,6 +5,7 @@ import { revalidatePath } from "next/cache";
 import { createClient } from "@/lib/supabase/server";
 import { getAuthedActionContext } from "@/lib/actions/_helpers";
 import { getEntitlement } from "@/lib/data/billing";
+import { getProfile } from "@/lib/data/profile";
 import { API_KEY_PREFIX, hashApiKey } from "@/lib/ea-auth";
 import { toActionErrorMessage } from "@/lib/action-error";
 import { log } from "@/lib/log";
@@ -23,10 +24,16 @@ export async function generateApiKeyAction(
     // URL is callable by anyone holding a session cookie.
     const entitlement = await getEntitlement();
     if (!entitlement.active) {
+      return { error: "EA keys are issued once your plan is active." };
+    }
+
+    // One connection per account: a key is for the downloadable EA, which is
+    // funded account mode. In normal mode the hosted terminal mints its own.
+    if ((await getProfile())?.connection_route !== "funded") {
       return {
         error:
-          "EA keys are issued on a paid plan. Your dashboard and journal stay open — the key, " +
-          "the hosted terminal and rule enforcement start once a payment is confirmed.",
+          "EA keys are for funded account mode. In normal account mode we run the terminal for " +
+          "you. Switch modes on the EA setup page.",
       };
     }
 

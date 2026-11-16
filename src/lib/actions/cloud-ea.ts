@@ -11,6 +11,7 @@ import { sealSecret } from "@/lib/mt5-crypto";
 import { isAcceptableServer, brokerLabel, brokerOf, eaPolicyFor } from "@/lib/mt5-brokers";
 import { getPickerServers } from "@/lib/data/brokers";
 import { getEntitlement } from "@/lib/data/billing";
+import { getProfile } from "@/lib/data/profile";
 import { isCustomAddress, reachable } from "@/lib/mt5-reachable";
 import { logConnection } from "@/lib/connection-log";
 import { toActionErrorMessage } from "@/lib/action-error";
@@ -65,6 +66,16 @@ export async function enableCloudEaAction(
         error:
           "The hosted terminal runs on a paid plan. Confirm a payment and this page will take " +
           "your MetaTrader details.",
+      };
+    }
+
+    // One connection per account: the hosted terminal belongs to normal account
+    // mode. A funded trader switches modes first, which disconnects their EA.
+    if ((await getProfile())?.connection_route === "funded") {
+      return {
+        error:
+          "You're in funded account mode, which uses the downloadable EA. Switch to Normal " +
+          "account on this page to use the hosted terminal.",
       };
     }
 

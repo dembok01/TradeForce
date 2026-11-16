@@ -2,7 +2,9 @@ import { redirect } from "next/navigation";
 import { formatDistanceToNowStrict } from "date-fns";
 import { Ban, ShieldCheck, TriangleAlert } from "lucide-react";
 import { getSetupStatus } from "@/lib/data/setup";
-import { getEaConnection } from "@/lib/data/api-keys";
+import { getApiKeys, getEaConnection } from "@/lib/data/api-keys";
+import { disconnectOtherConnectionAction } from "@/lib/actions/profile";
+import { Button } from "@/components/ui/button";
 import { getProfile } from "@/lib/data/profile";
 import { getCloudEa } from "@/lib/data/cloud-ea";
 import { getEntitlement } from "@/lib/data/billing";
@@ -37,7 +39,11 @@ import { Reveal } from "@/components/motion/reveal";
  * actual guard is eaPolicyFor() on a catalogued address, enforced server-side
  * in enableCloudEaAction.
  */
-export default async function FundedEaSetupPage() {
+export default async function FundedEaSetupPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ switch?: string }>;
+}) {
   const entitlement = await getEntitlement();
   if (!entitlement.active) {
     return (
@@ -50,12 +56,15 @@ export default async function FundedEaSetupPage() {
   const profile = await getProfile();
   if (profile?.connection_route !== "funded") redirect("/dashboard/ea-setup");
 
-  const [{ checklist }, { lastSeenAt }, catalogue, cloudEa] = await Promise.all([
+  const [{ checklist }, { lastSeenAt }, catalogue, cloudEa, keys, params] = await Promise.all([
     getSetupStatus(),
     getEaConnection(),
     getPickerServers(),
     getCloudEa(),
+    getApiKeys(),
+    searchParams,
   ]);
+  const liveKeys = keys.filter((k) => !k.revoked_at);
 
   const connected = eaSeenWithin(lastSeenAt, EA_CONNECTED_WINDOW_MS);
   const firm = profile?.prop_firm?.trim() || "";
@@ -85,14 +94,26 @@ export default async function FundedEaSetupPage() {
         }
       />
 
-      <AccountModeSwitch current="funded" />
+      <AccountModeSwitch
+        current="funded"
+        connected={cloudEa.enabled || liveKeys.length > 0}
+        confirming={params.switch}
+      />
 
-      {/* Switching modes changes what this page shows, not what is running. */}
+      {/* A hosted terminal left running from before modes were exclusive. */}
       {cloudEa.enabled && (
-        <p className="mb-4 rounded-lg border border-amber-500/40 bg-amber-500/5 p-3 text-sm text-muted-foreground">
-          Your hosted terminal from normal account mode is still running. Switch to Normal account
-          to manage or stop it.
-        </p>
+        <div className="mb-4 rounded-xl border border-amber-500/40 bg-amber-500/5 p-4">
+          <p className="text-sm font-medium">A hosted terminal is also connected</p>
+          <p className="mt-1 text-sm text-muted-foreground">
+            One account takes one connection, and funded account mode uses the downloadable EA.
+            Stop the hosted terminal before you connect the EA.
+          </p>
+          <form action={disconnectOtherConnectionAction} className="mt-3">
+            <Button type="submit" variant="destructive" size="sm">
+              Stop the hosted terminal
+            </Button>
+          </form>
+        </div>
       )}
 
       <Reveal>
