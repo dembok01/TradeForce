@@ -3,12 +3,15 @@
 import { revalidatePath } from "next/cache";
 import { createClient } from "@/lib/supabase/server";
 import { getAuthedActionContext } from "@/lib/actions/_helpers";
+import { getEntitlement } from "@/lib/data/billing";
 import { getEaLastSeenAt } from "@/lib/data/_shared";
 import { eaSeenWithin, EA_ACTIVE_WINDOW_MS } from "@/lib/ea-connection";
 import { toActionErrorMessage } from "@/lib/action-error";
 import { tradeFormSchema } from "@/lib/schemas/trade";
 import { fieldErrorsFrom, type FieldErrors } from "@/lib/schemas/form";
 import { log } from "@/lib/log";
+
+const LOCKED = "The journal unlocks with a plan.";
 
 export type TradeActionState = {
   error: string | null;
@@ -38,6 +41,7 @@ export async function createTradeAction(
   try {
     const ctx = await getAuthedActionContext();
     if (!ctx.ok) return { error: ctx.error };
+    if (!(await getEntitlement()).active) return { error: LOCKED };
     const { supabase, userId, account } = ctx;
 
     // Server-side half of the journal lock (the UI hides the dialog too):
@@ -77,6 +81,7 @@ export async function createTradeAction(
 }
 
 export async function updateTradeNotesAction(tradeId: string, notes: string) {
+  if (!(await getEntitlement()).active) throw new Error(LOCKED);
   const supabase = await createClient();
   // .select() so a no-op (nonexistent or non-owned id filtered by RLS) is
   // reported as a failure instead of a silent false success.
@@ -91,6 +96,7 @@ export async function updateTradeNotesAction(tradeId: string, notes: string) {
 }
 
 export async function deleteTradeAction(tradeId: string) {
+  if (!(await getEntitlement()).active) throw new Error(LOCKED);
   const supabase = await createClient();
 
   // EA-reported rows are the enforced record; deleting a losing trade would

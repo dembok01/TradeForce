@@ -1,5 +1,7 @@
 import { fromZonedTime } from "date-fns-tz";
 import { getTrades } from "@/lib/data/trades";
+import { getEntitlement } from "@/lib/data/billing";
+import { LockedPage } from "@/components/billing/locked-page";
 import { getEaConnection } from "@/lib/data/api-keys";
 import { getAnalyticsOverview } from "@/lib/data/analytics";
 import { getRequestTimezone } from "@/lib/data/rules";
@@ -36,6 +38,15 @@ export default async function JournalPage({
 }: {
   searchParams: Promise<{ from?: string; to?: string }>;
 }) {
+  const entitlement = await getEntitlement();
+  if (!entitlement.active) {
+    return (
+      <LockedPage eyebrow="Journal" title="Journal & analytics" expired={Boolean(entitlement.expiresAt)}>
+        Every trade, your notes, win rate and P/L.
+      </LockedPage>
+    );
+  }
+
   const [{ from, to }, timezone] = await Promise.all([searchParams, getRequestTimezone()]);
   const [trades, eaConnection, analytics] = await Promise.all([
     getTrades({ from: dayBound(from, "start", timezone), to: dayBound(to, "end", timezone) }),

@@ -4,21 +4,24 @@ import { useState } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { AnimatePresence, motion } from "motion/react";
-import { Menu, X } from "lucide-react";
+import { Lock, Menu, X } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { signOutAction } from "@/lib/actions/auth";
 import { Button } from "@/components/ui/button";
 import { DASHBOARD_NAV_ITEMS } from "@/lib/dashboard-nav";
 import { EaStatusDot, type EaState } from "@/components/dashboard/ea-status";
+import type { PlanPrompt } from "@/components/dashboard/sidebar";
 
 export function MobileTopbar({
   name,
   email,
+  plan,
   eaState,
   eaLastSeenAt,
 }: {
   name: string | null;
   email: string;
+  plan: PlanPrompt;
   eaState: EaState;
   eaLastSeenAt: string | null;
 }) {
@@ -91,6 +94,9 @@ export function MobileTopbar({
                     >
                       <Icon className={cn("size-4", active && "text-primary")} strokeWidth={1.8} />
                       {item.label}
+                      {plan && item.paid && (
+                        <Lock className="ml-auto size-3 text-muted-foreground/70" aria-label="Locked" />
+                      )}
                     </Link>
                   );
                 })}

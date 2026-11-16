@@ -9,6 +9,8 @@ import { getDisciplineScore } from "@/lib/data/discipline";
 import { getEnforcementFeed } from "@/lib/data/feed";
 import { getEquitySparkline } from "@/lib/data/equity";
 import { getProfile } from "@/lib/data/profile";
+import { getEntitlement } from "@/lib/data/billing";
+import { LockedOverview } from "@/components/billing/locked-overview";
 import { getAccountRules, getRequestTimezone } from "@/lib/data/rules";
 import { SESSION_WINDOWS, parseTimeToUtcHours } from "@/lib/trading-sessions";
 import { formatCurrency } from "@/lib/format";
@@ -32,6 +34,18 @@ import { Reveal } from "@/components/motion/reveal";
 import { StaggerGroup, StaggerItem } from "@/components/motion/stagger";
 
 export default async function DashboardHomePage() {
+  const entitlement = await getEntitlement();
+  if (!entitlement.active) {
+    const profile = await getProfile();
+    return (
+      <LockedOverview
+        firstName={profile?.full_name?.trim().split(/\s+/)[0] || null}
+        expired={Boolean(entitlement.expiresAt)}
+        funded={profile?.connection_route === "funded"}
+      />
+    );
+  }
+
   const [overview, discipline, profile, timezone, rules] = await Promise.all([
     getDashboardOverview(),
     getDisciplineScore(),

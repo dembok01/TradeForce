@@ -1,4 +1,6 @@
 import { getTradingPlanStatus } from "@/lib/data/trading-plan";
+import { getEntitlement } from "@/lib/data/billing";
+import { LockedPage } from "@/components/billing/locked-page";
 import { getRequestTimezone } from "@/lib/data/rules";
 import { formatWindowLocal } from "@/lib/trading-sessions";
 import { formatCurrency } from "@/lib/format";
@@ -23,6 +25,15 @@ function ProvisionHeader({ index, title }: { index: string; title: string }) {
 }
 
 export default async function TradingPlanPage() {
+  const entitlement = await getEntitlement();
+  if (!entitlement.active) {
+    return (
+      <LockedPage eyebrow="Trading Plan" title="Trading plan" expired={Boolean(entitlement.expiresAt)}>
+        See how today measures up against your rules, live from MT5.
+      </LockedPage>
+    );
+  }
+
   const [status, timezone] = await Promise.all([getTradingPlanStatus(), getRequestTimezone()]);
   const { rules } = status;
 

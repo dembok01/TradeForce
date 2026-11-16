@@ -1,9 +1,10 @@
-import Link from "next/link";
+import { redirect } from "next/navigation";
 import { formatDistanceToNowStrict } from "date-fns";
 import { Ban, ShieldCheck, TriangleAlert } from "lucide-react";
 import { getSetupStatus } from "@/lib/data/setup";
 import { getEaConnection } from "@/lib/data/api-keys";
 import { getProfile } from "@/lib/data/profile";
+import { getCloudEa } from "@/lib/data/cloud-ea";
 import { getEntitlement } from "@/lib/data/billing";
 import { getPickerServers } from "@/lib/data/brokers";
 import { advisoryPolicyForFirm } from "@/lib/mt5-brokers";
@@ -11,7 +12,9 @@ import { eaSeenWithin, EA_CONNECTED_WINDOW_MS } from "@/lib/ea-connection";
 import { siteUrl } from "@/lib/env";
 import { PageHeader } from "@/components/dashboard/page-header";
 import { SetupChecklistPanel } from "@/components/dashboard/setup-checklist";
-import { PaywallNotice } from "@/components/billing/paywall-notice";
+import { AccountModeSwitch } from "@/components/dashboard/account-mode-switch";
+import { LockedPage } from "@/components/billing/locked-page";
+import { FUNDED_FIRMS } from "@/lib/funded-firms";
 import {
   Card,
   CardHeader,
@@ -35,12 +38,23 @@ import { Reveal } from "@/components/motion/reveal";
  * in enableCloudEaAction.
  */
 export default async function FundedEaSetupPage() {
-  const [{ checklist }, { lastSeenAt }, profile, catalogue, entitlement] = await Promise.all([
+  const entitlement = await getEntitlement();
+  if (!entitlement.active) {
+    return (
+      <LockedPage eyebrow="Funded account" title="Funded account setup" expired={Boolean(entitlement.expiresAt)}>
+        Run the EA on your own MT5 for your funded or challenge account.
+      </LockedPage>
+    );
+  }
+
+  const profile = await getProfile();
+  if (profile?.connection_route !== "funded") redirect("/dashboard/ea-setup");
+
+  const [{ checklist }, { lastSeenAt }, catalogue, cloudEa] = await Promise.all([
     getSetupStatus(),
     getEaConnection(),
-    getProfile(),
     getPickerServers(),
-    getEntitlement(),
+    getCloudEa(),
   ]);
 
   const connected = eaSeenWithin(lastSeenAt, EA_CONNECTED_WINDOW_MS);
@@ -71,16 +85,14 @@ export default async function FundedEaSetupPage() {
         }
       />
 
-      {!entitlement.active && (
-        <Reveal y={8} className="mb-4">
-          <PaywallNotice
-            title="Running the EA on your own terminal needs a paid plan"
-            expired={Boolean(entitlement.expiresAt)}
-          >
-            The setup below is the whole of it, and it is yours to read now. The key it asks you
-            to paste into MetaTrader is issued once a payment is confirmed.
-          </PaywallNotice>
-        </Reveal>
+      <AccountModeSwitch current="funded" />
+
+      {/* Switching modes changes what this page shows, not what is running. */}
+      {cloudEa.enabled && (
+        <p className="mb-4 rounded-lg border border-amber-500/40 bg-amber-500/5 p-3 text-sm text-muted-foreground">
+          Your hosted terminal from normal account mode is still running. Switch to Normal account
+          to manage or stop it.
+        </p>
       )}
 
       <Reveal>
@@ -179,6 +191,43 @@ export default async function FundedEaSetupPage() {
         )}
       </Reveal>
 
+      {/* Paid view only: the page above returns early without a plan. Where we
+          have read a firm's contract, its EA policy sits beside the name. */}
+      <Reveal delay={0.15}>
+        <Card className="mt-4">
+          <CardHeader>
+            <CardTitle>Allowed list</CardTitle>
+            <CardDescription>
+              Funded firms whose MT5 accounts the EA attaches to. Each sets its own EA rules, so
+              check yours in writing.
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
+            <ul className="grid gap-x-6 gap-y-2.5 text-sm sm:grid-cols-2 lg:grid-cols-3">
+              {FUNDED_FIRMS.map((name) => {
+                const firmPolicy = advisoryPolicyForFirm(catalogue, name);
+                return (
+                  <li key={name} className="flex items-center gap-2">
+                    <span className="size-1.5 shrink-0 rounded-full bg-primary/60" aria-hidden />
+                    <span>{name}</span>
+                    {firmPolicy === "approval_required" && (
+                      <Badge variant="warning" className="ml-auto">
+                        Approval first
+                      </Badge>
+                    )}
+                    {firmPolicy === "prohibited" && (
+                      <Badge variant="destructive" className="ml-auto">
+                        No EAs
+                      </Badge>
+                    )}
+                  </li>
+                );
+              })}
+            </ul>
+          </CardContent>
+        </Card>
+      </Reveal>
+
       {!banned && (
         <Reveal delay={0.2}>
           <div className="mt-6">
@@ -196,20 +245,6 @@ export default async function FundedEaSetupPage() {
         </Reveal>
       )}
 
-      {/* The second route is offered only once something is actually reporting.
-          Showing both from the start asks a new trader to choose between two
-          setups before they have finished either one. */}
-      {lastSeenAt && (
-        <Reveal delay={0.3}>
-          <p className="mt-6 text-sm text-muted-foreground">
-            Trading an ordinary broker account as well?{" "}
-            <Link href="/dashboard/ea-setup" className="text-primary hover:underline">
-              Connect that one to our hosted terminal
-            </Link>{" "}
-            — it runs day and night with your computer switched off.
-          </p>
-        </Reveal>
-      )}
     </div>
   );
 }

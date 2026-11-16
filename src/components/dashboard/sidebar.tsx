@@ -71,6 +71,9 @@ export function Sidebar({
             >
               <Icon className={cn("size-4", active && "text-primary")} strokeWidth={1.8} />
               {item.label}
+              {plan && item.paid && (
+                <Lock className="ml-auto size-3 text-muted-foreground/70" aria-label="Locked" />
+              )}
             </Link>
           );
         })}
@@ -114,11 +117,10 @@ export function Sidebar({
         >
           <p className="flex items-center gap-1.5 text-xs font-medium text-sidebar-foreground">
             <Lock className="size-3" aria-hidden />
-            {plan.expired ? "Plan expired" : "Free account"}
+            {plan.expired ? "Plan expired" : "No plan yet"}
           </p>
           <p className="mt-0.5 text-[11px] leading-relaxed text-muted-foreground">
-            Enforcement is off. {plan.expired ? "Renew" : "Choose a plan"} to hold your charter in
-            MetaTrader.
+            {plan.expired ? "Renew" : "Choose a plan"} to unlock your dashboard and connect MT5.
           </p>
         </Link>
       )}

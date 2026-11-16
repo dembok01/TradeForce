@@ -134,11 +134,12 @@ export const FAQS: Faq[] = [
  * a logo carries an implication of endorsement that a name in running text
  * does not, and we hold no licence to redistribute their marks.
  *
- * Checked 15 Nov 2026 - each firm's own rulebook is the authority and each has
- * a clause worth knowing: Funding Pips permits a third-party EA only as a trade
- * or risk-management tool (which is what this is), FTMO caps allocated capital
- * per strategy across traders, and The 5%ers asks that the trader own the EA's
- * source. None of that is settled in our favour, which is exactly why the
+ * Three firms only, on the client's instruction: the full list
+ * (src/lib/funded-firms.ts) is shown to paying traders in the dashboard. Each firm's own
+ * rulebook is the authority, and several have a clause worth knowing: FTMO caps
+ * allocated capital per strategy across traders, The 5%ers asks that the trader
+ * own the EA's source, E8 Markets warns that many users on one EA may be
+ * terminated. None of that is settled in our favour, which is exactly why the
  * disclaimer below sends people to their own firm.
  */
 export const RUNS_ON: RunsOnMark[] = [
@@ -149,7 +150,7 @@ export const RUNS_ON: RunsOnMark[] = [
 ];
 
 export const RUNS_ON_LEAD =
-  "Attach it to the MT5 terminal your broker or prop firm already gave you.";
+  "Attach the EA to the MT5 account your firm gave you. Your rules hold on the account itself.";
 
 export const RUNS_ON_DISCLAIMER =
   "Named only as issuers of MT5 accounts. TradeForce is not affiliated with these firms and is not endorsed or certified by them. Each sets its own rules on EAs, third party access and VPS use: read your own firm's rules before you attach anything, and keep the answer in writing.";

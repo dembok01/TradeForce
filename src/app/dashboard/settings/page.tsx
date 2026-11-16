@@ -51,8 +51,7 @@ export default async function SettingsPage() {
                 title="Keys are issued on a paid plan"
                 expired={Boolean(entitlement.expiresAt)}
               >
-                A key is what lets your terminal talk to us, so it is the one thing we hold back.
-                Everything else on this page is yours now — set your rules and they will be
+                Keys are issued once your plan is active. Your rules save now and will be
                 waiting.
               </PaywallNotice>
             )}

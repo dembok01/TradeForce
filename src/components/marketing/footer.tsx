@@ -6,13 +6,6 @@ import Link from "next/link";
  * Every link goes somewhere that exists. The reference's footer carries a Blog
  * that this app does not have, and a footer link to a 404 is worse than a
  * shorter footer.
- *
- * This is also where the free account lives. The client asked for the buy path
- * to be the only one visible above the fold and for the free option to be
- * reachable "only if they scroll down enough" — so it is a line of plain text
- * at the bottom of the page rather than a button, next to the sign-in link a
- * returning free user needs anyway. Reachable, not advertised: no dark
- * pattern, no hidden tier, just not competing with the thing being sold.
  */
 const PRODUCT = [
   { href: "#how", label: "How it works" },
@@ -85,17 +78,7 @@ export function Footer() {
         </div>
 
         <div className="mt-14 border-t border-border/60 pt-8">
-          <p className="text-sm text-muted-foreground">
-            Not ready to pay?{" "}
-            <Link
-              href="/signup?next=/onboarding"
-              className="text-foreground underline underline-offset-4 hover:text-primary"
-            >
-              Start free
-            </Link>
-            : set your rules and log trades by hand. MT5 enforcement starts when you pay.
-          </p>
-          <p className="mt-6 text-xs text-muted-foreground">
+          <p className="text-xs text-muted-foreground">
             Trading carries risk. Enforcement is best effort and does not produce profits. See
             the{" "}
             <Link href="/terms" className="underline underline-offset-4 hover:text-foreground">

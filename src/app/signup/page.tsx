@@ -3,9 +3,9 @@ import { AuthShell } from "@/components/auth/auth-shell";
 import { SignupForm } from "@/components/auth/signup-form";
 import { Skeleton } from "@/components/ui/skeleton";
 
-// SignupForm reads useSearchParams (where to go after signing up — the payment
-// page by default, onboarding for the free route), so it sits under a Suspense
-// boundary to keep the page's static shell prerenderable.
+// SignupForm reads useSearchParams (where to go after signing up, the
+// dashboard by default), so it sits under a Suspense boundary to keep the
+// page's static shell prerenderable.
 function SignupFormFallback() {
   return (
     <div className="space-y-5">
@@ -22,7 +22,7 @@ export default function SignupPage() {
     <AuthShell
       eyebrow="Create account"
       title="Set up your charter."
-      subtitle="A few details, then choose how long you want."
+      subtitle="A few details and you are in."
     >
       <Suspense fallback={<SignupFormFallback />}>
         <SignupForm />

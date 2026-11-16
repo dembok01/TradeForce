@@ -5,18 +5,14 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { cn } from "@/lib/utils";
 
 /**
- * What a free account cannot do, said once, where the thing it cannot do is.
+ * What is locked until a plan is active, said where the locked thing is.
  *
- * The free dashboard is not a teaser: the charter, the journal, the analytics
- * and every number on screen are real and stay. What a payment buys is the
- * part that costs us money to run and the part that actually intervenes — the
- * EA key, the hosted terminal, and enforcement itself.
- *
- * Saying that plainly is the point. A locked panel that implies the whole
- * product is withheld makes a trader wonder what else is pretend.
+ * Before paying, a trader can write their rules and sessions and nothing else:
+ * the EA, the hosted terminal, the journal and the records all need a plan.
+ * Saying exactly that, and nothing vaguer, is the point.
  */
 export function PaywallNotice({
-  title = "Enforcement starts when you pay",
+  title = "Unlock with a plan",
   children,
   expired = false,
   className,
@@ -36,9 +32,8 @@ export function PaywallNotice({
         <CardDescription>
           {children ?? (
             <>
-              Your dashboard, charter and journal stay open and keep working. The EA key, the
-              hosted terminal and rule enforcement in MetaTrader start once a payment is
-              confirmed.
+              Connect MT5, see every trade and get your rules enforced live. Your rules and
+              sessions save now and will be waiting.
             </>
           )}
         </CardDescription>

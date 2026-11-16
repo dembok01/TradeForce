@@ -1,6 +1,6 @@
 import Link from "next/link";
+import { redirect } from "next/navigation";
 import { formatDistanceToNowStrict } from "date-fns";
-import { getSetupStatus } from "@/lib/data/setup";
 import { getEaConnection } from "@/lib/data/api-keys";
 import { getCloudEa } from "@/lib/data/cloud-ea";
 import { getAccountContext } from "@/lib/data/context";
@@ -8,30 +8,44 @@ import { getProfile } from "@/lib/data/profile";
 import { getEntitlement } from "@/lib/data/billing";
 import { eaSeenWithin, EA_CONNECTED_WINDOW_MS } from "@/lib/ea-connection";
 import { PageHeader } from "@/components/dashboard/page-header";
-import { SetupChecklistPanel } from "@/components/dashboard/setup-checklist";
 import { CloudEaCard } from "@/components/dashboard/cloud-ea-card";
-import { PaywallNotice } from "@/components/billing/paywall-notice";
+import { AccountModeSwitch } from "@/components/dashboard/account-mode-switch";
+import { LockedPage } from "@/components/billing/locked-page";
 import { getPickerServers } from "@/lib/data/brokers";
 import { TradeBlockAlert } from "@/components/dashboard/trade-block-alert";
 import { Card, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Reveal } from "@/components/motion/reveal";
 import { AutoRefresh } from "@/components/dashboard/auto-refresh";
-import { getSiteUrl } from "@/lib/site-url";
 
-
-
+/**
+ * Normal account mode: the hosted terminal, signed in with the trader's MT5
+ * login and password, and nothing else. Funded account mode lives at
+ * /dashboard/ea-setup/funded and shows only the downloadable EA; the switch at
+ * the top moves between them.
+ */
 export default async function EaSetupPage() {
-  const [{ checklist }, { lastSeenAt }, cloudEa, { account }, profile, brokerServers, entitlement] =
-    await Promise.all([
-      getSetupStatus(),
-      getEaConnection(),
-      getCloudEa(),
-      getAccountContext(),
-      getProfile(),
-      getPickerServers(),
-      getEntitlement(),
-    ]);
+  // Locked before anything else is read: connecting asks for a broker password
+  // or hands over the EA, and neither belongs in front of an account without a
+  // plan. The EA file itself refuses to start without a paid account's key.
+  const entitlement = await getEntitlement();
+  if (!entitlement.active) {
+    return (
+      <LockedPage eyebrow="Connect" title="EA setup" expired={Boolean(entitlement.expiresAt)}>
+        Connect your MT5 account. We run the terminal for you, or you run the EA on your own.
+      </LockedPage>
+    );
+  }
+
+  const profile = await getProfile();
+  if (profile?.connection_route === "funded") redirect("/dashboard/ea-setup/funded");
+
+  const [{ lastSeenAt }, cloudEa, { account }, brokerServers] = await Promise.all([
+    getEaConnection(),
+    getCloudEa(),
+    getAccountContext(),
+    getPickerServers(),
+  ]);
   const connected = eaSeenWithin(lastSeenAt, EA_CONNECTED_WINDOW_MS);
 
   // Provisioning takes a few minutes and the card is server-rendered: without
@@ -45,7 +59,7 @@ export default async function EaSetupPage() {
         eyebrow="Connect"
         title="Connect your MetaTrader account"
         titleEmphasis="account"
-        description="Enter your account details once and we run your terminal for you, day and night. Nothing to install, nothing to leave switched on."
+        description="Enter your MT5 login once and we run your terminal for you, day and night. Nothing to install."
         action={
           connected ? (
             <Badge variant="success">Connected</Badge>
@@ -59,31 +73,7 @@ export default async function EaSetupPage() {
         }
       />
 
-      {/* They told onboarding this is a funded account, so they were sent to the
-          funded guide - this is them arriving here anyway. Say what the page is
-          rather than letting them type a password their firm forbids sharing.
-          Dropped once a terminal reports: by then both routes are theirs. */}
-      {profile?.connection_route === "funded" && !lastSeenAt && (
-        <Reveal y={8} className="mb-4">
-          <Card className="border-amber-500/40 bg-amber-500/5">
-            <CardHeader>
-              <CardTitle className="text-base">This page hosts the terminal for you</CardTitle>
-              <CardDescription>
-                You told us you&apos;re connecting a funded account, and those can&apos;t go
-                through our hosted terminal — your firm requires that you place your own trades,
-                which means we must not hold your password.{" "}
-                <Link
-                  href="/dashboard/ea-setup/funded"
-                  className="text-primary hover:underline"
-                >
-                  Set up your funded account instead
-                </Link>
-                .
-              </CardDescription>
-            </CardHeader>
-          </Card>
-        </Reveal>
-      )}
+      <AccountModeSwitch current="broker" />
 
       {connected && account.ea_trade_block && (
         <Reveal y={8} className="mb-4">
@@ -91,28 +81,9 @@ export default async function EaSetupPage() {
         </Reveal>
       )}
 
-      {/* The form is not rendered at all on a free account, rather than
-          rendered and refused. It asks for a broker password, and inviting
-          someone to type one into a form that is going to turn them away is
-          the worst of both: we would be holding a credential we cannot use
-          and they would have handed it over for nothing. */}
-      {entitlement.active ? (
-        <Reveal>
-          <CloudEaCard initial={cloudEa} propFirm={profile?.prop_firm} servers={brokerServers} />
-        </Reveal>
-      ) : (
-        <Reveal>
-          <PaywallNotice
-            title="Connecting a terminal needs a paid plan"
-            expired={Boolean(entitlement.expiresAt)}
-          >
-            Once a payment is confirmed this page takes your MetaTrader login and we run the
-            terminal for you, day and night, holding the charter you have set. Until then nothing
-            connects — but your rules, journal and analytics are open as usual, and what you set
-            now will be waiting.
-          </PaywallNotice>
-        </Reveal>
-      )}
+      <Reveal>
+        <CloudEaCard initial={cloudEa} propFirm={profile?.prop_firm} servers={brokerServers} />
+      </Reveal>
 
       <Reveal delay={0.1}>
         <Card className="mt-4">
@@ -129,44 +100,6 @@ export default async function EaSetupPage() {
           </CardHeader>
         </Card>
       </Reveal>
-
-      {/* The download path still works and some traders want it, but it is the
-          exception: it only protects them while their own PC is awake. Folded
-          away so the account form above is the obvious thing to do. */}
-      <Reveal delay={0.2}>
-        <details className="mt-4 rounded-xl border bg-card">
-          <summary className="cursor-pointer list-none p-5 [&::-webkit-details-marker]:hidden">
-            <span className="font-display text-base font-medium">
-              Rather run it on your own computer?
-            </span>
-            <span className="mt-1 block text-sm text-muted-foreground">
-              Advanced · only protects you while that computer is on and MetaTrader is open.
-              Most traders should use the form above instead.
-            </span>
-          </summary>
-          <div className="border-t p-5 pt-4">
-            <SetupChecklistPanel
-              initialChecklist={checklist}
-              initialLastSeenAt={lastSeenAt}
-              siteUrl={getSiteUrl()}
-            />
-          </div>
-        </details>
-      </Reveal>
-
-      {/* Same rule as the funded guide: the other route appears once one of
-          them is working, not while the trader is still mid-setup. */}
-      {lastSeenAt && (
-        <Reveal delay={0.3}>
-          <p className="mt-6 text-sm text-muted-foreground">
-            Trading a funded or challenge account as well?{" "}
-            <Link href="/dashboard/ea-setup/funded" className="text-primary hover:underline">
-              Set that one up here
-            </Link>{" "}
-            — it runs on your own MetaTrader, which is what prop firms require.
-          </p>
-        </Reveal>
-      )}
     </div>
   );
 }

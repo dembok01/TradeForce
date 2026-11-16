@@ -1,4 +1,5 @@
 import "server-only";
+import { cache } from "react";
 import { createClient } from "@/lib/supabase/server";
 import { createServiceClient } from "@/lib/supabase/service";
 import { getAuthedUser } from "@/lib/data/auth";
@@ -16,8 +17,11 @@ export const PROOF_BUCKET = "payment-proofs";
 /**
  * What this trader has paid for. Read through their own client, so RLS is the
  * thing enforcing that it is theirs rather than a `.eq()` I could forget.
+ *
+ * Memoized per request: the dashboard layout and every locked page ask, and
+ * they should get one answer from one read.
  */
-export async function getEntitlement(): Promise<Entitlement> {
+export const getEntitlement = cache(async (): Promise<Entitlement> => {
   const user = await getAuthedUser();
   if (!user) return entitlementFrom(null, null);
 
@@ -35,7 +39,7 @@ export async function getEntitlement(): Promise<Entitlement> {
     return entitlementFrom(null, null);
   }
   return entitlementFrom(data?.plan ?? null, data?.plan_expires_at ?? null);
-}
+});
 
 /** The payment the trader is in the middle of, if any. At most one exists. */
 export async function getOpenPayment(): Promise<Payment | null> {

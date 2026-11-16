@@ -29,7 +29,7 @@ import {
 import { cn } from "@/lib/utils";
 
 const STEPS = [
-  { key: "about", label: "About you" },
+  { key: "about", label: "Your account" },
   { key: "risk", label: "Risk limits" },
   { key: "pace", label: "Trading pace" },
   { key: "sessions", label: "Session windows" },
@@ -295,24 +295,12 @@ export function OnboardingWizard({ defaultFullName = "" }: { defaultFullName?: s
                 {STEPS[step].key === "about" && (
                   <StepShell
                     eyebrow="Step one"
-                    title="First, about you"
-                    description="So the charter reads like yours, not a template's."
+                    title="First, your account"
+                    description="Pick the account type, then a few details about you."
                   >
                     <div className="space-y-6">
                       <div className="space-y-2">
-                        <Label htmlFor="full_name">Name</Label>
-                        <Input
-                          id="full_name"
-                          value={values.full_name}
-                          onChange={(e) => set("full_name", e.target.value)}
-                          placeholder="How should we address you?"
-                          autoFocus
-                        />
-                        <FieldError id="full_name-error" message={fieldErrors.full_name} />
-                      </div>
-
-                      <div className="space-y-2">
-                        <Label>Which account are you protecting?</Label>
+                        <Label>Which account are you connecting?</Label>
                         <div className="grid gap-3 sm:grid-cols-2">
                           {CONNECTION_ROUTES.map((option) => {
                             const selected = values.connection_route === option.value;
@@ -341,13 +329,23 @@ export function OnboardingWizard({ defaultFullName = "" }: { defaultFullName?: s
                           })}
                         </div>
                         <p className="text-xs text-muted-foreground">
-                          Pick the one you&apos;re connecting first. Once a terminal is reporting,
-                          the other method opens up too — plenty of traders end up running both.
+                          You can switch between them later in EA Setup.
                         </p>
                         <FieldError
                           id="connection_route-error"
                           message={fieldErrors.connection_route && "Choose the option that fits you."}
                         />
+                      </div>
+
+                      <div className="space-y-2">
+                        <Label htmlFor="full_name">Name</Label>
+                        <Input
+                          id="full_name"
+                          value={values.full_name}
+                          onChange={(e) => set("full_name", e.target.value)}
+                          placeholder="How should we address you?"
+                        />
+                        <FieldError id="full_name-error" message={fieldErrors.full_name} />
                       </div>
 
                       <div className="space-y-2">

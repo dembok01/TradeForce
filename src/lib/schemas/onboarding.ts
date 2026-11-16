@@ -17,13 +17,13 @@ import { RULE_BOUNDS, customWindowError, customWindowOk, timeOrBlank, timezoneFi
 export const CONNECTION_ROUTES = [
   {
     value: "broker",
-    label: "A normal broker account",
-    hint: "We run a terminal for you in the cloud. Protected day and night, with your own computer switched off.",
+    label: "Normal account",
+    hint: "We run MT5 for you in our cloud. You connect with your MT5 login and password.",
   },
   {
     value: "funded",
-    label: "A funded or challenge account",
-    hint: "Your firm requires that you place your own trades, so the EA runs on your MetaTrader instead of ours.",
+    label: "Funded account",
+    hint: "You download our EA and run it on your own MT5. Your firm needs you placing the trades.",
   },
 ] as const;
 
@@ -38,7 +38,7 @@ export const MARKET_OPTIONS = [
   { value: "stocks", label: "Stocks" },
 ] as const;
 
-const connectionRouteEnum = z.enum(
+export const connectionRouteEnum = z.enum(
   CONNECTION_ROUTES.map((r) => r.value) as [string, ...string[]]
 );
 const marketEnum = z.enum(MARKET_OPTIONS.map((m) => m.value) as [string, ...string[]]);
@@ -96,8 +96,7 @@ export type OnboardingValues = z.output<typeof onboardingSchema>;
 
 // The Settings page's Profile card edits the "about you" fields the wizard
 // collects — one schema so they can't drift. connection_route is not among
-// them: it is answered once, only steers the post-onboarding redirect, and
-// both routes open up anyway once a terminal has reported in.
+// them: it is the account mode, switched on the EA setup page.
 // Phone is not an onboarding field — it is collected at signup — but it is
 // editable here, because a trader who mistyped it cannot be reached about a
 // payment and would otherwise have no way to fix it. Same validator as signup,

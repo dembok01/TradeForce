@@ -3,8 +3,8 @@ import { Section } from "@/components/marketing/section";
 import { RUNS_ON, RUNS_ON_LEAD, RUNS_ON_DISCLAIMER } from "@/lib/marketing/content";
 
 /**
- * The compatibility strip: one platform claim, three firms named as issuers of
- * accounts it attaches to, and the disclaimer that keeps it honest.
+ * The funded accounts strip: one platform claim, the firms named as issuers of
+ * MT5 accounts it attaches to, and the disclaimer that keeps it honest.
  *
  * Wordmarks are set in our own typeface rather than the firms' logo files. Two
  * reasons, and the second is the one that matters: a logo lockup reads as a
@@ -25,8 +25,8 @@ export function RunsOn() {
   return (
     <Section
       id="platform"
-      eyebrow="Platform"
-      title="It runs on MetaTrader 5"
+      eyebrow="Funded accounts"
+      title="Use it with the major funded firms"
       description={RUNS_ON_LEAD}
     >
       <Reveal y={48}>

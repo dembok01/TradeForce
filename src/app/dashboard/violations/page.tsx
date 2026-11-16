@@ -1,5 +1,7 @@
 import { ShieldCheck } from "lucide-react";
 import { getViolationsOverview } from "@/lib/data/violations";
+import { getEntitlement } from "@/lib/data/billing";
+import { LockedPage } from "@/components/billing/locked-page";
 import { getDisciplineScore } from "@/lib/data/discipline";
 import { PageHeader } from "@/components/dashboard/page-header";
 import { DisciplineGauge } from "@/components/dashboard/discipline-gauge";
@@ -12,6 +14,15 @@ import { EmptyState } from "@/components/ui/empty-state";
 import { Reveal } from "@/components/motion/reveal";
 
 export default async function ViolationsPage() {
+  const entitlement = await getEntitlement();
+  if (!entitlement.active) {
+    return (
+      <LockedPage eyebrow="Enforcement" title="Violation centre" expired={Boolean(entitlement.expiresAt)}>
+        Every breach, the trade behind it, and your discipline score.
+      </LockedPage>
+    );
+  }
+
   const [overview, discipline] = await Promise.all([getViolationsOverview(), getDisciplineScore()]);
 
   return (

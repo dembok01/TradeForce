@@ -58,7 +58,7 @@ export default async function BillingPage() {
             <CardTitle className="flex items-center gap-2">
               Current plan
               <Badge variant={entitlement.active ? "success" : "secondary"}>
-                {entitlement.active ? "Paid" : "Free"}
+                {entitlement.active ? "Active" : "No plan"}
               </Badge>
             </CardTitle>
             <CardDescription>
@@ -66,7 +66,7 @@ export default async function BillingPage() {
                 ? `Runs until ${fmtDate(entitlement.expiresAt?.toISOString() ?? null)} — ${entitlement.daysLeft} day${entitlement.daysLeft === 1 ? "" : "s"} left.`
                 : entitlement.expiresAt
                   ? `Your paid period ended on ${fmtDate(entitlement.expiresAt.toISOString())}.`
-                  : "Look around as much as you like. Enforcement starts when you pay."}
+                  : "Choose a plan to unlock your dashboard and connect MT5."}
             </CardDescription>
           </CardHeader>
           {entitlement.active && entitlement.daysLeft !== null && entitlement.daysLeft <= 7 ? (

@@ -21,8 +21,8 @@ export default async function DashboardLayout({ children }: { children: React.Re
     redirect("/login");
   }
 
-  // The onboarding gate lives here (not in proxy.ts) so the middleware stays
-  // DB-free; layouts only re-run on hard entry, so this is one query per visit.
+  // Onboarding first, then the (locked, until paid) dashboard. The gate lives
+  // here, not in proxy.ts, so the middleware stays DB-free.
   const profile = await getProfile();
   if (!profile?.onboarded_at) {
     redirect("/onboarding");
@@ -31,8 +31,10 @@ export default async function DashboardLayout({ children }: { children: React.Re
   // Slim setup-progress affordance until the EA checklist completes (or the
   // user dismisses it); derived from DB facts, so it can't be faked done.
   const setupStatus = await getSetupStatus();
+  // The checklist is the downloadable EA's, so it only means something in
+  // funded account mode; normal mode connects through the hosted terminal.
   const setup =
-    setupStatus.checklist.done || setupStatus.dismissed
+    profile.connection_route !== "funded" || setupStatus.checklist.done || setupStatus.dismissed
       ? null
       : {
           completed: setupStatus.checklist.completedCount,
@@ -45,9 +47,8 @@ export default async function DashboardLayout({ children }: { children: React.Re
     getEntitlement(),
   ]);
 
-  // Null while a paid period runs. The free dashboard is the whole product
-  // minus enforcement, so the one thing it owes a trader is to never let them
-  // believe the rules are being held when they are not.
+  // Null while a paid period runs. Without a plan everything but rules,
+  // sessions, settings and billing is locked, and the nav says so.
   const plan = entitlement.active ? null : { expired: Boolean(entitlement.expiresAt) };
 
   let eaState: EaState = eaSeenWithin(lastSeenAt, EA_CONNECTED_WINDOW_MS)
@@ -76,7 +77,7 @@ export default async function DashboardLayout({ children }: { children: React.Re
       <AutoRefresh />
       <div className="flex min-h-screen bg-obsidian">
         <Sidebar
-          name={profile.full_name}
+          name={profile?.full_name ?? null}
           email={user.email ?? ""}
           setup={setup}
           plan={plan}
@@ -85,8 +86,9 @@ export default async function DashboardLayout({ children }: { children: React.Re
         />
         <div className="flex min-w-0 flex-1 flex-col">
           <MobileTopbar
-            name={profile.full_name}
+            name={profile?.full_name ?? null}
             email={user.email ?? ""}
+            plan={plan}
             eaState={eaState}
             eaLastSeenAt={lastSeenAt}
           />

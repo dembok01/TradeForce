@@ -1,7 +1,7 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
 import type { Metadata } from "next";
-import { ArrowRight, Check, ShieldCheck } from "lucide-react";
+import { Check, ShieldCheck } from "lucide-react";
 import { getAuthedUser } from "@/lib/data/auth";
 import { getEntitlement, getOpenPayment } from "@/lib/data/billing";
 import { DISPLAY_PRICE_USD, PERIODS, formatInr } from "@/lib/billing/plans";
@@ -10,40 +10,28 @@ import { PaymentCard } from "@/components/billing/payment-card";
 export const dynamic = "force-dynamic";
 
 export const metadata: Metadata = {
-  title: "Get access — TradeForce",
-  description: "Choose how long you want, pay by UPI, and start enforcing your charter.",
+  title: "Get access · TradeForce",
+  description: "Choose how long you want, pay by UPI, and start enforcing your rules.",
 };
 
 /**
- * The gate.
+ * The payment page, and nothing else. Every buy button and every lock in the
+ * dashboard points here.
  *
- * Every buy button on the landing page points here, and this page is outside
- * /dashboard on purpose: a trader who has just signed up has no charter yet,
- * and the dashboard layout would bounce them to onboarding before they ever
- * saw a QR code. Paying has to come first because that is the order the client
- * asked for — sign up, pay, then set your rules while we check the payment.
- *
- * Not signed in sends them to signup rather than login, because that is the
- * commoner case from a buy button; signup carries them straight back here.
+ * Signed out goes to signup, which lands on the locked dashboard: a new
+ * account always sees the product first, and comes back here from a lock.
  */
 
-/**
- * What the plan includes — the first three are what paying actually adds, and
- * the note under the list says so. The dashboard and the journal are free, and
- * a list that implied otherwise would be the first thing a trader found out we
- * had overstated.
- */
 const INCLUDED = [
-  "Rule enforcement inside MetaTrader — the trade is stopped, not logged",
-  "Hosted terminal, so your rules hold with your computer switched off",
-  "Your EA API key, issued the moment your payment is confirmed",
-  "Full violation history and discipline score",
-  "Trade journal, session analytics and P/L history",
+  "MT5 connected: our hosted terminal or the EA on your own",
+  "Every rule enforced live in the terminal",
+  "Journal, violation centre and discipline score",
+  "Your EA key, issued when your payment is confirmed",
 ];
 
 export default async function PayPage() {
   const user = await getAuthedUser();
-  if (!user) redirect("/signup?next=/pay");
+  if (!user) redirect("/signup");
 
   const [entitlement, open] = await Promise.all([getEntitlement(), getOpenPayment()]);
 
@@ -65,17 +53,17 @@ export default async function PayPage() {
         <div className="mt-12 grid gap-10 lg:grid-cols-[1fr_1.15fr] lg:gap-12">
           <div>
             <p className="font-mono text-[11px] uppercase tracking-[0.2em] text-primary/80">
-              Get access
+              Choose a plan
             </p>
             <h1 className="mt-2 font-display text-3xl font-semibold tracking-tight sm:text-4xl">
               {entitlement.expiresAt && !entitlement.active
-                ? "Your plan has run out."
-                : "One charter, held for you."}
+                ? "Your plan has ended."
+                : "Unlock TradeForce."}
             </h1>
             <p className="mt-4 text-sm leading-relaxed text-muted-foreground">
-              ${DISPLAY_PRICE_USD} a month, charged in rupees — {formatInr(PERIODS[0].amountInr)} for
-              a month, down to {formatInr(Math.round(cheapest.amountInr / cheapest.months))} a month
-              on twelve.
+              ${DISPLAY_PRICE_USD} a month, paid in rupees by UPI. {formatInr(PERIODS[0].amountInr)}{" "}
+              for a month, down to {formatInr(Math.round(cheapest.amountInr / cheapest.months))} a
+              month on twelve.
             </p>
 
             <ul className="mt-8 space-y-3.5">
@@ -89,47 +77,26 @@ export default async function PayPage() {
               ))}
             </ul>
 
-            <p className="mt-5 text-xs leading-relaxed text-muted-foreground">
-              The dashboard, your charter and the journal are free and stay free. The first three
-              above are what paying adds.
-            </p>
-
             <div className="mt-8 rounded-lg border border-border/60 bg-card/40 p-4">
               <p className="flex items-center gap-2 text-sm font-medium">
                 <ShieldCheck className="size-4 text-primary" aria-hidden />
-                Checked by a person, not a gateway
+                Confirmed by a person
               </p>
               <p className="mt-1.5 text-xs leading-relaxed text-muted-foreground">
-                We don&apos;t have a card gateway yet, so you pay by UPI and someone here matches
-                it against the account by hand — usually the same day. You&apos;ll get an email
-                the moment it&apos;s confirmed.
+                You pay by UPI and we match it to your account by hand, usually the same day. We
+                email you the moment it is confirmed.
               </p>
             </div>
           </div>
 
           <div>
             <PaymentCard open={open} entitlementActive={entitlement.active} />
-
-            {/* The way out. Without it, anyone who signs up from a buy button
-                and then thinks better of it is stranded on a payment page. */}
             <p className="mt-6 text-xs text-muted-foreground">
-              Not ready?{" "}
-              <Link href="/onboarding" className="underline underline-offset-2 hover:text-foreground">
-                Set up your charter and look around first
-              </Link>{" "}
-              — the dashboard is yours either way. Enforcement, the hosted terminal and your EA key
-              start when a payment is confirmed.
-            </p>
-
-            <div className="mt-8 flex flex-wrap items-center gap-x-5 gap-y-2 text-xs text-muted-foreground">
-              <Link href="/terms" className="hover:text-foreground">
+              Prepaid, no auto renewal, not refundable.{" "}
+              <Link href="/terms" className="underline underline-offset-2 hover:text-foreground">
                 Terms of Service
               </Link>
-              <Link href="/dashboard" className="inline-flex items-center gap-1 hover:text-foreground">
-                Go to dashboard
-                <ArrowRight className="size-3" aria-hidden />
-              </Link>
-            </div>
+            </p>
           </div>
         </div>
       </div>

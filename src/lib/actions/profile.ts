@@ -1,10 +1,15 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
+import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import { getAuthedUser } from "@/lib/data/auth";
 import { toActionErrorMessage } from "@/lib/action-error";
-import { profileDetailsSchema } from "@/lib/schemas/onboarding";
+import {
+  connectionRouteEnum,
+  profileDetailsSchema,
+  type ConnectionRoute,
+} from "@/lib/schemas/onboarding";
 import { fieldErrorsFrom, type FieldErrors } from "@/lib/schemas/form";
 import { log } from "@/lib/log";
 
@@ -54,4 +59,31 @@ export async function updateProfileAction(
   } catch (err) {
     return { error: toActionErrorMessage(err, "profile") };
   }
+}
+
+/**
+ * Switch between normal account mode (our hosted terminal, signed in with the
+ * trader's MT5 password) and funded account mode (the downloadable EA on their
+ * own MT5). Only changes which setup the dashboard shows: a hosted terminal
+ * that is already running keeps running until they stop it.
+ */
+export async function setAccountModeAction(route: ConnectionRoute) {
+  const parsed = connectionRouteEnum.safeParse(route);
+  if (!parsed.success) throw new Error("Unknown account mode.");
+
+  const user = await getAuthedUser();
+  if (!user) throw new Error("Please sign in again.");
+
+  const supabase = await createClient();
+  const { error } = await supabase
+    .from("profiles")
+    .update({ connection_route: parsed.data })
+    .eq("id", user.id);
+  if (error) {
+    log.error("account mode update failed", { detail: error.message, userId: user.id });
+    throw new Error("Couldn't switch modes. Please try again.");
+  }
+
+  revalidatePath("/dashboard", "layout");
+  redirect(parsed.data === "funded" ? "/dashboard/ea-setup/funded" : "/dashboard/ea-setup");
 }

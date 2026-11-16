@@ -79,7 +79,7 @@ export function PaymentCard({
             starts the moment it&apos;s confirmed, and we&apos;ll email you when it is.
           </p>
           <p>
-            Nothing else is needed from you. You can close this page — the confirmation email
+            Nothing else is needed from you. You can close this page. The confirmation email
             goes to the address you signed up with.
           </p>
         </CardContent>
@@ -97,8 +97,8 @@ export function PaymentCard({
           </CardTitle>
           <CardDescription>
             Scan with any UPI app, or tap to pay on this phone. The reference{" "}
-            <span className="font-mono">{open.reference}</span> is already in the payment note —
-            leave it there so we can find your money.
+            <span className="font-mono">{open.reference}</span> is already in the payment note.
+            Leave it there so we can find your payment.
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-6">
@@ -179,8 +179,7 @@ export function PaymentCard({
       <CardHeader>
         <CardTitle>{entitlementActive ? "Add more time" : "Choose how long you want"}</CardTitle>
         <CardDescription>
-          Longer periods cost less per month. Paying while a period is still running adds to it
-          rather than replacing it.
+          Longer plans cost less per month. Paying early adds to your time.
         </CardDescription>
       </CardHeader>
       <CardContent>

@@ -31,9 +31,9 @@ const INVALID_FIELDS = "Please fix the highlighted fields.";
  * process — a name to greet, a number to ring, an address to mail — and the
  * record that this person accepted a specific version of the terms.
  *
- * `next` decides where they land. The default is the payment page, because
- * almost everybody arrives here from a buy button; the free route down at the
- * bottom of the landing page passes /onboarding instead.
+ * `next` decides where they land. The default is the dashboard, which is
+ * locked until a plan is active: a new account sees the product first and
+ * meets the payment page when it reaches for something that needs one.
  */
 export async function signUpAction(
   _prevState: AuthActionState,
@@ -51,7 +51,7 @@ export async function signUpAction(
     return { error: INVALID_FIELDS, fieldErrors: fieldErrorsFrom(parsed.error) };
   }
   const { fullName, phone, email, password } = parsed.data;
-  const next = safeNext(formData.get("next"), "/pay");
+  const next = safeNext(formData.get("next"), "/dashboard");
 
   try {
     const supabase = await createClient();

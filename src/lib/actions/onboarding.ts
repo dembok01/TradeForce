@@ -3,6 +3,7 @@
 import { redirect } from "next/navigation";
 import { revalidatePath } from "next/cache";
 import { getAuthedActionContext } from "@/lib/actions/_helpers";
+import { getEntitlement } from "@/lib/data/billing";
 import { toActionErrorMessage } from "@/lib/action-error";
 import { onboardingSchema } from "@/lib/schemas/onboarding";
 import { fieldErrorsFrom, type FieldErrors } from "@/lib/schemas/form";
@@ -97,6 +98,7 @@ export async function completeOnboardingAction(input: unknown): Promise<Onboardi
   // next step that matters - but it is a different page per route, and sending a
   // funded trader to the hosted form is how they end up handing us a password
   // their firm forbids them to share.
+  if (!(await getEntitlement()).active) redirect("/dashboard");
   redirect(
     values.connection_route === "funded" ? "/dashboard/ea-setup/funded" : "/dashboard/ea-setup"
   );
